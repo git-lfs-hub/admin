@@ -2,6 +2,9 @@
 dist/
 dist-server/
 
+# build outputs
+coverage/
+
 # dev
 .yarn/
 !.yarn/releases
@@ -32,3 +35,7 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# wrangler configs
+wrangler.jsonc
+worker-configuration.d.ts
