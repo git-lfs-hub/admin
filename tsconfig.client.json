@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "vue"
+  },
+  "include": ["client/**/*.ts", "client/**/*.vue"],
+  "exclude": ["node_modules"]
+}

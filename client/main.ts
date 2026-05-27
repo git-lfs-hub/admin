@@ -1,3 +1,6 @@
-// Stub — Vue wiring lands in 00.4.Vue.md.
-const app = document.getElementById('app')
-if (app) app.textContent = 'lfs-admin (client stub)'
+import { createApp } from 'vue'
+import App from './App.vue'
+import router from './router'
+import './style.css'
+
+createApp(App).use(router).mount('#app')

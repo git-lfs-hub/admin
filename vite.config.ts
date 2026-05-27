@@ -1,7 +1,13 @@
 import { cloudflare } from '@cloudflare/vite-plugin'
+import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
-import ssrPlugin from 'vite-ssr-components/plugin'
 
 export default defineConfig({
-  plugins: [cloudflare(), ssrPlugin()]
+  plugins: [vue(), tailwindcss(), cloudflare()],
+  resolve: {
+    alias: {
+      '@': new URL('./client', import.meta.url).pathname,
+    },
+  },
 })

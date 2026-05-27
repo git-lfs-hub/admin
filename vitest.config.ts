@@ -1,4 +1,5 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -31,6 +32,19 @@ export default defineConfig({
           include: ["test/worker/**/*.test.ts"],
           testTimeout: 20_000,
           hookTimeout: 20_000,
+        },
+      },
+      {
+        plugins: [vue()],
+        resolve: {
+          alias: {
+            "@": new URL("./client", import.meta.url).pathname,
+          },
+        },
+        test: {
+          name: "client",
+          include: ["test/client/**/*.test.ts"],
+          environment: "happy-dom",
         },
       },
     ],

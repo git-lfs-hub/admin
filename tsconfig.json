@@ -8,6 +8,10 @@
     "lib": [
       "ESNext"
     ],
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "@/*": ["./client/*"]
+    }
   },
+  "include": ["client/**/*.ts", "client/**/*.vue", "worker/**/*.ts"]
 }

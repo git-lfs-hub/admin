@@ -2,8 +2,9 @@
 dist/
 dist-server/
 
-# build outputs
+# test outputs
 coverage/
+test-results/
 
 # dev
 .yarn/
