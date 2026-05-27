@@ -1,0 +1,9 @@
+{
+  "cloudflare": {
+    "admin": { "workerName": "lfs-admin-test" },
+    "workerName": "lfs-server-test"
+  },
+  "s3": { "bucket": "test-lfs-objects" },
+  "github": { "org": "test-org" },
+  "gc": { "purgeGraceDays": 7 }
+}

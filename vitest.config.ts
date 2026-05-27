@@ -1,17 +1,49 @@
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "node",
+    projects: [
+      {
+        test: {
+          name: "unit",
+          include: ["worker/**/*.spec.ts"],
+          environment: "node",
+        },
+      },
+      {
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: "./test/worker/wrangler.jsonc" },
+            miniflare: {
+              workers: [
+                {
+                  name: "lfs-server-mock",
+                  modules: true,
+                  scriptPath: "./test/worker/server/lfs-server-mock.js",
+                },
+              ],
+            },
+          }),
+        ],
+        test: {
+          name: "integration",
+          include: ["test/worker/**/*.test.ts"],
+          testTimeout: 20_000,
+          hookTimeout: 20_000,
+        },
+      },
+    ],
     coverage: {
-      provider: "istanbul", // v8 isn't supported by vitest-pool-workers
+      provider: "istanbul",
       reporter: ["text", "text-summary", "json", "json-summary", "lcov"],
-      exclude: ["test"],
+      include: ["worker/**"],
+      exclude: ["worker/**/*.spec.ts"],
       thresholds: {
-        statements: 80,
-        branches: 80,
+        statements: 95,
+        branches: 90,
         functions: 80,
-        lines: 85,
+        lines: 95,
       },
     },
   },

@@ -12,4 +12,6 @@ app.route('/login/oauth', loginOauth)
 app.use('/api/*', auth)
 app.route('/api/me', me)
 
+app.get('*', auth, (c) => c.env.ASSETS.fetch(c.req.raw))
+
 export default app

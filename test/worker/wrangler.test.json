@@ -1,0 +1,19 @@
+{
+  "main": "./main.ts",
+  "assets": null,
+  "secrets": null,
+  "services": [
+    {
+      "binding": "LFS_SERVER",
+      "service": "lfs-server-mock",
+      "entrypoint": "AdminEntrypoint"
+    }
+  ],
+  "vars": {
+    "GITHUB_CLIENT_ID": "test-client-id",
+    "GITHUB_CLIENT_SECRET": "test-client-secret",
+    "SESSION_SECRET": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "GITHUB_APP_ID": "12345",
+    "GITHUB_APP_PRIVATE_KEY": "test-private-key"
+  }
+}
