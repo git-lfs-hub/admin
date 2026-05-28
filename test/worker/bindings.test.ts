@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { env, reset } from "cloudflare:test";
+import { reset } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 
 afterEach(async () => {
   await reset();

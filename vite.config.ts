@@ -4,6 +4,9 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ command }) => ({
+  resolve: {
+    tsconfigPaths: true,
+  },
   plugins: [
     vue(),
     tailwindcss(),
@@ -23,11 +26,6 @@ export default defineConfig(({ command }) => ({
         ]
       : []),
   ],
-  resolve: {
-    alias: {
-      '@': new URL('./client', import.meta.url).pathname,
-    },
-  },
   server: {
     // Forwards console.error, console.warn, and unhandled errors by default
     forwardConsole: true

@@ -4,14 +4,11 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
-    "skipLibCheck": true,
-    "lib": [
-      "ESNext"
-    ],
-    "types": ["vite/client"],
-    "paths": {
-      "@/*": ["./client/*"]
-    }
+    "skipLibCheck": true
   },
-  "include": ["client/**/*.ts", "client/**/*.vue", "worker/**/*.ts"]
+  "files": [],
+  "references": [
+    { "path": "./client" },
+    { "path": "./worker" }
+  ]
 }

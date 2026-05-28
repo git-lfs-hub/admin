@@ -4,7 +4,7 @@ import RepoTable from '@/components/RepoTable.vue'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
-const { repos, loading, error, reload } = useRepos()
+const { data: repos, isLoading, error, refetch } = useRepos()
 </script>
 
 <template>
@@ -18,14 +18,14 @@ const { repos, loading, error, reload } = useRepos()
       <AlertDescription>{{ error.message }}</AlertDescription>
     </Alert>
 
-    <div v-else-if="loading" class="space-y-2">
+    <div v-else-if="isLoading" class="space-y-2">
       <Skeleton v-for="i in 5" :key="i" class="h-10 w-full" />
     </div>
 
-    <p v-else-if="repos.length === 0" class="text-muted-foreground">
+    <p v-else-if="!repos || repos.length === 0" class="text-muted-foreground">
       No repositories discovered yet.
     </p>
 
-    <RepoTable v-else :repos="repos" @changed="reload" />
+    <RepoTable v-else :repos="repos" @changed="() => refetch()" />
   </section>
 </template>

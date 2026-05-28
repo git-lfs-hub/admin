@@ -1,8 +1,9 @@
 import type { MiddlewareHandler } from 'hono'
 import { validateSession, requireOrgRole, SESSION_COOKIE } from '@git-lfs-hub/auth'
 import { getCookie } from 'hono/cookie'
+import type { AppEnv } from '../_env'
 
-const auth: MiddlewareHandler<{ Bindings: CloudflareBindings; Variables: { admin: string } }> = async (c, next) => {
+const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Dev bypass: localhost short-circuits to admin='dev'. Hostname is the gate —
   // import.meta.env.DEV is false inside the built worker.
   const host = new URL(c.req.url).hostname

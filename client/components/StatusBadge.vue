@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Badge } from '@/components/ui/badge'
-import type { RepoStatus } from '@/types'
+import type { RepoStatus } from '@/composables/useRepos'
 
 const props = defineProps<{ status: RepoStatus }>()
 

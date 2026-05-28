@@ -1,30 +1,14 @@
-import { ref, onMounted } from 'vue'
-import { get } from '@/api'
-import type { RepoRow } from '@/types'
+import { useQuery } from '@tanstack/vue-query'
+import { api } from '@/api'
+import type { InferResponseType } from 'hono/client'
+
+export type RepoRow = InferResponseType<typeof api.api.repos.$get>['repos'][number]
+export { type RepoStatus } from '@worker/db/_repos-schema'
 
 export function useRepos() {
-  const repos = ref<RepoRow[]>([])
-  const loading = ref(true)
-  const error = ref<Error | null>(null)
-
-  async function load() {
-    loading.value = true
-    error.value = null
-    try {
-      const data = await get<{ repos: RepoRow[] }>('/api/repos')
-      repos.value = data.repos
-    } catch (e) {
-      error.value = e instanceof Error ? e : new Error(String(e))
-    } finally {
-      loading.value = false
-    }
-  }
-
-  function reload() {
-    load()
-  }
-
-  onMounted(load)
-
-  return { repos, loading, error, reload }
+  return useQuery({
+    queryKey: ['repos'],
+    queryFn: async () => (await api.api.repos.$get()).json(),
+    select: (d) => d.repos,
+  })
 }

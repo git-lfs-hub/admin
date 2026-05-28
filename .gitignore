@@ -2,6 +2,10 @@
 dist/
 dist-server/
 
+# tsc
+.tsbuild/
+*.tsbuildinfo
+
 # test outputs
 coverage/
 test-results/

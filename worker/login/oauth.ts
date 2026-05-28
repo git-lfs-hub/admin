@@ -9,8 +9,9 @@ import {
   SESSION_COOKIE_OPTIONS,
 } from '@git-lfs-hub/auth'
 import { setCookie } from 'hono/cookie'
+import type { AppEnv } from '../_env'
 
-const app = new Hono<{ Bindings: CloudflareBindings }>()
+const app = new Hono<AppEnv>()
 
 // GET /login/oauth/authorize — start
 app.get('/authorize', async (c) => {

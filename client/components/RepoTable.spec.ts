@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import RepoTable from '@/components/RepoTable.vue'
-import type { RepoRow } from '@/types'
+import type { RepoRow } from '@/composables/useRepos'
 
 const repo: RepoRow = {
   owner: 'org',
@@ -11,7 +11,8 @@ const repo: RepoRow = {
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
   deletedAt: null,
-  earliestPurge: null,
+  purgedAt: null,
+  willPurgeAt: null,
   objectCount: 142,
   totalSize: 1073741824,
 }
@@ -33,5 +34,17 @@ describe('RepoTable', () => {
     const nullSizeRepo = { ...repo, totalSize: null, objectCount: null }
     const wrapper = mount(RepoTable, { props: { repos: [nullSizeRepo] } })
     expect(wrapper.text()).toContain('—')
+  })
+
+  it('renders willPurgeAt when set', () => {
+    const purging = { ...repo, status: 'deleted' as const, deletedAt: '2026-05-20T00:00:00Z', willPurgeAt: '2026-05-27T00:00:00Z' }
+    const wrapper = mount(RepoTable, { props: { repos: [purging] } })
+    expect(wrapper.text()).toContain(new Date('2026-05-27T00:00:00Z').toLocaleString())
+  })
+
+  it('renders dash for null willPurgeAt', () => {
+    const wrapper = mount(RepoTable, { props: { repos: [repo] } })
+    const cells = wrapper.findAll('td')
+    expect(cells.some((c) => c.text() === '—')).toBe(true)
   })
 })

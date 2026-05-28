@@ -1,9 +1,9 @@
 import { describe, test, expect } from "vitest";
-import { SELF } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 
 describe("GET /login/oauth/authorize", () => {
   test("redirects to GitHub with correct params", async () => {
-    const res = await SELF.fetch(
+    const res = await exports.default.fetch(
       "http://localhost/login/oauth/authorize?state=/repos",
       { redirect: "manual" },
     );
@@ -17,12 +17,12 @@ describe("GET /login/oauth/authorize", () => {
 
 describe("GET /login/oauth/callback", () => {
   test("returns 400 without code or state", async () => {
-    const res = await SELF.fetch("http://localhost/login/oauth/callback");
+    const res = await exports.default.fetch("http://localhost/login/oauth/callback");
     expect(res.status).toBe(400);
   });
 
   test("returns 400 with invalid state", async () => {
-    const res = await SELF.fetch(
+    const res = await exports.default.fetch(
       "http://localhost/login/oauth/callback?code=fake&state=invalid",
     );
     expect(res.status).toBe(400);

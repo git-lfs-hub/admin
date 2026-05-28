@@ -1,8 +1,10 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../worker/tsconfig.json",
   "compilerOptions": {
-    "moduleResolution": "Bundler",
-    "types": ["@cloudflare/vitest-pool-workers"],
+    "types": ["@cloudflare/vitest-pool-workers/types", "vitest/globals"],
+    "composite": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
   },
   "include": ["./**/*.ts", "../../worker-configuration.d.ts"],
 }

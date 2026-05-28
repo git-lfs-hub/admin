@@ -1,7 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRouter, createMemoryHistory } from 'vue-router'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import AppHeader from '@/components/AppHeader.vue'
+
+function makeQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+}
 
 function makeRouter() {
   return createRouter({
@@ -24,7 +29,7 @@ describe('AppHeader', () => {
     }))
 
     const wrapper = mount(AppHeader, {
-      global: { plugins: [makeRouter()] },
+      global: { plugins: [makeRouter(), [VueQueryPlugin, { queryClient: makeQueryClient() }]] },
     })
     expect(wrapper.text()).toContain('lfs-admin')
   })
@@ -36,7 +41,7 @@ describe('AppHeader', () => {
     }))
 
     const wrapper = mount(AppHeader, {
-      global: { plugins: [makeRouter()] },
+      global: { plugins: [makeRouter(), [VueQueryPlugin, { queryClient: makeQueryClient() }]] },
     })
     expect(wrapper.text()).toContain('Repos')
   })
@@ -48,7 +53,7 @@ describe('AppHeader', () => {
     }))
 
     const wrapper = mount(AppHeader, {
-      global: { plugins: [makeRouter()] },
+      global: { plugins: [makeRouter(), [VueQueryPlugin, { queryClient: makeQueryClient() }]] },
     })
     await flushPromises()
 

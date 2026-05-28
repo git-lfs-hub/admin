@@ -1,14 +1,12 @@
-import { ref, onMounted } from 'vue'
-import { get } from '@/api'
-
-const admin = ref<string | null>(null)
+import { useQuery } from '@tanstack/vue-query'
+import { api } from '@/api'
 
 export function useAuth() {
-  onMounted(async () => {
-    if (admin.value) return
-    const data = await get<{ admin: string }>('/api/me')
-    admin.value = data.admin
+  const query = useQuery({
+    queryKey: ['me'],
+    queryFn: async () => (await api.api.me.$get()).json(),
+    select: (d) => d.admin,
+    staleTime: Infinity,
   })
-
-  return { admin }
+  return { admin: query.data }
 }

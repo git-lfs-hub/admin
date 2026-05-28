@@ -59,6 +59,23 @@ test.describe('SPA shell', () => {
     await expect(page.locator('h2')).toHaveText('Repositories')
   })
 
+  test('/repos loads data from /api/repos (no error alert, empty state visible)', async ({ page }) => {
+    const apiResponse = page.waitForResponse(
+      (res) => res.url().endsWith('/api/repos') && res.status() === 200,
+    )
+    await page.goto('/repos')
+    const res = await apiResponse
+    const body = (await res.json()) as { repos: unknown[] }
+    expect(Array.isArray(body.repos)).toBe(true)
+
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    if (body.repos.length === 0) {
+      await expect(page.getByText('No repositories discovered yet.')).toBeVisible()
+    } else {
+      await expect(page.getByRole('table')).toBeVisible()
+    }
+  })
+
   test('AppHeader shows lfs-admin branding and Repos link', async ({ page }) => {
     await page.goto('/repos')
     const header = page.getByRole('banner')

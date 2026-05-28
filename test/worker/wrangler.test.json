@@ -1,6 +1,10 @@
 {
   "main": "./main.ts",
-  "assets": null,
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist-stub",
+    "not_found_handling": "single-page-application"
+  },
   "secrets": null,
   "services": [
     {
