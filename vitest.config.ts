@@ -17,15 +17,6 @@ export default defineConfig({
         plugins: [
           cloudflareTest({
             wrangler: { configPath: "./test/worker/wrangler.jsonc" },
-            miniflare: {
-              workers: [
-                {
-                  name: "lfs-server-mock",
-                  modules: true,
-                  scriptPath: "./test/worker/server/lfs-server-mock.js",
-                },
-              ],
-            },
           }),
         ],
         resolve: { tsconfigPaths: true },

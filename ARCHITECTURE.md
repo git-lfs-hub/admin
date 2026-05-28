@@ -18,7 +18,6 @@ Admin API (GitHub OAuth, org admin role required)
 
 - **`REPOS`** (Durable Object, SQLite) — repository metadata and lifecycle state (`active` → `missing` → `deleted` → `purged`).
 - **`LFS_BUCKET`** (R2) — LFS object storage; enumerated during R2 prefix listing and purged on confirmed deletion.
-- **`LFS_SERVER`** (Service, `AdminEntrypoint`) — RPC to the LFS server for `blockRepo()`, `unblockRepo()`, and `purgeRepo()`.
 
 **Vars:** `GITHUB_ORG`, `GC_PURGE_GRACE_DAYS`.
 **Secrets:** `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET`.
