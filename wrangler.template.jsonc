@@ -34,13 +34,6 @@
       "bucket_name": "{{s3.bucket}}",
     },
   ],
-  "services": [
-    {
-      "binding": "LFS_SERVER",
-      "service": "{{cloudflare.workerName}}",
-      "entrypoint": "AdminEntrypoint",
-    },
-  ],
   "vars": {
     "GITHUB_ORG": "{{github.org}}",
     "GC_PURGE_GRACE_DAYS": "{{gc.purgeGraceDays}}",
