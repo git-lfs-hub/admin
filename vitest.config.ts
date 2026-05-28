@@ -1,6 +1,6 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import vue from "@vitejs/plugin-vue";
 import { defineConfig, defineProject } from "vitest/config";
+import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
   test: {
