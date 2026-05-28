@@ -9,7 +9,20 @@ import type { AppEnv } from '@/_env'
 
 export { Repos } from '@/db/repos'
 
+let devDiscoveryFired = false
+
 const app = new Hono<AppEnv>()
+  .use('*', async (c, next) => {
+    if (!devDiscoveryFired) {
+      const host = new URL(c.req.url).hostname
+      if (host === 'localhost' || host === '127.0.0.1') {
+        devDiscoveryFired = true
+        const repos = c.env.REPOS.get(c.env.REPOS.idFromName('global'))
+        c.executionCtx.waitUntil(discoverRepos(c.env.LFS_BUCKET, repos))
+      }
+    }
+    await next()
+  })
   .route('/login/oauth', loginOauth)
   .use('/api/*', auth)
   .route('/api/me', me)
