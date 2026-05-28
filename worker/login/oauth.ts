@@ -9,7 +9,7 @@ import {
   SESSION_COOKIE_OPTIONS,
 } from '@git-lfs-hub/auth'
 import { setCookie } from 'hono/cookie'
-import type { AppEnv } from '../_env'
+import type { AppEnv } from '@/_env'
 
 const app = new Hono<AppEnv>()
 

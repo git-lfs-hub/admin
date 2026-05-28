@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { isoAddDays } from '@/lib/time'
-import type { AppEnv } from '../_env'
+import type { AppEnv } from '@/_env'
 
 const app = new Hono<AppEnv>()
   .get('/', async (c) => {

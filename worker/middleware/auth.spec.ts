@@ -7,7 +7,7 @@ vi.mock("@git-lfs-hub/auth", () => ({
   SESSION_COOKIE: "gh_session_v2",
 }));
 
-import auth from "./auth";
+import auth from "@/middleware/auth";
 import { validateSession, requireOrgRole } from "@git-lfs-hub/auth";
 
 const mockValidateSession = vi.mocked(validateSession);

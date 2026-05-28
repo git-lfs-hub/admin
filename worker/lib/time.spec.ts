@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { isoNow, isoAddDays } from "./time";
+import { isoNow, isoAddDays } from "@/lib/time";
 
 test("nowIso returns ISO string without milliseconds", () => {
   const result = isoNow();

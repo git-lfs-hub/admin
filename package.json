@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "scripts/init-test.sh && vite",
     "build": "vite build",
+    "lint": "oxlint .",
     "preview": "bun run build && vite preview",
     "deploy": "bun run build && wrangler deploy",
     "test": "scripts/init-test.sh && vitest run",
@@ -39,6 +40,7 @@
     "clsx": "^2.1.1",
     "happy-dom": "^20.9.0",
     "lucide-vue-next": "^1.0.0",
+    "oxlint": "^1.67.0",
     "reka-ui": "^2.9.8",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4",

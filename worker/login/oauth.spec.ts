@@ -9,7 +9,7 @@ vi.mock("@git-lfs-hub/auth", async (importOriginal) => {
   };
 });
 
-import app from "./oauth";
+import app from "@/login/oauth";
 import {
   processOAuthCallback,
   requireOrgRole,

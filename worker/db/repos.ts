@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 
 import { isoNow } from "@/lib/time";
-import { repos, type RepoStatus } from "./_repos-schema";
+import { repos, type RepoStatus } from "@/db/_repos-schema";
 
 export type RepoRow = typeof repos.$inferSelect;
 

@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import"],
+  "overrides": [
+    {
+      "files": ["**/*.{ts,tsx,vue,js,jsx,mjs,cjs}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/*.spec",
+                  "**/*.spec.*",
+                  "**/*.test",
+                  "**/*.test.*"
+                ],
+                "message": "Do not import test files from non-test files."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.spec.*", "**/*.test.*"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
+}
