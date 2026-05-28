@@ -9,7 +9,7 @@ export default defineConfig({
         resolve: { tsconfigPaths: true },
         test: {
           name: "unit",
-          include: ["**/*.spec.ts"],
+          include: ["worker/**/*.spec.ts"],
           environment: "node",
         },
       }),
@@ -41,7 +41,7 @@ export default defineConfig({
         resolve: { tsconfigPaths: true },
         test: {
           name: "client",
-          include: ["test/client/**/*.test.ts"],
+          include: ["client/**/*.spec.ts"],
           environment: "happy-dom",
         },
       }),
