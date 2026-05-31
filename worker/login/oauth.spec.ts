@@ -65,7 +65,7 @@ describe("GET /callback", () => {
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 on invalid state (oauthCallback fails without statePayload)", async () => {
+  test("returns 400 on invalid state (oauthCallback fails without state)", async () => {
     mockProcessOAuth.mockResolvedValue({
       ok: false,
       error: "invalid_state",
@@ -75,12 +75,12 @@ describe("GET /callback", () => {
     expect(await res.text()).toContain("invalid_state");
   });
 
-  test("redirects with error when oauthCallback fails with statePayload", async () => {
+  test("redirects with error when oauthCallback fails with state", async () => {
     const signedState = await makeSignedState("/repos");
     mockProcessOAuth.mockResolvedValue({
       ok: false,
       error: "bad_verification_code",
-      statePayload: {
+      state: {
         redirect_uri: "http://localhost/login/oauth/authorize",
         client_state: "/repos",
         scopes: "read:org",
@@ -98,8 +98,8 @@ describe("GET /callback", () => {
     const signedState = await makeSignedState();
     mockProcessOAuth.mockResolvedValue({
       ok: true,
-      tokenPayload: { token: "ghu_tok" },
-      statePayload: {
+      tokens: { access: "ghu_tok" },
+      state: {
         redirect_uri: "http://localhost/login/oauth/authorize",
         client_state: "/repos",
         scopes: "read:org",
@@ -118,8 +118,8 @@ describe("GET /callback", () => {
     const signedState = await makeSignedState("/dashboard");
     mockProcessOAuth.mockResolvedValue({
       ok: true,
-      tokenPayload: { token: "ghu_tok" },
-      statePayload: {
+      tokens: { access: "ghu_tok" },
+      state: {
         redirect_uri: "http://localhost/login/oauth/authorize",
         client_state: "/dashboard",
         scopes: "read:org",
@@ -133,6 +133,6 @@ describe("GET /callback", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/dashboard");
     const cookie = res.headers.get("Set-Cookie")!;
-    expect(cookie).toMatch(/^gh_session_v2=[^;]+/);
+    expect(cookie).toMatch(/^gh_access=[^;]+/);
   });
 });

@@ -33,6 +33,7 @@ app.get('/authorize', async (c) => {
 // GET /login/oauth/callback — exchange + cookie
 app.get('/callback', async (c) => {
   const { code, state } = c.req.query()
+
   const result = await oauthCallback({
     code,
     state,
@@ -41,19 +42,21 @@ app.get('/callback', async (c) => {
     clientSecret: c.env.GITHUB_CLIENT_SECRET,
     callbackUrl: `${new URL(c.req.url).origin}/login/oauth/callback`,
   })
+
   if (!result.ok) {
-    const errUrl = oauthErrorUrl(result)
-    if (errUrl) return c.redirect(errUrl, 302)
+    if (result.state)
+      return c.redirect(oauthErrorUrl(result.state, result.error), 302)
     return c.text(`OAuth error: ${result.error}`, 400)
   }
 
-  const api = new GithubApi(result.tokenPayload.token)
+  const api = new GithubApi(result.tokens.access)
   const forbidden = await requireOrgRole(api, c.env.GITHUB_ORG, 'admin')
   if (forbidden) return forbidden
 
-  await setSessionCookie(c, result.tokenPayload, c.env.SESSION_SECRET)
+  await setSessionCookie(c, result.tokens, c.env.SESSION_SECRET)
+
   // Browser session cookie is the auth mechanism; no ephemeral code handoff.
-  return c.redirect(result.statePayload.client_state, 302)
+  return c.redirect(result.state.client_state, 302)
 })
 
 export default app
