@@ -16,27 +16,24 @@ const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return next()
   }
 
-  const decrypted = await getSessionCookie(c, c.env.SESSION_SECRET)
-  if (!decrypted) return unauthenticated(c)
+  const cookie = await getSessionCookie(c, c.env.SESSION_SECRET)
+  if (!cookie) return unauthenticated(c)
 
-  let api = new GithubApi(decrypted.token)
+  let api = new GithubApi(cookie.token)
   let username = await api.authenticatedUsername()
 
-  if (!username && decrypted.refresh_token) {
+  if (!username && cookie.refresh_token) {
     const data = await githubAccessToken({
       grant_type: 'refresh_token',
       client_id: c.env.GITHUB_CLIENT_ID,
       client_secret: c.env.GITHUB_CLIENT_SECRET,
-      refresh_token: decrypted.refresh_token,
+      refresh_token: cookie.refresh_token,
     })
     if (data.error || !data.access_token) return unauthenticated(c)
 
     const payload: SessionPayload = {
       token: data.access_token,
-      refresh_token:
-        typeof data.refresh_token === 'string'
-          ? data.refresh_token
-          : decrypted.refresh_token,
+      refresh_token: data.refresh_token || cookie.refresh_token,
     }
     api = new GithubApi(payload.token)
     username = await api.authenticatedUsername()
