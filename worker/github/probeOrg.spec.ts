@@ -1,8 +1,8 @@
 import { test, expect, vi, beforeEach, describe } from "vitest";
-import { GithubOrgApi } from "@git-lfs-hub/lib/github";
+import { GithubError, GithubOrgApi } from "@git-lfs-hub/lib/github";
 import { probeOrg } from "@/github/probeOrg";
 
-function orgApi(org = "alice") {
+function mkOrgApi(org = "alice") {
   return new GithubOrgApi("t", org);
 }
 
@@ -30,7 +30,7 @@ describe("probeOrg — success", () => {
         ]),
       ),
     );
-    const r = await probeOrg(orgApi("alice"));
+    const r = await probeOrg(mkOrgApi("alice"));
     expect(r.status).toBe("active");
     expect(r.activeRepos).toEqual(new Set(["alice/foo", "alice/bar"]));
   });
@@ -46,43 +46,36 @@ describe("probeOrg — success", () => {
       )
       .mockResolvedValueOnce(repoResponse([{ owner: "a", name: "2" }]));
     vi.stubGlobal("fetch", fetchMock);
-    const r = await probeOrg(orgApi("a"));
+    const r = await probeOrg(mkOrgApi("a"));
     expect(r.status).toBe("active");
     expect(r.activeRepos).toEqual(new Set(["a/1", "a/2"]));
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("probeOrg — listing failure modes", () => {
-  test("403 → forbidden", async () => {
+describe("probeOrg — listing failure propagates (caller classifies)", () => {
+  test("403 → throws GithubError", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 403 })));
-    expect((await probeOrg(orgApi("a"))).status).toBe("forbidden");
+    await expect(probeOrg(mkOrgApi("a"))).rejects.toBeInstanceOf(GithubError);
   });
 
-  test("404 → missing", async () => {
+  test("404 → throws GithubError", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 404 })));
-    expect((await probeOrg(orgApi("a"))).status).toBe("missing");
+    await expect(probeOrg(mkOrgApi("a"))).rejects.toBeInstanceOf(GithubError);
   });
 
-  test("5xx → transient_error", async () => {
+  test("5xx → throws GithubError", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 502 })));
-    expect((await probeOrg(orgApi("a"))).status).toBe("transient_error");
+    await expect(probeOrg(mkOrgApi("a"))).rejects.toBeInstanceOf(GithubError);
   });
 
-  test("network reject → transient_error", async () => {
+  test("network reject → propagates as GithubError", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNRESET")));
-    expect((await probeOrg(orgApi("a"))).status).toBe("transient_error");
+    await expect(probeOrg(mkOrgApi("a"))).rejects.toBeInstanceOf(GithubError);
   });
 
   test("200 empty array → transient_error", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(repoResponse([])));
-    expect((await probeOrg(orgApi("a"))).status).toBe("transient_error");
-  });
-
-  test("error message does not include token", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 500 })));
-    const r = await probeOrg(orgApi("x"));
-    expect(r.error).not.toMatch(/Bearer/i);
-    expect(r.error).not.toMatch(/\bt\b/);
+    expect((await probeOrg(mkOrgApi("a"))).status).toBe("transient_error");
   });
 });

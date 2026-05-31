@@ -1,4 +1,4 @@
-import type { Repos } from "@/db/repos";
+import type { Repos, RepoRow } from "@/db/repos";
 import type { OrgStatus } from "@/db/_repos-schema";
 import { GithubApi, GithubError } from "@git-lfs-hub/lib/github";
 import { probeOrg, type OrgProbeResult } from "@/github/probeOrg";
@@ -28,6 +28,7 @@ export async function reconcileRepos(
     env.GITHUB_APP_ID,
     env.GITHUB_APP_PRIVATE_KEY,
   );
+
   const activeRepos = new Set<string>();
   const orgs: OrgsByStatus = {
     active: [],
@@ -38,7 +39,12 @@ export async function reconcileRepos(
   };
 
   for (const org of owners) {
-    const probe = await probeOrgSafe(app, org);
+    let probe: OrgProbeResult;
+    try {
+      probe = await probeOrg(await app.orgApi(org));
+    } catch (e) {
+      probe = classifyError(e);
+    }
     orgs[probe.status].push(org);
     await repos.upsertOrgStatus(org, probe.status, probe.error ?? null);
     if (probe.status === "active") {
@@ -46,19 +52,8 @@ export async function reconcileRepos(
     }
   }
 
-  const result = await repos.recordReconciliation({
-    activeOrgs: new Set(orgs.active),
-    activeRepos,
-  });
-
-  for (const r of result.deletedReappeared) {
-    console.warn(`[reconcile] deleted repo reappeared: ${r.owner}/${r.repo}`);
-  }
-  for (const status of ["missing", "no_installation", "forbidden"] as const) {
-    for (const org of orgs[status]) {
-      console.warn(`[reconcile] org=${org} status=${status}`);
-    }
-  }
+  const result = await repos.recordReconciliation({activeOrgs: new Set(orgs.active), activeRepos});
+  warnAnomalies(orgs, result.deletedReappeared);
 
   return {
     orgs,
@@ -71,22 +66,27 @@ export async function reconcileRepos(
   };
 }
 
-async function probeOrgSafe(app: GithubApi, org: string): Promise<OrgProbeResult> {
-  try {
-    const orgApi = await app.orgApi(org);
-    return await probeOrg(orgApi);
-  } catch (e) {
-    if (e instanceof GithubError) {
-      if (e.code === "no_installation") return { status: "no_installation", error: e.message };
-      if (e.code === "forbidden") return { status: "forbidden", error: e.message };
-      if (e.code === "missing") return { status: "missing", error: e.message };
-      return { status: "transient_error", error: e.message };
-    }
-    return {
-      status: "transient_error",
-      error: e instanceof Error ? e.message : String(e),
-    };
+/** Log reconciliation anomalies: deleted repos that reappeared and non-active orgs. */
+function warnAnomalies(orgs: OrgsByStatus, deletedReappeared: RepoRow[]): void {
+  for (const r of deletedReappeared) {
+    console.warn(`[reconcile] deleted repo reappeared: ${r.owner}/${r.repo}`);
   }
+  for (const status of ["missing", "no_installation", "forbidden"] as const) {
+    for (const org of orgs[status]) {
+      console.warn(`[reconcile] org=${org} status=${status}`);
+    }
+  }
+}
+
+/** Map a thrown probe error (acquisition or listing) to a non-active OrgProbeResult. */
+function classifyError(e: unknown): OrgProbeResult {
+  if (e instanceof GithubError) {
+    if (e.code === "no_installation") return { status: "no_installation", error: e.message };
+    if (e.code === "forbidden") return { status: "forbidden", error: e.message };
+    if (e.code === "missing") return { status: "missing", error: e.message };
+    return { status: "transient_error", error: e.message };
+  }
+  return { status: "transient_error", error: e instanceof Error ? e.message : String(e) };
 }
 
 function emptySummary(): ReconcileSummary {

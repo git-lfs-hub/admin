@@ -1,4 +1,4 @@
-import { GithubError, type GithubOrgApi } from "@git-lfs-hub/lib/github";
+import type { GithubOrgApi } from "@git-lfs-hub/lib/github";
 import type { OrgStatus } from "@/db/_repos-schema";
 
 export type OrgProbeResult =
@@ -7,26 +7,15 @@ export type OrgProbeResult =
 
 /**
  * Probe an org via an installation-authenticated GithubOrgApi: paginate
- * `GET /orgs/{org}/repos` and classify the outcome to OrgStatus.
- * Returns the set of `{owner}/{repo}` (lowercased) keys on success.
- * Never throws. Caller obtains the GithubOrgApi via `app.orgApi(org)` and
- * handles auth failures (no_installation) separately.
+ * `GET /orgs/{org}/repos` into a set of lowercased `{owner}/{repo}` keys.
+ * Throws on listing failure — the caller maps the error to an OrgStatus.
  */
 export async function probeOrg(api: GithubOrgApi): Promise<OrgProbeResult> {
   const active = new Set<string>();
-  try {
-    for await (const page of api.listRepos()) {
-      for (const r of page) {
-        active.add(`${r.owner.login.toLowerCase()}/${r.name.toLowerCase()}`);
-      }
+  for await (const page of api.listRepos()) {
+    for (const r of page) {
+      active.add(`${r.owner.login.toLowerCase()}/${r.name.toLowerCase()}`);
     }
-  } catch (e) {
-    if (e instanceof GithubError) {
-      if (e.code === "forbidden") return { status: "forbidden", error: e.message };
-      if (e.code === "missing") return { status: "missing", error: e.message };
-      return { status: "transient_error", error: e.message };
-    }
-    return { status: "transient_error", error: e instanceof Error ? e.message : String(e) };
   }
 
   if (active.size === 0) {

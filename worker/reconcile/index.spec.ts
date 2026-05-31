@@ -129,22 +129,20 @@ describe("reconcileRepos", () => {
     expect(r.repos.deletedReappeared).toBe(3);
   });
 
-  test("probeOrg failure modes do not throw out of reconcileRepos", async () => {
-    const repos = fakeRepos(["a", "b", "c", "d"]);
+  test("listing errors classified by code, no throw out of reconcileRepos", async () => {
+    const repos = fakeRepos(["b", "c", "d"]);
     probeOrg
-      .mockResolvedValueOnce({ status: "no_installation", error: "no install" })
-      .mockResolvedValueOnce({ status: "forbidden", error: "403" })
-      .mockResolvedValueOnce({ status: "missing", error: "404" })
-      .mockResolvedValueOnce({ status: "transient_error", error: "5xx" });
+      .mockRejectedValueOnce(new GithubError("forbidden", "403"))
+      .mockRejectedValueOnce(new GithubError("missing", "404"))
+      .mockRejectedValueOnce(new GithubError("transient", "5xx"));
     const r = await reconcileRepos(env, repos);
-    expect(r.orgs.no_installation).toEqual(["a"]);
     expect(r.orgs.forbidden).toEqual(["b"]);
     expect(r.orgs.missing).toEqual(["c"]);
     expect(r.orgs.transient_error).toEqual(["d"]);
     expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
   });
 
-  test("orgApi throws no_installation → status no_installation, probeOrg not called for that org", async () => {
+  test("acquisition no_installation classified, probeOrg not called for that org", async () => {
     const repos = fakeRepos(["ghost", "alice"]);
     orgApiMock
       .mockRejectedValueOnce(new GithubError("no_installation", "no install for ghost"))
@@ -156,10 +154,17 @@ describe("reconcileRepos", () => {
     expect(probeOrg).toHaveBeenCalledTimes(1);
   });
 
-  test("orgApi throws unauthorized → status transient_error", async () => {
+  test("unauthorized → transient_error", async () => {
     const repos = fakeRepos(["a"]);
     orgApiMock.mockRejectedValueOnce(new GithubError("unauthorized", "401"));
     const r = await reconcileRepos(env, repos);
     expect(r.orgs.transient_error).toEqual(["a"]);
+  });
+
+  test("non-GithubError throw → transient_error with raw message", async () => {
+    const repos = fakeRepos(["a"]);
+    orgApiMock.mockRejectedValueOnce(new Error("boom"));
+    const r = await reconcileRepos(env, repos);
+    expect(repos.orgStatuses).toEqual([{ org: "a", status: "transient_error", error: "boom" }]);
   });
 });
