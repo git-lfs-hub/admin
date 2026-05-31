@@ -19,3 +19,10 @@ jobs:
       - run: bun run test-coverage
 
       - uses: git-lfs-hub/ci-cd/actions/coverage-report@main
+
+  can-merge:
+    name: Can merge
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: git-lfs-hub/ci-cd/actions/check-can-merge@main
