@@ -1,4 +1,4 @@
-import type { ObjectEvent } from '@git-lfs-hub/contracts'
+import type { ObjectEvent } from '@git-lfs-hub/lib/contracts'
 
 export type { ObjectEvent }
 

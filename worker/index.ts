@@ -4,6 +4,7 @@ import me from '@/api/me'
 import reposApi from '@/api/repos'
 import loginOauth from '@/login/oauth'
 import { discoverRepos } from '@/r2/discovery'
+import { reconcileRepos } from '@/reconcile/index'
 import { handleObjectEvents, type ObjectEvent } from '@/server/object-events'
 import type { AppEnv } from '@/_env'
 
@@ -35,7 +36,10 @@ export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
     const repos = env.REPOS.get(env.REPOS.idFromName('global'))
-    ctx.waitUntil(discoverRepos(env.LFS_BUCKET, repos))
+    ctx.waitUntil((async () => {
+      await discoverRepos(env.LFS_BUCKET, repos)
+      await reconcileRepos(env, repos)
+    })())
   },
   async queue(batch, env) {
     await handleObjectEvents(batch as MessageBatch<ObjectEvent>, env)

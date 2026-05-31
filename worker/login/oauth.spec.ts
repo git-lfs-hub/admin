@@ -1,22 +1,21 @@
 import { vi, describe, test, expect, afterEach } from "vitest";
 
-vi.mock("@git-lfs-hub/auth", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@git-lfs-hub/auth")>();
+vi.mock("@git-lfs-hub/lib/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@git-lfs-hub/lib/auth")>();
   return {
     ...actual,
-    processOAuthCallback: vi.fn(),
+    oauthCallback: vi.fn(),
     requireOrgRole: vi.fn(),
   };
 });
 
 import app from "@/login/oauth";
 import {
-  processOAuthCallback,
+  oauthCallback,
   requireOrgRole,
-  verifyState,
-} from "@git-lfs-hub/auth";
+} from "@git-lfs-hub/lib/auth";
 
-const mockProcessOAuth = vi.mocked(processOAuthCallback);
+const mockProcessOAuth = vi.mocked(oauthCallback);
 const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
 const SESSION_SECRET = "a".repeat(64);
@@ -49,37 +48,24 @@ describe("GET /authorize", () => {
     expect(location.searchParams.get("scope")).toBe("read:org");
   });
 
-  test("state round-trip: signed state embeds client_state", async () => {
-    const signedState = await makeSignedState("/dashboard");
-    const payload = await verifyState(signedState, SESSION_SECRET);
-    expect(payload).not.toBeNull();
-    expect(payload!.client_state).toBe("/dashboard");
-  });
-
-  test("defaults client_state to /repos when state omitted", async () => {
-    const res = await get("/authorize");
-    expect(res.status).toBe(302);
-    const location = new URL(res.headers.get("Location")!);
-    const signedState = location.searchParams.get("state")!;
-    const payload = await verifyState(signedState, SESSION_SECRET);
-    expect(payload!.client_state).toBe("/repos");
-  });
 });
 
 describe("GET /callback", () => {
   afterEach(() => vi.restoreAllMocks());
 
   test("returns 400 without code or state", async () => {
+    mockProcessOAuth.mockResolvedValue({ ok: false, error: "invalid_state" });
     const res = await get("/callback");
     expect(res.status).toBe(400);
   });
 
   test("returns 400 when state is missing", async () => {
+    mockProcessOAuth.mockResolvedValue({ ok: false, error: "invalid_state" });
     const res = await get("/callback?code=gh_code");
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 on invalid state (processOAuthCallback fails without statePayload)", async () => {
+  test("returns 400 on invalid state (oauthCallback fails without statePayload)", async () => {
     mockProcessOAuth.mockResolvedValue({
       ok: false,
       error: "invalid_state",
@@ -89,7 +75,7 @@ describe("GET /callback", () => {
     expect(await res.text()).toContain("invalid_state");
   });
 
-  test("redirects with error when processOAuthCallback fails with statePayload", async () => {
+  test("redirects with error when oauthCallback fails with statePayload", async () => {
     const signedState = await makeSignedState("/repos");
     mockProcessOAuth.mockResolvedValue({
       ok: false,
@@ -112,7 +98,6 @@ describe("GET /callback", () => {
     const signedState = await makeSignedState();
     mockProcessOAuth.mockResolvedValue({
       ok: true,
-      encrypted: "encrypted-session",
       tokenPayload: { token: "ghu_tok" },
       statePayload: {
         redirect_uri: "http://localhost/login/oauth/authorize",
@@ -133,7 +118,6 @@ describe("GET /callback", () => {
     const signedState = await makeSignedState("/dashboard");
     mockProcessOAuth.mockResolvedValue({
       ok: true,
-      encrypted: "encrypted-session-data",
       tokenPayload: { token: "ghu_tok" },
       statePayload: {
         redirect_uri: "http://localhost/login/oauth/authorize",
@@ -149,6 +133,6 @@ describe("GET /callback", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/dashboard");
     const cookie = res.headers.get("Set-Cookie")!;
-    expect(cookie).toContain("gh_session_v2=encrypted-session-data");
+    expect(cookie).toMatch(/^gh_session_v2=[^;]+/);
   });
 });

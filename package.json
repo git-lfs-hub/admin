@@ -19,8 +19,8 @@
     "node": "^26.1.0"
   },
   "dependencies": {
-    "@git-lfs-hub/auth": "file:../auth",
-    "@git-lfs-hub/contracts": "file:../contracts",
+    "@git-lfs-hub/lib": "file:../lib",
+    "@octokit/rest": "^22.0.1",
     "@tanstack/vue-query": "^5.100.14",
     "@tanstack/vue-table": "^8.21.3",
     "@vueuse/core": "^14.3.0",

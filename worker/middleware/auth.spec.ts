@@ -1,22 +1,36 @@
 import { Hono } from "hono";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@git-lfs-hub/auth", () => ({
-  validateSession: vi.fn(),
-  requireOrgRole: vi.fn(),
-  SESSION_COOKIE: "gh_session_v2",
+const { mockGetSessionCookie, mockAuthenticatedUsername, mockRequireOrgRole } = vi.hoisted(() => ({
+  mockGetSessionCookie: vi.fn(),
+  mockAuthenticatedUsername: vi.fn(),
+  mockRequireOrgRole: vi.fn(),
+}));
+
+vi.mock("@git-lfs-hub/lib/github", async (orig) => ({
+  ...(await orig<typeof import("@git-lfs-hub/lib/github")>()),
+  GithubApi: class MockGithubApi {
+    constructor(_token: string) {}
+    authenticatedUsername = mockAuthenticatedUsername;
+  },
+}));
+
+vi.mock("@git-lfs-hub/lib/auth", async (orig) => ({
+  ...(await orig<typeof import("@git-lfs-hub/lib/auth")>()),
+  getSessionCookie: mockGetSessionCookie,
+  requireOrgRole: mockRequireOrgRole,
 }));
 
 import auth from "@/middleware/auth";
-import { validateSession, requireOrgRole } from "@git-lfs-hub/auth";
-
-const mockValidateSession = vi.mocked(validateSession);
-const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
 const ENV = {
   SESSION_SECRET: "a".repeat(64),
   GITHUB_ORG: "test-org",
+  GITHUB_CLIENT_ID: "test-client-id",
+  GITHUB_CLIENT_SECRET: "test-client-secret",
 };
+
+const COOKIE = { Cookie: "gh_session_v2=anything" };
 
 function createApp() {
   const app = new Hono();
@@ -26,13 +40,20 @@ function createApp() {
   return app;
 }
 
-function req(path: string, host = "example.com") {
-  return createApp().request(`http://${host}${path}`, {}, ENV);
+function req(path: string, host = "example.com", init: RequestInit = {}) {
+  return createApp().request(
+    `http://${host}${path}`,
+    { ...init, headers: { ...COOKIE, ...(init.headers ?? {}) } },
+    ENV,
+  );
 }
 
 describe("auth middleware", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
+    mockGetSessionCookie.mockResolvedValue({ token: "ghu_ok" });
+    mockAuthenticatedUsername.mockResolvedValue("alice");
+    mockRequireOrgRole.mockResolvedValue(null);
   });
 
   describe("localhost bypass", () => {
@@ -48,22 +69,22 @@ describe("auth middleware", () => {
       expect(await res.json()).toEqual({ admin: "dev" });
     });
 
-    test("does not call validateSession", async () => {
+    test("does not call getSessionCookie", async () => {
       await req("/test", "localhost");
-      expect(mockValidateSession).not.toHaveBeenCalled();
+      expect(mockGetSessionCookie).not.toHaveBeenCalled();
     });
   });
 
   describe("production — no session", () => {
     test("API path returns 401 JSON", async () => {
-      mockValidateSession.mockResolvedValue(null);
+      mockGetSessionCookie.mockResolvedValue(null);
       const res = await req("/api/test");
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: "unauthenticated" });
     });
 
     test("non-API path redirects to OAuth", async () => {
-      mockValidateSession.mockResolvedValue(null);
+      mockGetSessionCookie.mockResolvedValue(null);
       const res = await req("/dashboard");
       expect(res.status).toBe(302);
       expect(res.headers.get("Location")).toBe(
@@ -72,32 +93,30 @@ describe("auth middleware", () => {
     });
 
     test("preserves query string in redirect", async () => {
-      mockValidateSession.mockResolvedValue(null);
+      mockGetSessionCookie.mockResolvedValue(null);
       const res = await req("/repos?page=2");
       expect(res.status).toBe(302);
       expect(res.headers.get("Location")).toBe(
         "/login/oauth/authorize?state=%2Frepos%3Fpage%3D2",
       );
     });
+
+    test("invalid session → redirect", async () => {
+      mockAuthenticatedUsername.mockResolvedValue(null);
+      const res = await req("/dashboard");
+      expect(res.status).toBe(302);
+    });
   });
 
   describe("production — valid session", () => {
-    test("sets admin to session username", async () => {
-      mockValidateSession.mockResolvedValue({
-        token: "ghu_t",
-        username: "alice",
-      });
-      mockRequireOrgRole.mockResolvedValue(null);
+    test("sets admin to GitHub login", async () => {
+      mockAuthenticatedUsername.mockResolvedValue("alice");
       const res = await req("/test");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ admin: "alice" });
     });
 
     test("returns forbidden when org role check fails", async () => {
-      mockValidateSession.mockResolvedValue({
-        token: "ghu_t",
-        username: "alice",
-      });
       mockRequireOrgRole.mockResolvedValue(
         new Response("Forbidden", { status: 403 }),
       );

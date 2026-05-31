@@ -20,3 +20,21 @@ export const repos = sqliteTable(
 );
 
 export type RepoStatus = "active" | "missing" | "deleted" | "purged";
+
+export const orgs = sqliteTable("orgs", {
+  org: text("org").primaryKey(),
+  status: text("status", {
+    enum: ["active", "missing", "no_installation", "forbidden", "transient_error"],
+  }).notNull(),
+  firstSeen: text("first_seen").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  missingAt: text("missing_at"),
+  lastError: text("last_error"),
+});
+
+export type OrgStatus =
+  | "active"
+  | "missing"
+  | "no_installation"
+  | "forbidden"
+  | "transient_error";

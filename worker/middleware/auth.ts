@@ -1,28 +1,62 @@
 import type { MiddlewareHandler } from 'hono'
-import { validateSession, requireOrgRole, SESSION_COOKIE } from '@git-lfs-hub/auth'
-import { getCookie } from 'hono/cookie'
+import type { Context } from 'hono'
+import {
+  requireOrgRole,
+  getSessionCookie,
+  setSessionCookie,
+  type SessionPayload,
+} from '@git-lfs-hub/lib/auth'
+import { GithubApi, githubAccessToken } from '@git-lfs-hub/lib/github'
 import type { AppEnv } from '@/_env'
 
 const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  // Dev bypass: localhost short-circuits to admin='dev'. Hostname is the gate —
-  // import.meta.env.DEV is false inside the built worker.
   const host = new URL(c.req.url).hostname
   if (host === 'localhost' || host === '127.0.0.1') {
     c.set('admin', 'dev')
     return next()
   }
 
-  const session = await validateSession(getCookie(c, SESSION_COOKIE), c.env.SESSION_SECRET)
-  if (!session) {
-    if (c.req.path.startsWith('/api/')) return c.json({ error: 'unauthenticated' }, 401)
-    const qs = c.req.url.includes('?') ? '?' + c.req.url.split('?')[1] : ''
-    const returnTo = c.req.path + qs
-    return c.redirect(`/login/oauth/authorize?state=${encodeURIComponent(returnTo)}`, 302)
+  const decrypted = await getSessionCookie(c, c.env.SESSION_SECRET)
+  if (!decrypted) return unauthenticated(c)
+
+  let api = new GithubApi(decrypted.token)
+  let username = await api.authenticatedUsername()
+
+  if (!username && decrypted.refresh_token) {
+    const data = await githubAccessToken({
+      grant_type: 'refresh_token',
+      client_id: c.env.GITHUB_CLIENT_ID,
+      client_secret: c.env.GITHUB_CLIENT_SECRET,
+      refresh_token: decrypted.refresh_token,
+    })
+    if (data.error || !data.access_token) return unauthenticated(c)
+
+    const payload: SessionPayload = {
+      token: data.access_token,
+      refresh_token:
+        typeof data.refresh_token === 'string'
+          ? data.refresh_token
+          : decrypted.refresh_token,
+    }
+    api = new GithubApi(payload.token)
+    username = await api.authenticatedUsername()
+    if (!username) return unauthenticated(c)
+    await setSessionCookie(c, payload, c.env.SESSION_SECRET)
   }
-  const forbidden = await requireOrgRole(session.token, c.env.GITHUB_ORG, 'admin')
+
+  if (!username) return unauthenticated(c)
+
+  const forbidden = await requireOrgRole(api, c.env.GITHUB_ORG, 'admin')
   if (forbidden) return forbidden
-  c.set('admin', session.username)
+  c.set('admin', username)
   await next()
+}
+
+function unauthenticated(c: Context<AppEnv>) {
+  if (c.req.path.startsWith('/api/')) return c.json({ error: 'unauthenticated' }, 401)
+  const qs = c.req.url.includes('?') ? '?' + c.req.url.split('?')[1] : ''
+  const returnTo = c.req.path + qs
+  return c.redirect(`/login/oauth/authorize?state=${encodeURIComponent(returnTo)}`, 302)
 }
 
 export default auth

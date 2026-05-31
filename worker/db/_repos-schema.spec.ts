@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { repos } from "@/db/_repos-schema";
+import { repos, orgs } from "@/db/_repos-schema";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 
 test("repos table has composite primary key on (owner, repo)", () => {
@@ -14,3 +14,22 @@ test("repos status column has expected enum values", () => {
   const status = config.columns.find((c) => c.name === "status")!;
   expect(status.enumValues).toEqual(["active", "missing", "deleted", "purged"]);
 });
+
+test("orgs table has primary key on org", () => {
+  const config = getTableConfig(orgs);
+  const orgCol = config.columns.find((c) => c.name === "org")!;
+  expect(orgCol.primary).toBe(true);
+});
+
+test("orgs status enum mirrors repos overlap + access states", () => {
+  const config = getTableConfig(orgs);
+  const status = config.columns.find((c) => c.name === "status")!;
+  expect(status.enumValues).toEqual([
+    "active",
+    "missing",
+    "no_installation",
+    "forbidden",
+    "transient_error",
+  ]);
+});
+
