@@ -1,14 +1,24 @@
 import { defineConfig } from 'vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import vue from '@vitejs/plugin-vue'
+import * as vueCompilerSfc from 'vue/compiler-sfc'
 import tailwindcss from '@tailwindcss/vite'
+
+// plugin-vue resolves its SFC compiler lazily in `buildStart`, which under the
+// @cloudflare/vite-plugin multi-environment dev server doesn't run before the
+// first HMR file-change. Its deprecated `handleHotUpdate` then dereferences a
+// null compiler (`options.value.compiler.invalidateTypeCache`), crashing every
+// save. Seed the compiler upfront — buildStart keeps a pre-set one (`compiler
+// || resolveCompiler()`).
+const vuePlugin = vue()
+;(vuePlugin as { api: { options: { compiler: unknown } } }).api.options.compiler = vueCompilerSfc
 
 export default defineConfig(({ command }) => ({
   resolve: {
     tsconfigPaths: true,
   },
   plugins: [
-    vue(),
+    vuePlugin,
     tailwindcss(),
     ...(command === 'serve'
       ? [
