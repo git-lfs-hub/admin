@@ -3,12 +3,13 @@ import auth from '@/middleware/auth'
 import me from '@/api/me'
 import reposApi from '@/api/repos'
 import loginOauth from '@/login/oauth'
-import { discoverRepos } from '@/r2/discovery'
-import { reconcileRepos } from '@/reconcile/index'
+import { discoverRepos } from '@/storage/discovery'
+import { reconcileAll } from '@/reconcile/index'
 import { handleObjectEvents, type ObjectEvent } from '@/server/object-events'
 import type { AppEnv } from '@/_env'
 
 export { Repos } from '@/db/repos'
+export { RepoIndex } from '@/db/repo-index'
 
 let devDiscoveryFired = false
 
@@ -35,11 +36,7 @@ export type AppType = typeof app
 export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
-    const repos = env.REPOS.get(env.REPOS.idFromName('global'))
-    ctx.waitUntil((async () => {
-      await discoverRepos(env.LFS_BUCKET, repos)
-      await reconcileRepos(env, repos)
-    })())
+    ctx.waitUntil(reconcileAll(env))
   },
   async queue(batch, env) {
     await handleObjectEvents(batch as MessageBatch<ObjectEvent>, env)

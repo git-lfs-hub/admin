@@ -10,6 +10,10 @@ export const repos = sqliteTable(
     })
       .notNull()
       .default("active"),
+    // Exact `OwnerCase/RepoCase/` prefix as written to R2 by lfs-server (which
+    // does not lowercase). Identity columns are lowercased; this preserves the
+    // real case so R2 prefix listing matches. Populated by discovery + events.
+    storagePrefix: text("storage_prefix").notNull(),
     firstSeen: text("first_seen").notNull(),
     updatedAt: text("updated_at").notNull(),
     missingAt: text("missing_at"),

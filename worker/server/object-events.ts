@@ -10,10 +10,13 @@ export async function handleObjectEvents(
   const repos = env.REPOS.get(env.REPOS.idFromName('global'))
   const seen = new Set<string>()
   for (const msg of batch.messages) {
-    const { owner, repo } = msg.body
+    const { owner, repo, oid, size, operation } = msg.body
     const key = `${owner}/${repo}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    await repos.upsert(owner, repo)
+    if (!seen.has(key)) {
+      seen.add(key)
+      await repos.upsert(owner, repo)
+    }
+    const index = env.INDEX.get(env.INDEX.idFromName(key))
+    await index.recordObject(oid, size, operation)
   }
 }

@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { repos, orgs } from "@/db/_repos-schema";
+import { repos, orgs } from "@/db/repos-schema";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 
 test("repos table has composite primary key on (owner, repo)", () => {

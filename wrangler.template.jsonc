@@ -20,12 +20,20 @@
         "name": "REPOS",
         "class_name": "Repos",
       },
+      {
+        "name": "INDEX",
+        "class_name": "RepoIndex",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["Repos"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["RepoIndex"],
     },
   ],
   "r2_buckets": [

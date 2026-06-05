@@ -8,7 +8,7 @@ import {
   orgs,
   type RepoStatus,
   type OrgStatus,
-} from "@/db/_repos-schema";
+} from "@/db/repos-schema";
 
 export type RepoRow = typeof repos.$inferSelect;
 export type OrgRow = typeof orgs.$inferSelect;
@@ -36,6 +36,7 @@ export class Repos extends DurableObject<CloudflareBindings> {
           owner          TEXT NOT NULL,
           repo           TEXT NOT NULL,
           status         TEXT NOT NULL DEFAULT 'active',
+          storage_prefix TEXT NOT NULL,
           first_seen     TEXT NOT NULL,
           updated_at     TEXT NOT NULL,
           missing_at     TEXT,
@@ -80,11 +81,18 @@ export class Repos extends DurableObject<CloudflareBindings> {
 
   async upsert(owner: string, repo: string): Promise<RepoRow> {
     const now = isoNow();
+    // owner/repo arrive in the exact case lfs-server uses for R2 keys (from R2
+    // discovery or the object-event path). Identity is lowercased; the prefix
+    // preserves the real case for R2 listing. Set only on insert: re-deriving it
+    // on conflict would clobber the real R2 prefix if GitHub's owner/repo case
+    // changed (existing objects keep the old prefix).
+    const storagePrefix = `${owner}/${repo}/`;
     const [row] = await this.db
       .insert(repos)
       .values({
         owner: owner.toLowerCase(),
         repo: repo.toLowerCase(),
+        storagePrefix,
         firstSeen: now,
         updatedAt: now
       })

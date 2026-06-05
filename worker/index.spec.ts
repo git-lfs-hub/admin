@@ -2,15 +2,16 @@ import { test, expect, vi, beforeEach, describe } from "vitest";
 import { Hono } from "hono";
 
 const discoverRepos = vi.fn(async () => {});
-const reconcileRepos = vi.fn(async () => {});
+const reconcileAll = vi.fn(async () => {});
 const handleObjectEvents = vi.fn(async () => {});
 
-vi.mock("@/r2/discovery", () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
-vi.mock("@/reconcile/index", () => ({ reconcileRepos: (...a: unknown[]) => reconcileRepos(...a) }));
+vi.mock("@/storage/discovery", () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
+vi.mock("@/reconcile/index", () => ({ reconcileAll: (...a: unknown[]) => reconcileAll(...a) }));
 vi.mock("@/server/object-events", () => ({
   handleObjectEvents: (...a: unknown[]) => handleObjectEvents(...a),
 }));
 vi.mock("@/db/repos", () => ({ Repos: class {} }));
+vi.mock("@/db/repo-index", () => ({ RepoIndex: class {} }));
 // Route/middleware modules pull heavy deps; stub them — index wiring is what we test.
 vi.mock("@/middleware/auth", () => ({ default: async (_c: unknown, next: () => Promise<void>) => next() }));
 vi.mock("@/api/me", () => ({ default: new Hono() }));
@@ -31,19 +32,17 @@ function makeEnv() {
 
 beforeEach(() => {
   discoverRepos.mockClear();
-  reconcileRepos.mockClear();
+  reconcileAll.mockClear();
   handleObjectEvents.mockClear();
 });
 
 describe("scheduled", () => {
-  test("discovers then reconciles against the global Repos DO", async () => {
+  test("delegates the cron pipeline to reconcileAll", async () => {
     const env = makeEnv();
     const ctx = { waitUntil: vi.fn() } as any;
     await worker.scheduled!({} as any, env, ctx);
     await ctx.waitUntil.mock.calls[0][0];
-    expect(env.REPOS.idFromName).toHaveBeenCalledWith("global");
-    expect(discoverRepos).toHaveBeenCalledWith(env.LFS_BUCKET, reposStub);
-    expect(reconcileRepos).toHaveBeenCalledWith(env, reposStub);
+    expect(reconcileAll).toHaveBeenCalledWith(env);
   });
 });
 

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { reset } from "cloudflare:test";
 import { describe, test, expect, afterEach } from "vitest";
 
-import { discoverRepos } from "@/r2/discovery";
+import { discoverRepos } from "@/storage/discovery";
 
 afterEach(async () => {
   await reset();

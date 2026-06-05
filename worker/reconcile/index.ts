@@ -1,108 +1,18 @@
-import type { Repos, RepoRow } from "@/db/repos";
-import type { OrgStatus } from "@/db/_repos-schema";
-import { GithubApi, GithubError } from "@git-lfs-hub/lib/github";
-import { probeOrg, type OrgProbeResult } from "@/github/probeOrg";
+import { discoverRepos } from "@/storage/discovery";
+import { reconcileRepos } from "@/reconcile/repos";
+import { reconcileObjects } from "@/reconcile/objects";
 
-export type OrgsByStatus = Record<OrgStatus, string[]>;
-
-export type RepoCounts = {
-  active: number;
-  missing: number;
-  missingReappeared: number;
-  deletedReappeared: number;
-};
-
-export type ReconcileSummary = {
-  orgs: OrgsByStatus;
-  repos: RepoCounts;
-};
-
-export async function reconcileRepos(
-  env: CloudflareBindings,
-  repos: DurableObjectStub<Repos>,
-): Promise<ReconcileSummary> {
-  const owners = await repos.listOwners();
-  if (owners.length === 0) return emptySummary();
-
-  const app = await GithubApi.forApp(
-    env.GITHUB_APP_ID,
-    env.GITHUB_APP_PRIVATE_KEY,
-  );
-
-  const activeRepos = new Set<string>();
-  const orgs: OrgsByStatus = {
-    active: [],
-    missing: [],
-    no_installation: [],
-    forbidden: [],
-    transient_error: [],
-  };
-
-  for (const org of owners) {
-    let probe: OrgProbeResult;
-    try {
-      probe = await probeOrg(await app.orgApi(org));
-    } catch (e) {
-      probe = classifyError(e);
-    }
-    orgs[probe.status].push(org);
-    await repos.upsertOrgStatus(org, probe.status, probe.error ?? null);
-    if (probe.status === "active") {
-      for (const k of probe.activeRepos) activeRepos.add(k);
-    }
+/**
+ * Cron pipeline: discover repos from storage, reconcile them against GitHub,
+ * then reconcile each non-purged repo's object index against storage.
+ */
+export async function reconcileAll(env: CloudflareBindings): Promise<void> {
+  const repos = env.REPOS.get(env.REPOS.idFromName("global"));
+  await discoverRepos(env.LFS_BUCKET, repos);
+  await reconcileRepos(env, repos);
+  for (const r of await repos.listAll()) {
+    if (r.status === "purged") continue;
+    const index = env.INDEX.get(env.INDEX.idFromName(r.storagePrefix.slice(0, -1)));
+    await reconcileObjects(env.LFS_BUCKET, index, r.storagePrefix);
   }
-
-  const result = await repos.recordReconciliation({activeOrgs: new Set(orgs.active), activeRepos});
-  warnAnomalies(orgs, result.deletedReappeared);
-
-  return {
-    orgs,
-    repos: {
-      active: activeRepos.size,
-      missing: result.missing.length,
-      missingReappeared: result.missingReappeared.length,
-      deletedReappeared: result.deletedReappeared.length,
-    },
-  };
-}
-
-/** Log reconciliation anomalies: deleted repos that reappeared and non-active orgs. */
-function warnAnomalies(orgs: OrgsByStatus, deletedReappeared: RepoRow[]): void {
-  for (const r of deletedReappeared) {
-    console.warn(`[reconcile] deleted repo reappeared: ${r.owner}/${r.repo}`);
-  }
-  for (const status of ["missing", "no_installation", "forbidden"] as const) {
-    for (const org of orgs[status]) {
-      console.warn(`[reconcile] org=${org} status=${status}`);
-    }
-  }
-}
-
-/** Map a thrown probe error (acquisition or listing) to a non-active OrgProbeResult. */
-function classifyError(e: unknown): OrgProbeResult {
-  if (e instanceof GithubError) {
-    if (e.code === "no_installation") return { status: "no_installation", error: e.message };
-    if (e.code === "forbidden") return { status: "forbidden", error: e.message };
-    if (e.code === "missing") return { status: "missing", error: e.message };
-    return { status: "transient_error", error: e.message };
-  }
-  return { status: "transient_error", error: e instanceof Error ? e.message : String(e) };
-}
-
-function emptySummary(): ReconcileSummary {
-  return {
-    orgs: {
-      active: [],
-      missing: [],
-      no_installation: [],
-      forbidden: [],
-      transient_error: [],
-    },
-    repos: {
-      active: 0,
-      missing: 0,
-      missingReappeared: 0,
-      deletedReappeared: 0,
-    },
-  };
 }

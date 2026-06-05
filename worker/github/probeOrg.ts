@@ -1,5 +1,5 @@
 import type { GithubOrgApi } from "@git-lfs-hub/lib/github";
-import type { OrgStatus } from "@/db/_repos-schema";
+import type { OrgStatus } from "@/db/repos-schema";
 
 export type OrgProbeResult =
   | { status: "active"; activeRepos: Set<string>; error?: undefined }

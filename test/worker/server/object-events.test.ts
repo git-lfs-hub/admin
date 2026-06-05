@@ -9,6 +9,7 @@ afterEach(async () => {
 });
 
 const repos = () => env.REPOS.get(env.REPOS.idFromName("global"));
+const index = (key: string) => env.INDEX.get(env.INDEX.idFromName(key));
 
 function evt(over: Partial<ObjectEvent> = {}): ObjectEvent {
   return {
@@ -89,5 +90,23 @@ describe("handleObjectEvents", () => {
     );
     const rows = await repos().listAll();
     expect(rows.length).toBe(1);
+  });
+
+  test("records each object with its size into the repo index", async () => {
+    await handleObjectEvents(
+      makeBatch([
+        evt({ oid: "o1", size: 10 }),
+        evt({ oid: "o2", size: 25 }),
+        evt({ repo: "other", oid: "o3", size: 5 }),
+      ]),
+      env,
+    );
+    const thing = await index("alice/thing").listAll();
+    expect(thing.map((o) => [o.oid, o.size]).sort()).toEqual([
+      ["o1", 10],
+      ["o2", 25],
+    ]);
+    const other = await index("alice/other").listAll();
+    expect(other.map((o) => [o.oid, o.size])).toEqual([["o3", 5]]);
   });
 });
