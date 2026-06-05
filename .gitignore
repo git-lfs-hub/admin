@@ -42,6 +42,7 @@ lerna-debug.log*
 .DS_Store
 
 # configs
+vars.input.json
 vars.json
 wrangler.jsonc
 worker-configuration.d.ts
