@@ -1,11 +1,9 @@
 import { test, expect, vi, beforeEach, describe } from "vitest";
 import { Hono } from "hono";
 
-const discoverRepos = vi.fn(async (..._a: unknown[]) => {});
 const reconcileAll = vi.fn(async (..._a: unknown[]) => {});
 const handleObjectEvents = vi.fn(async (..._a: unknown[]) => {});
 
-vi.mock("@/storage/discovery", () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
 vi.mock("@/reconcile/index", () => ({ reconcileAll: (...a: unknown[]) => reconcileAll(...a) }));
 vi.mock("@/server/object-events", () => ({
   handleObjectEvents: (...a: unknown[]) => handleObjectEvents(...a),
@@ -31,7 +29,6 @@ function makeEnv() {
 }
 
 beforeEach(() => {
-  discoverRepos.mockClear();
   reconcileAll.mockClear();
   handleObjectEvents.mockClear();
 });
@@ -55,20 +52,20 @@ describe("queue", () => {
   });
 });
 
-describe("dev discovery middleware", () => {
+describe("dev reconcile middleware", () => {
   const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as any;
 
-  test("non-local host does not fire discovery", async () => {
+  test("non-local host does not fire reconcile", async () => {
     const env = makeEnv();
     await worker.fetch!(new Request("https://example.com/api/me"), env, ctx);
-    expect(discoverRepos).not.toHaveBeenCalled();
+    expect(reconcileAll).not.toHaveBeenCalled();
   });
 
-  test("localhost fires discovery exactly once across requests", async () => {
+  test("localhost fires reconcile exactly once across requests", async () => {
     const env = makeEnv();
     await worker.fetch!(new Request("http://localhost/api/me"), env, ctx);
     await worker.fetch!(new Request("http://localhost/api/me"), env, ctx);
-    expect(discoverRepos).toHaveBeenCalledTimes(1);
-    expect(discoverRepos).toHaveBeenCalledWith(env.LFS_BUCKET, reposStub);
+    expect(reconcileAll).toHaveBeenCalledTimes(1);
+    expect(reconcileAll).toHaveBeenCalledWith(env);
   });
 });

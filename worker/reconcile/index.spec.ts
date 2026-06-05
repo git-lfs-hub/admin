@@ -49,4 +49,15 @@ describe("reconcileAll", () => {
     expect(reconcileObjects).toHaveBeenCalledTimes(1);
     expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, indexStub, "alice/a/");
   });
+
+  test("object pass still runs when GitHub repo reconciliation throws", async () => {
+    const env = makeEnv();
+    reconcileRepos.mockRejectedValueOnce(new Error("no github creds"));
+    reposStub.listAll.mockResolvedValueOnce([
+      { storagePrefix: "alice/a/", status: "active" },
+    ]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(reconcileAll(env)).resolves.toBeUndefined();
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, indexStub, "alice/a/");
+  });
 });
