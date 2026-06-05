@@ -12,8 +12,12 @@ vi.mock("@git-lfs-hub/lib/github", async (importOriginal) => {
   return {
     ...actual,
     GithubApi: class {
-      static async forApp(_appId: string, _appPrivateKey: string) { return new this(); }
-      async orgApi(org: string) { return orgApiMock(org); }
+      static async forApp(_appId: string, _appPrivateKey: string) {
+        return new this();
+      }
+      async orgApi(org: string) {
+        return orgApiMock(org);
+      }
     },
   };
 });
@@ -44,10 +48,12 @@ function fakeRepos(owners: string[]) {
       orgStatuses.push({ org, status, error });
       return { org, status };
     }),
-    recordReconciliation: vi.fn(async (input: { activeOrgs: Set<string>; activeRepos: Set<string> }) => {
-      lastReconcileInput = input;
-      return recordResult;
-    }),
+    recordReconciliation: vi.fn(
+      async (input: { activeOrgs: Set<string>; activeRepos: Set<string> }) => {
+        lastReconcileInput = input;
+        return recordResult;
+      },
+    ),
   } as any;
 }
 
@@ -164,7 +170,7 @@ describe("reconcileRepos", () => {
   test("non-GithubError throw → transient_error with raw message", async () => {
     const repos = fakeRepos(["a"]);
     orgApiMock.mockRejectedValueOnce(new Error("boom"));
-    const r = await reconcileRepos(env, repos);
+    await reconcileRepos(env, repos);
     expect(repos.orgStatuses).toEqual([{ org: "a", status: "transient_error", error: "boom" }]);
   });
 });
