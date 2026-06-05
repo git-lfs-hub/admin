@@ -6,7 +6,7 @@
     "config:vars": "git-lfs-hub-config vars . --env dev",
     "config": "git-lfs-hub-config worker .",
     "types": "wrangler types --env-interface CloudflareBindings",
-    "compile": "tsgo --noEmit",
+    "compile": "tsgo -b",
     "lint": "oxlint .",
     "pretest": "bun run compile && bun run lint",
     "test": "scripts/init-test.sh && vitest run",

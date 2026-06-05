@@ -6,6 +6,10 @@ import type { RepoRow } from '@/composables/useRepos'
 
 defineProps<{ repos: RepoRow[] }>()
 defineEmits<{ changed: [] }>()
+
+// "Stored" = objects present in storage plus pending writes; excludes missing/deleted/purged.
+const storedCount = (r: RepoRow) => r.usage.present.count + r.usage.pending.count
+const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
 </script>
 
 <template>
@@ -25,8 +29,8 @@ defineEmits<{ changed: [] }>()
       <TableRow v-for="r in repos" :key="`${r.owner}/${r.repo}`">
         <TableCell class="font-mono">{{ r.owner }}/{{ r.repo }}</TableCell>
         <TableCell><StatusBadge :status="r.status" /></TableCell>
-        <TableCell class="text-right">{{ r.totalSize != null ? formatSize(r.totalSize) : '—' }}</TableCell>
-        <TableCell class="text-right">{{ r.objectCount ?? '—' }}</TableCell>
+        <TableCell class="text-right">{{ formatSize(storedSize(r)) }}</TableCell>
+        <TableCell class="text-right">{{ storedCount(r) }}</TableCell>
         <TableCell>{{ formatTime(r.updatedAt) }}</TableCell>
         <TableCell>{{ r.willPurgeAt ? formatTime(r.willPurgeAt) : '—' }}</TableCell>
         <TableCell><!-- actions: Phase 2 --></TableCell>

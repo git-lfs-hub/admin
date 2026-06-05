@@ -9,6 +9,7 @@
   "files": [],
   "references": [
     { "path": "./client" },
-    { "path": "./worker" }
+    { "path": "./worker" },
+    { "path": "./test/worker" }
   ]
 }

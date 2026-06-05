@@ -1,8 +1,8 @@
 import { test, expect, vi, beforeEach, describe } from "vitest";
 
-const discoverRepos = vi.fn(async () => {});
-const reconcileRepos = vi.fn(async () => {});
-const reconcileObjects = vi.fn(async () => {});
+const discoverRepos = vi.fn(async (..._a: unknown[]) => {});
+const reconcileRepos = vi.fn(async (..._a: unknown[]) => {});
+const reconcileObjects = vi.fn(async (..._a: unknown[]) => {});
 
 vi.mock("@/storage/discovery", () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
 vi.mock("@/reconcile/repos", () => ({ reconcileRepos: (...a: unknown[]) => reconcileRepos(...a) }));
@@ -10,7 +10,7 @@ vi.mock("@/reconcile/objects", () => ({ reconcileObjects: (...a: unknown[]) => r
 
 import { reconcileAll } from "@/reconcile/index";
 
-const reposStub = { id: "repos", listAll: vi.fn(async () => []) };
+const reposStub = { id: "repos", listAll: vi.fn(async (): Promise<unknown[]> => []) };
 const indexStub = { id: "index" };
 
 function makeEnv() {

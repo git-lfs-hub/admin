@@ -9,14 +9,20 @@ const mockRepos: RepoRow[] = [
     owner: 'org',
     repo: 'test-repo',
     status: 'active',
+    storagePrefix: 'org/test-repo/',
     firstSeen: '2026-01-01T00:00:00Z',
     updatedAt: '2026-05-01T00:00:00Z',
     missingAt: null,
     deletedAt: null,
     purgedAt: null,
     willPurgeAt: null,
-    objectCount: 10,
-    totalSize: 1024,
+    usage: {
+      deleted: { count: 0, size: 0 },
+      missing: { count: 0, size: 0 },
+      pending: { count: 0, size: 0 },
+      present: { count: 10, size: 1024 },
+      purged: { count: 0, size: 0 },
+    },
   },
 ]
 

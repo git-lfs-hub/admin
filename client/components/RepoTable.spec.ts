@@ -3,18 +3,26 @@ import { describe, expect, it } from 'vitest'
 import RepoTable from '@/components/RepoTable.vue'
 import type { RepoRow } from '@/composables/useRepos'
 
+const zeroUsage = {
+  deleted: { count: 0, size: 0 },
+  missing: { count: 0, size: 0 },
+  pending: { count: 0, size: 0 },
+  present: { count: 0, size: 0 },
+  purged: { count: 0, size: 0 },
+}
+
 const repo: RepoRow = {
   owner: 'org',
   repo: 'my-repo',
   status: 'active',
+  storagePrefix: 'org/my-repo/',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
   deletedAt: null,
   purgedAt: null,
   willPurgeAt: null,
-  objectCount: 142,
-  totalSize: 1073741824,
+  usage: { ...zeroUsage, present: { count: 142, size: 1073741824 } },
 }
 
 describe('RepoTable', () => {
@@ -30,10 +38,12 @@ describe('RepoTable', () => {
     expect(wrapper.text()).toContain('1.07 GB')
   })
 
-  it('renders dash for null size', () => {
-    const nullSizeRepo = { ...repo, totalSize: null, objectCount: null }
-    const wrapper = mount(RepoTable, { props: { repos: [nullSizeRepo] } })
-    expect(wrapper.text()).toContain('—')
+  it('renders zero size and count for empty usage', () => {
+    const emptyRepo = { ...repo, usage: zeroUsage }
+    const wrapper = mount(RepoTable, { props: { repos: [emptyRepo] } })
+    const cells = wrapper.findAll('td')
+    expect(cells[2].text()).toBe('0 B')
+    expect(cells[3].text()).toBe('0')
   })
 
   it('renders willPurgeAt when set', () => {

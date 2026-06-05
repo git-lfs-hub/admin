@@ -3,7 +3,7 @@ import { api } from '@/api'
 import type { InferResponseType } from 'hono/client'
 
 export type RepoRow = InferResponseType<typeof api.api.repos.$get>['repos'][number]
-export { type RepoStatus } from '@worker/db/_repos-schema'
+export { type RepoStatus } from '@worker/db/repos-schema'
 
 export function useRepos() {
   return useQuery({

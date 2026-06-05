@@ -1,9 +1,9 @@
 import { test, expect, vi, beforeEach, describe } from "vitest";
 import { Hono } from "hono";
 
-const discoverRepos = vi.fn(async () => {});
-const reconcileAll = vi.fn(async () => {});
-const handleObjectEvents = vi.fn(async () => {});
+const discoverRepos = vi.fn(async (..._a: unknown[]) => {});
+const reconcileAll = vi.fn(async (..._a: unknown[]) => {});
+const handleObjectEvents = vi.fn(async (..._a: unknown[]) => {});
 
 vi.mock("@/storage/discovery", () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
 vi.mock("@/reconcile/index", () => ({ reconcileAll: (...a: unknown[]) => reconcileAll(...a) }));
@@ -50,7 +50,7 @@ describe("queue", () => {
   test("delegates the batch to handleObjectEvents", async () => {
     const env = makeEnv();
     const batch = { messages: [] } as any;
-    await worker.queue!(batch, env, {} as any);
+    await worker.queue!(batch, env);
     expect(handleObjectEvents).toHaveBeenCalledWith(batch, env);
   });
 });

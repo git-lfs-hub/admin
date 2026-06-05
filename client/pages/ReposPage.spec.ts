@@ -9,14 +9,20 @@ const repo: RepoRow = {
   owner: 'org',
   repo: 'my-repo',
   status: 'active',
+  storagePrefix: 'org/my-repo/',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
   deletedAt: null,
   purgedAt: null,
   willPurgeAt: null,
-  objectCount: 42,
-  totalSize: 2048,
+  usage: {
+    deleted: { count: 0, size: 0 },
+    missing: { count: 0, size: 0 },
+    pending: { count: 0, size: 0 },
+    present: { count: 42, size: 2048 },
+    purged: { count: 0, size: 0 },
+  },
 }
 
 function makeRouter() {
