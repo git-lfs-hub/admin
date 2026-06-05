@@ -15,9 +15,11 @@ let devReconcileFired = false
 
 const app = new Hono<AppEnv>()
   .use('*', async (c, next) => {
+    // Dev only (no cron locally): await to completion — the dev runtime truncates
+    // waitUntil background tasks, leaving most repos unreconciled.
     if (!devReconcileFired && isLocal(c)) {
       devReconcileFired = true
-      c.executionCtx.waitUntil(reconcileAll(c.env, true))
+      await reconcileAll(c.env, true)
     }
     await next()
   })

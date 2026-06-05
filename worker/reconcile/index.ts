@@ -24,6 +24,10 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
   for (const r of await repos.listAll()) {
     if (r.status === "purged") continue;
     const index = env.INDEX.get(env.INDEX.idFromName(r.name));
-    await reconcileObjects(env.LFS_BUCKET, index, `${r.name}/`);
+    try {
+      await reconcileObjects(env.LFS_BUCKET, index, `${r.name}/`);
+    } catch (e) {
+      console.error(`[reconcile] object reconciliation failed for ${r.name}:`, e);
+    }
   }
 }

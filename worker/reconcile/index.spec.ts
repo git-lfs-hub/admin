@@ -77,4 +77,17 @@ describe("reconcileAll", () => {
     await expect(reconcileAll(env)).resolves.toBeUndefined();
     expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, indexStub, "alice/a/");
   });
+
+  test("one repo's object failure does not abort the rest", async () => {
+    const env = makeEnv();
+    reposStub.listAll.mockResolvedValueOnce([
+      { name: "alice/a", status: "active" },
+      { name: "bob/b", status: "active" },
+    ]);
+    reconcileObjects.mockRejectedValueOnce(new Error("boom")); // alice/a fails
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await reconcileAll(env);
+    expect(reconcileObjects).toHaveBeenCalledTimes(2);
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, indexStub, "bob/b/");
+  });
 });
