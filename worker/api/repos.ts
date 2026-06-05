@@ -9,10 +9,11 @@ const app = new Hono<AppEnv>().get("/", async (c) => {
   const result = await Promise.all(
     rows.map(async (row) => {
       const repo = c.env.REPO.getByName(row.name);
-      const usage = await repo.usage();
+      const [usage, lastAccessedAt] = await Promise.all([repo.usage(), repo.lastAccessedAt()]);
       return {
         ...row,
         usage,
+        lastAccessedAt,
         willPurgeAt: row.deletedAt ? isoAddDays(row.deletedAt, graceDays) : null,
       };
     }),

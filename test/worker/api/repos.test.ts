@@ -25,7 +25,7 @@ describe("GET /api/repos", () => {
     const res = await exports.default.fetch("http://localhost/api/repos");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      repos: Array<{ repo: string; status: string; usage: Usage; willPurgeAt: string | null }>;
+      repos: Array<{ repo: string; status: string; usage: Usage; willPurgeAt: string | null; lastAccessedAt: string | null }>;
     };
 
     expect(body.repos).toHaveLength(2);
@@ -35,7 +35,17 @@ describe("GET /api/repos", () => {
     for (const r of body.repos) {
       expect(r.usage.present).toEqual({ count: 0, size: 0 });
       expect(r.willPurgeAt).toBeNull();
+      expect(r.lastAccessedAt).toBeNull();
     }
+  });
+
+  test("returns lastAccessedAt from the index", async () => {
+    await repos().upsert("alice", "a");
+    const row = await env.REPO.getByName("alice/a").recordObject("oid", 10, "download");
+
+    const res = await exports.default.fetch("http://localhost/api/repos");
+    const body = (await res.json()) as { repos: Array<{ repo: string; lastAccessedAt: string | null }> };
+    expect(body.repos.find((r) => r.repo === "a")!.lastAccessedAt).toBe(row.lastAccessed);
   });
 
   test("returns the index usage breakdown by status", async () => {

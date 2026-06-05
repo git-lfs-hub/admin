@@ -22,6 +22,7 @@ const repo: RepoRow = {
   deletedAt: null,
   purgedAt: null,
   willPurgeAt: null,
+  lastAccessedAt: '2026-05-24T12:00:00Z',
   usage: { ...zeroUsage, present: { count: 142, size: 1073741824 } },
 }
 
@@ -50,6 +51,20 @@ describe('RepoTable', () => {
     const purging = { ...repo, status: 'deleted' as const, deletedAt: '2026-05-20T00:00:00Z', willPurgeAt: '2026-05-27T00:00:00Z' }
     const wrapper = mount(RepoTable, { props: { repos: [purging] } })
     expect(wrapper.text()).toContain(new Date('2026-05-27T00:00:00Z').toLocaleString())
+  })
+
+  it('renders lastAccessed relative with absolute timestamp on hover', () => {
+    const recent = { ...repo, lastAccessedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() }
+    const wrapper = mount(RepoTable, { props: { repos: [recent] } })
+    const span = wrapper.find('td:nth-child(5) span')
+    expect(span.text()).toBe('5m ago')
+    expect(span.attributes('title')).toBe(new Date(recent.lastAccessedAt).toLocaleString())
+  })
+
+  it('renders dash for null lastAccessedAt', () => {
+    const noAccess = { ...repo, lastAccessedAt: null }
+    const wrapper = mount(RepoTable, { props: { repos: [noAccess] } })
+    expect(wrapper.find('td:nth-child(5)').text()).toBe('—')
   })
 
   it('renders dash for null willPurgeAt', () => {

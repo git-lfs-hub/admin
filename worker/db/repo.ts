@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { count, eq, inArray, sum } from "drizzle-orm";
+import { count, eq, inArray, max, sum } from "drizzle-orm";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 
 import { isoNow } from "@/lib/time";
@@ -102,6 +102,12 @@ export class Repo extends DurableObject<CloudflareBindings> {
     ) as UsageByStatus;
     for (const r of rows) out[r.status] = { count: r.count, size: Number(r.size ?? 0) };
     return out;
+  }
+
+  /** Most recent `last_accessed` across all objects, or null for an empty index. */
+  async lastAccessedAt(): Promise<string | null> {
+    const [row] = await this.db.select({ value: max(objects.lastAccessed) }).from(objects);
+    return row?.value ?? null;
   }
 
   /**

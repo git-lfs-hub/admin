@@ -95,6 +95,18 @@ describe("Repo.usage", () => {
   });
 });
 
+describe("Repo.lastAccessedAt", () => {
+  test("returns null for an empty index", async () => {
+    expect(await env.REPO.getByName("alice/thing").lastAccessedAt()).toBeNull();
+  });
+
+  test("returns the object's last_accessed", async () => {
+    const repo = env.REPO.getByName("alice/thing");
+    const row = await repo.recordObject("o1", 10, "download");
+    expect(await repo.lastAccessedAt()).toBe(row.lastAccessed);
+  });
+});
+
 describe("Repo.recordReconciliation", () => {
   test("confirms pending, corrects sizes, and skips storage-absent objects", async () => {
     const repo = env.REPO.getByName("alice/thing");

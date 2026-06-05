@@ -16,6 +16,7 @@ const mockRepos: RepoRow[] = [
     deletedAt: null,
     purgedAt: null,
     willPurgeAt: null,
+    lastAccessedAt: null,
     usage: {
       deleted: { count: 0, size: 0 },
       missing: { count: 0, size: 0 },
