@@ -62,4 +62,41 @@ describe("discoverRepos", () => {
     const found = await discoverRepos(env.LFS_BUCKET, repos());
     expect(found.length).toBe(15);
   });
+
+  test("follows R2 list cursor across truncated pages", async () => {
+    // Stub bucket: owner listing is truncated across two pages; each owner's
+    // repo listing fits one page. Exercises the `truncated` cursor loop.
+    const pages: Record<string, { delimitedPrefixes: string[] }[]> = {
+      "": [
+        { delimitedPrefixes: ["alice/"] },
+        { delimitedPrefixes: ["bob/"] },
+      ],
+      "alice/": [{ delimitedPrefixes: ["alice/one/"] }],
+      "bob/": [{ delimitedPrefixes: ["bob/two/"] }],
+    };
+    const bucket = {
+      list: async ({
+        prefix,
+        cursor,
+      }: {
+        prefix: string;
+        cursor?: string;
+      }) => {
+        const list = pages[prefix];
+        const i = cursor ? Number(cursor) : 0;
+        const truncated = i < list.length - 1;
+        return {
+          ...list[i],
+          truncated,
+          cursor: truncated ? String(i + 1) : undefined,
+        };
+      },
+    } as unknown as R2Bucket;
+
+    const found = await discoverRepos(bucket, repos());
+    expect(found.map((r) => `${r.owner}/${r.repo}`).sort()).toEqual([
+      "alice/one",
+      "bob/two",
+    ]);
+  });
 });

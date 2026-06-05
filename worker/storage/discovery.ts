@@ -12,10 +12,18 @@ export async function discoverRepos(
 
   for await (const ownerPrefix of listPrefixes(bucket, "")) {
     const owner = ownerPrefix.slice(0, -1);
-    if (!owner) continue;
+    /* istanbul ignore next -- defensive: R2 delimited prefixes always have a non-empty owner segment */
+    if (!owner) {
+      console.warn(`[discovery] skipping empty owner prefix: ${ownerPrefix}`);
+      continue;
+    }
     for await (const repoPrefix of listPrefixes(bucket, ownerPrefix)) {
       const repo = repoPrefix.slice(ownerPrefix.length, -1);
-      if (!repo) continue;
+      /* istanbul ignore next -- defensive: R2 delimited prefixes always have a non-empty repo segment */
+      if (!repo) {
+        console.warn(`[discovery] skipping empty repo prefix: ${repoPrefix}`);
+        continue;
+      }
       await repos.upsert(owner, repo);
       found.push({ owner, repo });
     }
