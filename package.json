@@ -21,6 +21,10 @@
     "playwright": "bun run compile && bun run lint && bun run config:test && playwright",
     "vite": "bun run compile && bun run lint && vite"
   },
+  "engines": {
+    "node": "^26.1.0"
+  },
+  "packageManager": "bun@1.3.14",
   "dependencies": {
     "@git-lfs-hub/lib": "file:../lib",
     "@octokit/rest": "^22.0.1",
@@ -38,7 +42,7 @@
     "@cloudflare/vitest-pool-workers": "^0.16.9",
     "@git-lfs-hub/config": "file:../config",
     "@tailwindcss/vite": "^4.3.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260604.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260605.1",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/coverage-istanbul": "^4.1.0",
     "@vue/test-utils": "^2.4.10",
@@ -51,16 +55,9 @@
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
-    "vite": "^8.0.14",
+    "vite": "^8.0.16",
     "vitest": "^4.1.7",
     "vue-sonner": "^2.0.9",
     "wrangler": "^4.17.0"
-  },
-  "overrides": {
-    "vite": "8.0.14"
-  },
-  "engines": {
-    "node": "^26.1.0"
-  },
-  "packageManager": "bun@1.3.13"
+  }
 }
