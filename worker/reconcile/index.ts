@@ -7,7 +7,7 @@ import { reconcileObjects } from "@/reconcile/objects";
  * then reconcile each non-purged repo's object index against storage.
  */
 export async function reconcileAll(env: CloudflareBindings, local = false): Promise<void> {
-  const repos = env.REPOS.get(env.REPOS.idFromName("global"));
+  const repos = env.REPOS.getByName("global");
   await discoverRepos(env.LFS_BUCKET, repos);
   // GitHub repo reconciliation is independent of the object pass below (which only
   // needs storage + the discovered repos). Skipped in local dev (no real GitHub App
@@ -21,13 +21,13 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
       console.error("[reconcile] repo reconciliation failed:", e);
     }
   }
-  for (const r of await repos.listAll()) {
-    if (r.status === "purged") continue;
-    const index = env.INDEX.get(env.INDEX.idFromName(r.name));
+  for (const row of await repos.listAll()) {
+    if (row.status === "purged") continue;
+    const repo = env.REPO.getByName(row.name);
     try {
-      await reconcileObjects(env.LFS_BUCKET, index, `${r.name}/`);
+      await reconcileObjects(env.LFS_BUCKET, repo, `${row.name}/`);
     } catch (e) {
-      console.error(`[reconcile] object reconciliation failed for ${r.name}:`, e);
+      console.error(`[reconcile] object reconciliation failed for ${row.name}:`, e);
     }
   }
 }

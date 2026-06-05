@@ -1,4 +1,4 @@
-import type { RepoIndex, ObjectReconciliationResult } from "@/db/repo-index";
+import type { Repo, ObjectReconciliationResult } from "@/db/repo";
 
 export type ReconcileObjectsResult = ObjectReconciliationResult;
 
@@ -10,7 +10,7 @@ export type ReconcileObjectsResult = ObjectReconciliationResult;
  */
 export async function reconcileObjects(
   bucket: R2Bucket,
-  index: DurableObjectStub<RepoIndex>,
+  index: DurableObjectStub<Repo>,
   prefix: string,
 ): Promise<ReconcileObjectsResult> {
   const total: ReconcileObjectsResult = { added: 0, confirmed: 0, resized: 0 };

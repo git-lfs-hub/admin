@@ -58,12 +58,12 @@ export class Repos extends DurableObject<CloudflareBindings> {
     return row ?? null;
   }
 
-  async listByStatus(status: RepoStatus): Promise<RepoRow[]> {
-    return await this.db.select().from(repos).where(eq(repos.status, status));
-  }
-
   async listAll(): Promise<RepoRow[]> {
     return await this.db.select().from(repos);
+  }
+
+  async listByStatus(status: RepoStatus): Promise<RepoRow[]> {
+    return await this.db.select().from(repos).where(eq(repos.status, status));
   }
 
   async listOwners(): Promise<string[]> {

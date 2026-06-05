@@ -3,21 +3,21 @@ import { isoAddDays } from "@/lib/time";
 import type { AppEnv } from "@/_env";
 
 const app = new Hono<AppEnv>().get("/", async (c) => {
-  const stub = c.env.REPOS.get(c.env.REPOS.idFromName("global"));
-  const rows = await stub.listAll();
+  const repos = c.env.REPOS.getByName("global");
+  const rows = await repos.listAll();
   const graceDays = Number(c.env.GC_PURGE_GRACE_DAYS);
-  const repos = await Promise.all(
-    rows.map(async (repo) => {
-      const index = c.env.INDEX.get(c.env.INDEX.idFromName(repo.name));
-      const usage = await index.usage();
+  const result = await Promise.all(
+    rows.map(async (row) => {
+      const repo = c.env.REPO.getByName(row.name);
+      const usage = await repo.usage();
       return {
-        ...repo,
+        ...row,
         usage,
-        willPurgeAt: repo.deletedAt ? isoAddDays(repo.deletedAt, graceDays) : null,
+        willPurgeAt: row.deletedAt ? isoAddDays(row.deletedAt, graceDays) : null,
       };
     }),
   );
-  return c.json({ repos });
+  return c.json({ repos: result });
 });
 
 export default app;

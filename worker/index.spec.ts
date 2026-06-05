@@ -9,7 +9,7 @@ vi.mock("@/server/object-events", () => ({
   handleObjectEvents: (...a: unknown[]) => handleObjectEvents(...a),
 }));
 vi.mock("@/db/repos", () => ({ Repos: class {} }));
-vi.mock("@/db/repo-index", () => ({ RepoIndex: class {} }));
+vi.mock("@/db/repo", () => ({ Repo: class {} }));
 // Route/middleware modules pull heavy deps; stub them — index wiring is what we test.
 vi.mock("@/middleware/auth", () => ({ default: async (_c: unknown, next: () => Promise<void>) => next() }));
 vi.mock("@/api/me", () => ({ default: new Hono() }));
@@ -22,7 +22,7 @@ const reposStub = { id: "repos" };
 
 function makeEnv() {
   return {
-    REPOS: { idFromName: vi.fn(() => "global-id"), get: vi.fn(() => reposStub) },
+    REPOS: { getByName: vi.fn(() => reposStub) },
     LFS_BUCKET: { bucket: true },
     ASSETS: { fetch: vi.fn(async () => new Response("asset")) },
   } as any;

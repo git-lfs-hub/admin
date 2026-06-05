@@ -8,7 +8,7 @@ afterEach(async () => {
   await reset();
 });
 
-const repos = () => env.REPOS.get(env.REPOS.idFromName("global"));
+const repos = () => env.REPOS.getByName("global");
 
 async function seed(keys: string[]) {
   for (const k of keys) await env.LFS_BUCKET.put(k, "x");

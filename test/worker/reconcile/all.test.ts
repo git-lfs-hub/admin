@@ -8,8 +8,6 @@ afterEach(async () => {
   await reset();
 });
 
-const index = (name: string) => env.INDEX.get(env.INDEX.idFromName(name));
-
 async function seedR2(entries: [string, number][]) {
   for (const [k, size] of entries) await env.LFS_BUCKET.put(k, "x".repeat(size));
 }
@@ -28,7 +26,7 @@ describe("reconcileAll", () => {
     await reconcileAll(env, true);
 
     for (const [name, count] of [["acme/a", 2], ["acme/b", 3], ["acme/c", 1]] as const) {
-      const usage = await index(name).usage();
+      const usage = await env.REPO.getByName(name).usage();
       expect(usage.present.count).toBe(count);
     }
   });

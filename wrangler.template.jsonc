@@ -21,8 +21,8 @@
         "class_name": "Repos",
       },
       {
-        "name": "INDEX",
-        "class_name": "RepoIndex",
+        "name": "REPO",
+        "class_name": "Repo",
       },
     ],
   },
@@ -33,7 +33,7 @@
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["RepoIndex"],
+      "new_sqlite_classes": ["Repo"],
     },
   ],
   "r2_buckets": [

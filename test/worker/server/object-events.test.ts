@@ -8,8 +8,7 @@ afterEach(async () => {
   await reset();
 });
 
-const repos = () => env.REPOS.get(env.REPOS.idFromName("global"));
-const index = (key: string) => env.INDEX.get(env.INDEX.idFromName(key));
+const repos = () => env.REPOS.getByName("global");
 
 function evt(over: Partial<ObjectEvent> = {}): ObjectEvent {
   return {
@@ -101,12 +100,12 @@ describe("handleObjectEvents", () => {
       ]),
       env,
     );
-    const thing = await index("alice/thing").listAll();
+    const thing = await env.REPO.getByName("alice/thing").listObjects();
     expect(thing.map((o) => [o.oid, o.size]).sort()).toEqual([
       ["o1", 10],
       ["o2", 25],
     ]);
-    const other = await index("alice/other").listAll();
+    const other = await env.REPO.getByName("alice/other").listObjects();
     expect(other.map((o) => [o.oid, o.size])).toEqual([["o3", 5]]);
   });
 });

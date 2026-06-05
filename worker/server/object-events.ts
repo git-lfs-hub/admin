@@ -7,16 +7,16 @@ export async function handleObjectEvents(
   env: CloudflareBindings,
 ): Promise<void> {
   if (batch.messages.length === 0) return
-  const repos = env.REPOS.get(env.REPOS.idFromName('global'))
+  const repos = env.REPOS.getByName('global')
   const seen = new Set<string>()
   for (const msg of batch.messages) {
-    const { owner, repo, oid, size, operation } = msg.body
-    const key = `${owner}/${repo}`
+    const { owner, repo: repoName, oid, size, operation } = msg.body
+    const key = `${owner}/${repoName}`
     if (!seen.has(key)) {
       seen.add(key)
-      await repos.upsert(owner, repo)
+      await repos.upsert(owner, repoName)
     }
-    const index = env.INDEX.get(env.INDEX.idFromName(key))
-    await index.recordObject(oid, size, operation)
+    const repo = env.REPO.getByName(key)
+    await repo.recordObject(oid, size, operation)
   }
 }

@@ -6,7 +6,7 @@ afterEach(async () => {
   await reset();
 });
 
-const index = (key: string) => env.INDEX.get(env.INDEX.idFromName(key));
+const repos = () => env.REPOS.getByName("global");
 
 type Usage = Record<string, { count: number; size: number }>;
 
@@ -18,10 +18,9 @@ describe("GET /api/repos", () => {
   });
 
   test("returns all repos across statuses with zero object stats when empty", async () => {
-    const stub = env.REPOS.get(env.REPOS.idFromName("global"));
-    await stub.upsert("alice", "a");
-    await stub.upsert("bob", "b");
-    await stub.markMissing("bob", "b");
+    await repos().upsert("alice", "a");
+    await repos().upsert("bob", "b");
+    await repos().markMissing("bob", "b");
 
     const res = await exports.default.fetch("http://localhost/api/repos");
     expect(res.status).toBe(200);
@@ -40,12 +39,11 @@ describe("GET /api/repos", () => {
   });
 
   test("returns the index usage breakdown by status", async () => {
-    const stub = env.REPOS.get(env.REPOS.idFromName("global"));
-    await stub.upsert("alice", "a");
-    await index("alice/a").recordObject("oid1", 10, "download"); // present
-    await index("alice/a").recordObject("oid2", 5, "verify"); // present
-    await index("alice/a").recordObject("oid3", 7, "upload"); // pending
-    await index("bob/other").recordObject("oid", 1, "download");
+    await repos().upsert("alice", "a");
+    await env.REPO.getByName("alice/a").recordObject("oid1", 10, "download"); // present
+    await env.REPO.getByName("alice/a").recordObject("oid2", 5, "verify"); // present
+    await env.REPO.getByName("alice/a").recordObject("oid3", 7, "upload"); // pending
+    await env.REPO.getByName("bob/other").recordObject("oid", 1, "download");
 
     const res = await exports.default.fetch("http://localhost/api/repos");
     const body = (await res.json()) as { repos: Array<{ repo: string; usage: Usage }> };
@@ -55,11 +53,10 @@ describe("GET /api/repos", () => {
   });
 
   test("resolves the index DO by name case, not lowercased identity", async () => {
-    const stub = env.REPOS.get(env.REPOS.idFromName("global"));
     // lfs-server keys the index DO by the client's case; identity is lowercased.
-    await stub.upsert("Alice", "Repo");
-    await index("Alice/Repo").recordObject("oid1", 7, "download");
-    await index("Alice/Repo").recordObject("oid2", 3, "download");
+    await repos().upsert("Alice", "Repo");
+    await env.REPO.getByName("Alice/Repo").recordObject("oid1", 7, "download");
+    await env.REPO.getByName("Alice/Repo").recordObject("oid2", 3, "download");
 
     const res = await exports.default.fetch("http://localhost/api/repos");
     const body = (await res.json()) as { repos: Array<{ repo: string; usage: Usage }> };
@@ -68,10 +65,9 @@ describe("GET /api/repos", () => {
   });
 
   test("willPurgeAt = deletedAt + GC_PURGE_GRACE_DAYS for deleted rows", async () => {
-    const stub = env.REPOS.get(env.REPOS.idFromName("global"));
-    await stub.upsert("alice", "gone");
-    await stub.markMissing("alice", "gone");
-    const deleted = await stub.markDeleted("alice", "gone");
+    await repos().upsert("alice", "gone");
+    await repos().markMissing("alice", "gone");
+    const deleted = await repos().markDeleted("alice", "gone");
     expect(deleted?.deletedAt).toBeTruthy();
 
     const res = await exports.default.fetch("http://localhost/api/repos");

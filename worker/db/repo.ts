@@ -3,15 +3,15 @@ import { count, eq, inArray, sum } from "drizzle-orm";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 
 import { isoNow } from "@/lib/time";
-import { objects, storageStatuses, type StorageStatus } from "@/db/repo-index-schema";
+import { objects, objectStatuses, type ObjectStatus } from "@/db/repo-schema";
 
 export type ObjectRow = typeof objects.$inferSelect;
 
 /** CF Durable Object SQLite caps bound parameters per statement at 100. */
 const SQL_VAR_LIMIT = 100;
 
-/** Object count + total size per storage_status. Presentation is left to the UI. */
-export type UsageByStatus = Record<StorageStatus, { count: number; size: number }>;
+/** Object count + total size per status. Presentation is left to the UI. */
+export type UsageByStatus = Record<ObjectStatus, { count: number; size: number }>;
 
 export type ObjectReconciliationResult = {
   added: number; // present in storage, absent from index → inserted as present
@@ -20,7 +20,7 @@ export type ObjectReconciliationResult = {
 };
 
 /** Per-repo index DO (keyed by `${owner}/${repo}`). Tracks LFS objects. */
-export class RepoIndex extends DurableObject<CloudflareBindings> {
+export class Repo extends DurableObject<CloudflareBindings> {
   private db: DrizzleSqliteDODatabase;
 
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
@@ -29,16 +29,25 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
     ctx.blockConcurrencyWhile(async () => {
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS objects (
-          oid            TEXT PRIMARY KEY,
-          size           INTEGER NOT NULL,
-          storage_status TEXT NOT NULL DEFAULT 'pending',
-          source         TEXT NOT NULL,
-          first_seen     TEXT NOT NULL,
-          last_seen      TEXT NOT NULL,
-          last_accessed  TEXT NOT NULL
+          oid           TEXT PRIMARY KEY,
+          size          INTEGER NOT NULL,
+          status        TEXT NOT NULL DEFAULT 'pending',
+          source        TEXT NOT NULL,
+          first_seen    TEXT NOT NULL,
+          last_seen     TEXT NOT NULL,
+          last_accessed TEXT NOT NULL
         )
       `);
     });
+  }
+
+  async getObject(oid: string): Promise<ObjectRow | null> {
+    const [row] = await this.db.select().from(objects).where(eq(objects.oid, oid));
+    return row ?? null;
+  }
+
+  async listObjects(): Promise<ObjectRow[]> {
+    return await this.db.select().from(objects);
   }
 
   /**
@@ -59,7 +68,7 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
       .values({
         oid,
         size,
-        storageStatus: confirmed ? "present" : "pending",
+        status: confirmed ? "present" : "pending",
         source: operation,
         firstSeen: now,
         lastSeen: now,
@@ -71,25 +80,25 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
           size,
           lastSeen: now,
           lastAccessed: now,
-          ...(confirmed ? { storageStatus: "present" } : {}),
+          ...(confirmed ? { status: "present" } : {}),
         },
       })
       .returning();
     return row;
   }
 
-  /** Object count and total size broken down by storage_status (zero-filled). */
+  /** Object count and total size broken down by status (zero-filled). */
   async usage(): Promise<UsageByStatus> {
     const rows = await this.db
       .select({
-        status: objects.storageStatus,
+        status: objects.status,
         count: count(),
         size: sum(objects.size),
       })
       .from(objects)
-      .groupBy(objects.storageStatus);
+      .groupBy(objects.status);
     const out = Object.fromEntries(
-      storageStatuses.map((s) => [s, { count: 0, size: 0 }]),
+      objectStatuses.map((s) => [s, { count: 0, size: 0 }]),
     ) as UsageByStatus;
     for (const r of rows) out[r.status] = { count: r.count, size: Number(r.size ?? 0) };
     return out;
@@ -116,8 +125,8 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
       for (const row of rows) {
         const storageSize = storageSizes[row.oid];
         const set: Partial<typeof objects.$inferInsert> = {};
-        if (row.storageStatus === "pending") {
-          set.storageStatus = "present";
+        if (row.status === "pending") {
+          set.status = "present";
           out.confirmed++;
         }
         if (row.size !== storageSize) {
@@ -134,7 +143,7 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
         .map((oid) => ({
           oid,
           size: storageSizes[oid],
-          storageStatus: "present" as const,
+          status: "present" as const,
           source: "storage_scan" as const,
           firstSeen: now,
           lastSeen: now,
@@ -152,14 +161,5 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
       }
     }
     return out;
-  }
-
-  async get(oid: string): Promise<ObjectRow | null> {
-    const [row] = await this.db.select().from(objects).where(eq(objects.oid, oid));
-    return row ?? null;
-  }
-
-  async listAll(): Promise<ObjectRow[]> {
-    return await this.db.select().from(objects);
   }
 }

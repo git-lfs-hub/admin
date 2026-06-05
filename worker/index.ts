@@ -9,7 +9,7 @@ import { isLocal } from '@/lib/host'
 import type { AppEnv } from '@/_env'
 
 export { Repos } from '@/db/repos'
-export { RepoIndex } from '@/db/repo-index'
+export { Repo } from '@/db/repo'
 
 let devReconcileFired = false
 

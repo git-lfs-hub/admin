@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { objects } from "@/db/repo-index-schema";
+import { objects } from "@/db/repo-schema";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 
 test("objects table has primary key on oid", () => {
@@ -14,9 +14,9 @@ test("objects source enum matches schema", () => {
   expect(source.enumValues).toEqual(["upload", "verify", "download", "storage_scan"]);
 });
 
-test("objects storage_status enum matches schema, defaults to pending", () => {
+test("objects status enum matches schema, defaults to pending", () => {
   const config = getTableConfig(objects);
-  const status = config.columns.find((c) => c.name === "storage_status")!;
+  const status = config.columns.find((c) => c.name === "status")!;
   expect(status.enumValues).toEqual(["pending", "present", "missing", "deleted", "purged"]);
   expect(status.default).toBe("pending");
 });

@@ -15,8 +15,8 @@ const indexStub = { id: "index" };
 
 function makeEnv() {
   return {
-    REPOS: { idFromName: vi.fn(() => "global-id"), get: vi.fn(() => reposStub) },
-    INDEX: { idFromName: vi.fn(() => "index-id"), get: vi.fn(() => indexStub) },
+    REPOS: { getByName: vi.fn(() => reposStub) },
+    REPO: { getByName: vi.fn(() => indexStub) },
     LFS_BUCKET: { bucket: true },
   } as any;
 }
@@ -32,7 +32,7 @@ describe("reconcileAll", () => {
   test("discovers then reconciles against the global Repos DO", async () => {
     const env = makeEnv();
     await reconcileAll(env);
-    expect(env.REPOS.idFromName).toHaveBeenCalledWith("global");
+    expect(env.REPOS.getByName).toHaveBeenCalledWith("global");
     expect(discoverRepos).toHaveBeenCalledWith(env.LFS_BUCKET, reposStub);
     expect(reconcileRepos).toHaveBeenCalledWith(env, reposStub);
   });
@@ -61,8 +61,8 @@ describe("reconcileAll", () => {
       { name: "bob/b", status: "purged" },
     ]);
     await reconcileAll(env);
-    expect(env.INDEX.idFromName).toHaveBeenCalledWith("alice/a");
-    expect(env.INDEX.idFromName).not.toHaveBeenCalledWith("bob/b");
+    expect(env.REPO.getByName).toHaveBeenCalledWith("alice/a");
+    expect(env.REPO.getByName).not.toHaveBeenCalledWith("bob/b");
     expect(reconcileObjects).toHaveBeenCalledTimes(1);
     expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, indexStub, "alice/a/");
   });
