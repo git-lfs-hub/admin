@@ -7,8 +7,8 @@ import { objects, storageStatuses, type StorageStatus } from "@/db/repo-index-sc
 
 export type ObjectRow = typeof objects.$inferSelect;
 
-/** Max oids per IN lookup, under SQLite's bound-variable limit. */
-const OID_CHUNK = 100;
+/** CF Durable Object SQLite caps bound parameters per statement at 100. */
+const SQL_VAR_LIMIT = 100;
 
 /** Object count + total size per storage_status. Presentation is left to the UI. */
 export type UsageByStatus = Record<StorageStatus, { count: number; size: number }>;
@@ -109,8 +109,8 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
     const oids = Object.keys(storageSizes);
     const now = isoNow();
     // Chunk the IN lookup to stay under SQLite's bound-variable limit.
-    for (let i = 0; i < oids.length; i += OID_CHUNK) {
-      const chunk = oids.slice(i, i + OID_CHUNK);
+    for (let i = 0; i < oids.length; i += SQL_VAR_LIMIT) {
+      const chunk = oids.slice(i, i + SQL_VAR_LIMIT);
       const rows = await this.db.select().from(objects).where(inArray(objects.oid, chunk));
       const seen = new Set(rows.map((r) => r.oid));
       for (const row of rows) {
@@ -128,20 +128,27 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
           await this.db.update(objects).set(set).where(eq(objects.oid, row.oid));
         }
       }
-      const missing = chunk.filter((oid) => !seen.has(oid));
-      if (missing.length > 0) {
-        await this.db.insert(objects).values(
-          missing.map((oid) => ({
-            oid,
-            size: storageSizes[oid],
-            storageStatus: "present" as const,
-            source: "storage_scan" as const,
-            firstSeen: now,
-            lastSeen: now,
-            lastAccessed: now,
-          })),
-        );
-        out.added += missing.length;
+
+      const inserts = chunk
+        .filter((oid) => !seen.has(oid))
+        .map((oid) => ({
+          oid,
+          size: storageSizes[oid],
+          storageStatus: "present" as const,
+          source: "storage_scan" as const,
+          firstSeen: now,
+          lastSeen: now,
+          lastAccessed: now,
+        }));
+      // Each row binds one var per column; chunk so `rows * cols` stays under
+      // the var limit. Column count is taken from the row actually inserted.
+      if (inserts.length > 0) {
+        const batch_rows = Math.floor(SQL_VAR_LIMIT / Object.keys(inserts[0]).length);
+        for (let j = 0; j < inserts.length; j += batch_rows) {
+          const batch = inserts.slice(j, j + batch_rows);
+          await this.db.insert(objects).values(batch);
+          out.added += batch.length;
+        }
       }
     }
     return out;

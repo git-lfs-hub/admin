@@ -117,4 +117,16 @@ describe("RepoIndex.recordReconciliation", () => {
     expect(row?.storageStatus).toBe("present");
     expect(row?.source).toBe("storage_scan");
   });
+
+  test("adds a batch larger than SQLite's bound-variable limit in one call", async () => {
+    const idx = index();
+    // >100 rows: a single multi-row insert would exceed the bound-var limit.
+    const sizes = Object.fromEntries(
+      Array.from({ length: 250 }, (_, i) => [`oid-${i}`, i + 1]),
+    );
+    const res = await idx.recordReconciliation(sizes);
+    expect(res).toEqual({ added: 250, confirmed: 0, resized: 0 });
+    expect((await idx.get("oid-0"))?.size).toBe(1);
+    expect((await idx.get("oid-249"))?.size).toBe(250);
+  });
 });
