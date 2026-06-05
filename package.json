@@ -5,6 +5,7 @@
   "scripts": {
     "config:vars": "git-lfs-hub-config vars . --env dev",
     "config": "git-lfs-hub-config worker .",
+    "config:test": "git-lfs-hub-config test-worker . test/worker",
     "types": "wrangler types --env-interface CloudflareBindings",
     "compile": "tsgo -b",
     "lint": "oxlint .",
@@ -16,8 +17,8 @@
     "build": "bun run vite build",
     "preview": "bun run build && vite preview",
     "deploy": "bun run build && wrangler deploy",
-    "vitest": "bun run compile && bun run lint && vitest",
-    "playwright": "bun run compile && bun run lint && playwright",
+    "vitest": "bun run compile && bun run lint && bun run config:test && vitest",
+    "playwright": "bun run compile && bun run lint && bun run config:test && playwright",
     "vite": "bun run compile && bun run lint && vite"
   },
   "dependencies": {

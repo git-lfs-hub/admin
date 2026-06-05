@@ -5,5 +5,6 @@
   },
   "s3": { "bucket": "test-lfs-objects" },
   "github": { "org": "test-org" },
-  "gc": { "purgeGraceDays": 7 }
+  "gc": { "purgeGraceDays": 7 },
+  "env": "test"
 }
