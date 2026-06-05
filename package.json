@@ -12,7 +12,7 @@
     "test:watch": "bun run vitest",
     "test:e2e": "bun run playwright test",
     "test-coverage": "bun run test -- --coverage",
-    "dev": "bun run vite",
+    "dev": "ENV=local bun run vite",
     "build": "bun run vite build",
     "preview": "bun run build && vite preview",
     "deploy": "bun run build && wrangler deploy",

@@ -5,6 +5,7 @@ import reposApi from '@/api/repos'
 import loginOauth from '@/login/oauth'
 import { reconcileAll } from '@/reconcile/index'
 import { handleObjectEvents, type ObjectEvent } from '@/server/object-events'
+import { isLocal } from '@/lib/host'
 import type { AppEnv } from '@/_env'
 
 export { Repos } from '@/db/repos'
@@ -14,12 +15,9 @@ let devReconcileFired = false
 
 const app = new Hono<AppEnv>()
   .use('*', async (c, next) => {
-    if (!devReconcileFired) {
-      const host = new URL(c.req.url).hostname
-      if (host === 'localhost' || host === '127.0.0.1') {
-        devReconcileFired = true
-        c.executionCtx.waitUntil(reconcileAll(c.env))
-      }
+    if (!devReconcileFired && isLocal(c)) {
+      devReconcileFired = true
+      c.executionCtx.waitUntil(reconcileAll(c.env, true))
     }
     await next()
   })

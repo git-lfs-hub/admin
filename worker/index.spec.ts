@@ -66,6 +66,6 @@ describe("dev reconcile middleware", () => {
     await worker.fetch!(new Request("http://localhost/api/me"), env, ctx);
     await worker.fetch!(new Request("http://localhost/api/me"), env, ctx);
     expect(reconcileAll).toHaveBeenCalledTimes(1);
-    expect(reconcileAll).toHaveBeenCalledWith(env);
+    expect(reconcileAll).toHaveBeenCalledWith(env, true);
   });
 });

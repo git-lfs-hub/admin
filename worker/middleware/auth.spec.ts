@@ -63,6 +63,17 @@ describe("auth middleware", () => {
       await req("/test", "localhost");
       expect(mockResolveSession).not.toHaveBeenCalled();
     });
+
+    test('ENV=local bypasses auth on a non-local host', async () => {
+      const res = await createApp().request(
+        "http://example.com/test",
+        { headers: COOKIE },
+        { ...ENV, ENV: "local" },
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ admin: "dev" });
+      expect(mockResolveSession).not.toHaveBeenCalled();
+    });
   });
 
   describe("production — no session", () => {

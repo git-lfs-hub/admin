@@ -37,6 +37,23 @@ describe("reconcileAll", () => {
     expect(reconcileRepos).toHaveBeenCalledWith(env, reposStub);
   });
 
+  test("local flag skips reconcileRepos but still reconciles objects", async () => {
+    const env = makeEnv();
+    reposStub.listAll.mockResolvedValueOnce([{ name: "alice/a", status: "active" }]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await reconcileAll(env, true);
+    expect(reconcileRepos).not.toHaveBeenCalled();
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, indexStub, "alice/a/");
+  });
+
+  test("ENV=local skips reconcileRepos", async () => {
+    const env = makeEnv();
+    env.ENV = "local";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await reconcileAll(env);
+    expect(reconcileRepos).not.toHaveBeenCalled();
+  });
+
   test("reconciles objects per non-purged repo by name", async () => {
     const env = makeEnv();
     reposStub.listAll.mockResolvedValueOnce([

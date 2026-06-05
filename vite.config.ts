@@ -14,11 +14,17 @@ export default defineConfig(({ command }) => ({
       ? [
           cloudflare({
             persistState: true,
+            // Dev launches with ENV=local (see package.json `dev`) — inject it as a
+            // worker var so reconcile skips GitHub (no real GitHub App key locally).
+            config: (config) => {
+              if (process.env.ENV) config.vars = { ...config.vars, ENV: process.env.ENV }
+            },
             auxiliaryWorkers: [
               {
                 configPath: '../server/wrangler.jsonc',
                 config: (config) => {
                   config.main = 'dev/entry.ts'
+                  if (process.env.ENV) config.vars = { ...config.vars, ENV: process.env.ENV }
                 },
               },
             ],

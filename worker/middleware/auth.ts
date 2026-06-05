@@ -1,11 +1,11 @@
 import type { MiddlewareHandler } from 'hono'
 import type { Context } from 'hono'
 import { requireOrgRole, resolveSession } from '@git-lfs-hub/lib/auth'
+import { isLocal } from '@/lib/host'
 import type { AppEnv } from '@/_env'
 
 const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const host = new URL(c.req.url).hostname
-  if (host === 'localhost' || host === '127.0.0.1') {
+  if (isLocal(c)) {
     c.set('admin', 'dev')
     return next()
   }
