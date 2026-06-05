@@ -41,9 +41,8 @@ lerna-debug.log*
 # misc
 .DS_Store
 
-# wrangler configs (symlinks to deploy root)
+# configs
+vars.json
 wrangler.jsonc
 worker-configuration.d.ts
-
-# generated test wrangler
 test/worker/wrangler.jsonc
