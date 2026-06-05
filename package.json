@@ -1,30 +1,24 @@
 {
   "name": "@git-lfs-hub/admin",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
     "config:vars": "git-lfs-hub-config vars . --env dev",
     "config": "git-lfs-hub-config worker .",
     "types": "wrangler types --env-interface CloudflareBindings",
     "compile": "tsgo -b",
     "lint": "oxlint .",
-    "pretest": "bun run compile && bun run lint",
-    "test": "scripts/init-test.sh && vitest run",
-    "test:watch": "scripts/init-test.sh && vitest",
-    "test:e2e": "scripts/init-test.sh && playwright test",
+    "test": "bun run vitest run",
+    "test:watch": "bun run vitest",
+    "test:e2e": "bun run playwright test",
     "test-coverage": "bun run test -- --coverage",
-    "dev": "scripts/init-test.sh && vite",
-    "prebuild": "bun run compile && bun run lint",
-    "build": "vite build",
+    "dev": "bun run vite",
+    "build": "bun run vite build",
     "preview": "bun run build && vite preview",
-    "deploy": "bun run build && wrangler deploy"
-  },
-  "packageManager": "bun@1.3.13",
-  "overrides": {
-    "vite": "8.0.14"
-  },
-  "engines": {
-    "node": "^26.1.0"
+    "deploy": "bun run build && wrangler deploy",
+    "vitest": "bun run compile && bun run lint && vitest",
+    "playwright": "bun run compile && bun run lint && playwright",
+    "vite": "bun run compile && bun run lint && vite"
   },
   "dependencies": {
     "@git-lfs-hub/lib": "file:../lib",
@@ -39,9 +33,9 @@
     "vue-router": "^5.0.7"
   },
   "devDependencies": {
-    "@git-lfs-hub/config": "file:../config",
     "@cloudflare/vite-plugin": "^1.2.3",
     "@cloudflare/vitest-pool-workers": "^0.16.9",
+    "@git-lfs-hub/config": "file:../config",
     "@tailwindcss/vite": "^4.3.0",
     "@typescript/native-preview": "^7.0.0-dev.20260604.1",
     "@vitejs/plugin-vue": "^6.0.7",
@@ -60,5 +54,12 @@
     "vitest": "^4.1.7",
     "vue-sonner": "^2.0.9",
     "wrangler": "^4.17.0"
-  }
+  },
+  "overrides": {
+    "vite": "8.0.14"
+  },
+  "engines": {
+    "node": "^26.1.0"
+  },
+  "packageManager": "bun@1.3.13"
 }
