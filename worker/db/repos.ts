@@ -3,12 +3,7 @@ import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 
 import { isoNow } from "@/lib/time";
-import {
-  repos,
-  orgs,
-  type RepoStatus,
-  type OrgStatus,
-} from "@/db/repos-schema";
+import { repos, orgs, type RepoStatus, type OrgStatus } from "@/db/repos-schema";
 
 export type RepoRow = typeof repos.$inferSelect;
 export type OrgRow = typeof orgs.$inferSelect;
@@ -35,8 +30,8 @@ export class Repos extends DurableObject<CloudflareBindings> {
         CREATE TABLE IF NOT EXISTS repos (
           owner          TEXT NOT NULL,
           repo           TEXT NOT NULL,
+          name           TEXT NOT NULL,
           status         TEXT NOT NULL DEFAULT 'active',
-          storage_prefix TEXT NOT NULL,
           first_seen     TEXT NOT NULL,
           updated_at     TEXT NOT NULL,
           missing_at     TEXT,
@@ -81,20 +76,15 @@ export class Repos extends DurableObject<CloudflareBindings> {
 
   async upsert(owner: string, repo: string): Promise<RepoRow> {
     const now = isoNow();
-    // owner/repo arrive in the exact case lfs-server uses for R2 keys (from R2
-    // discovery or the object-event path). Identity is lowercased; the prefix
-    // preserves the real case for R2 listing. Set only on insert: re-deriving it
-    // on conflict would clobber the real R2 prefix if GitHub's owner/repo case
-    // changed (existing objects keep the old prefix).
-    const storagePrefix = `${owner}/${repo}/`;
+    const name = `${owner}/${repo}`;
     const [row] = await this.db
       .insert(repos)
       .values({
         owner: owner.toLowerCase(),
         repo: repo.toLowerCase(),
-        storagePrefix,
+        name,
         firstSeen: now,
-        updatedAt: now
+        updatedAt: now,
       })
       .onConflictDoUpdate({
         target: [repos.owner, repos.repo],
@@ -115,7 +105,7 @@ export class Repos extends DurableObject<CloudflareBindings> {
 
   async markActive(owner: string, repo: string): Promise<RepoRow | null> {
     const current = await this.get(owner, repo);
-    if (!current || current.status !== "missing" && current.status !== "deleted") {
+    if (!current || (current.status !== "missing" && current.status !== "deleted")) {
       return null;
     }
     return this.updateStatus(owner, repo, setStatus("active", isoNow()));
@@ -139,9 +129,7 @@ export class Repos extends DurableObject<CloudflareBindings> {
     );
   }
 
-  async recordReconciliation(
-    input: ReconciliationInput,
-  ): Promise<ReconciliationResult> {
+  async recordReconciliation(input: ReconciliationInput): Promise<ReconciliationResult> {
     const out: ReconciliationResult = { missing: [], missingReappeared: [], deletedReappeared: [] };
     if (input.activeOrgs.size === 0) return out;
     const now = isoNow();
@@ -149,12 +137,7 @@ export class Repos extends DurableObject<CloudflareBindings> {
     const rows = await this.db
       .select()
       .from(repos)
-      .where(
-        and(
-          ne(repos.status, "purged"),
-          inArray(repos.owner, [...activeOrgs]),
-        ),
-      );
+      .where(and(ne(repos.status, "purged"), inArray(repos.owner, [...activeOrgs])));
     for (const r of rows) {
       if (input.activeRepos.has(repoKey(r.owner, r.repo))) {
         if (r.status === "missing") {
@@ -207,7 +190,7 @@ export class Repos extends DurableObject<CloudflareBindings> {
     const next: Partial<OrgRow> = {
       status,
       updatedAt: now,
-      lastError: status === "active" ? null : lastError ?? null,
+      lastError: status === "active" ? null : (lastError ?? null),
     };
     if (status === "active") {
       next.missingAt = null;
@@ -229,15 +212,9 @@ const STATUS_FIELDS = {
   missing: { stamp: "missingAt" },
   deleted: { stamp: "deletedAt" },
   purged: { stamp: "purgedAt" },
-} as const satisfies Record<
-  RepoStatus,
-  { stamp?: keyof RepoRow; clear?: (keyof RepoRow)[] }
->;
+} as const satisfies Record<RepoStatus, { stamp?: keyof RepoRow; clear?: (keyof RepoRow)[] }>;
 
-function setStatus(
-  to: RepoStatus,
-  now: string,
-): Partial<typeof repos.$inferInsert> {
+function setStatus(to: RepoStatus, now: string): Partial<typeof repos.$inferInsert> {
   const f = STATUS_FIELDS[to];
   return {
     status: to,
@@ -248,10 +225,7 @@ function setStatus(
 }
 
 function byKey(owner: string, repo: string) {
-  return and(
-    eq(repos.owner, owner.toLowerCase()),
-    eq(repos.repo, repo.toLowerCase()),
-  );
+  return and(eq(repos.owner, owner.toLowerCase()), eq(repos.repo, repo.toLowerCase()));
 }
 
 function repoKey(owner: string, repo: string) {

@@ -51,17 +51,17 @@ describe("upsert", () => {
     expect(row.repo).toBe("myrepo");
   });
 
-  test("stores storage_prefix in the original R2 case", async () => {
+  test("stores name in the original R2 case", async () => {
     const row = await stub().upsert("Alice", "MyRepo");
-    expect(row.storagePrefix).toBe("Alice/MyRepo/");
+    expect(row.name).toBe("Alice/MyRepo");
   });
 
-  test("keeps the original storage_prefix when a later case differs", async () => {
+  test("keeps the original name when a later case differs", async () => {
     // R2 keys live under the case of the first upload; a later differently-cased
-    // call (e.g. GitHub owner/repo case changed) must not clobber the real prefix.
+    // call (e.g. GitHub owner/repo case changed) must not clobber the real name.
     await stub().upsert("Alice", "MyRepo");
     const row = await stub().upsert("alice", "myrepo");
-    expect(row.storagePrefix).toBe("Alice/MyRepo/");
+    expect(row.name).toBe("Alice/MyRepo");
   });
 
   test("mixed-case + lowercase calls hit the same row", async () => {

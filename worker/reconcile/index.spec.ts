@@ -37,11 +37,11 @@ describe("reconcileAll", () => {
     expect(reconcileRepos).toHaveBeenCalledWith(env, reposStub);
   });
 
-  test("reconciles objects per non-purged repo by storage prefix", async () => {
+  test("reconciles objects per non-purged repo by name", async () => {
     const env = makeEnv();
     reposStub.listAll.mockResolvedValueOnce([
-      { storagePrefix: "alice/a/", status: "active" },
-      { storagePrefix: "bob/b/", status: "purged" },
+      { name: "alice/a", status: "active" },
+      { name: "bob/b", status: "purged" },
     ]);
     await reconcileAll(env);
     expect(env.INDEX.idFromName).toHaveBeenCalledWith("alice/a");
@@ -54,7 +54,7 @@ describe("reconcileAll", () => {
     const env = makeEnv();
     reconcileRepos.mockRejectedValueOnce(new Error("no github creds"));
     reposStub.listAll.mockResolvedValueOnce([
-      { storagePrefix: "alice/a/", status: "active" },
+      { name: "alice/a", status: "active" },
     ]);
     vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(reconcileAll(env)).resolves.toBeUndefined();

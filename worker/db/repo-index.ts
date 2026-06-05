@@ -3,11 +3,7 @@ import { count, eq, inArray, sum } from "drizzle-orm";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 
 import { isoNow } from "@/lib/time";
-import {
-  objects,
-  storageStatuses,
-  type StorageStatus,
-} from "@/db/repo-index-schema";
+import { objects, storageStatuses, type StorageStatus } from "@/db/repo-index-schema";
 
 export type ObjectRow = typeof objects.$inferSelect;
 
@@ -115,10 +111,7 @@ export class RepoIndex extends DurableObject<CloudflareBindings> {
     // Chunk the IN lookup to stay under SQLite's bound-variable limit.
     for (let i = 0; i < oids.length; i += OID_CHUNK) {
       const chunk = oids.slice(i, i + OID_CHUNK);
-      const rows = await this.db
-        .select()
-        .from(objects)
-        .where(inArray(objects.oid, chunk));
+      const rows = await this.db.select().from(objects).where(inArray(objects.oid, chunk));
       const seen = new Set(rows.map((r) => r.oid));
       for (const row of rows) {
         const storageSize = storageSizes[row.oid];

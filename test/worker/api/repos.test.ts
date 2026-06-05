@@ -54,7 +54,7 @@ describe("GET /api/repos", () => {
     expect(row.usage.pending).toEqual({ count: 1, size: 7 });
   });
 
-  test("resolves the index DO by storage_prefix case, not lowercased identity", async () => {
+  test("resolves the index DO by name case, not lowercased identity", async () => {
     const stub = env.REPOS.get(env.REPOS.idFromName("global"));
     // lfs-server keys the index DO by the client's case; identity is lowercased.
     await stub.upsert("Alice", "Repo");

@@ -3,17 +3,17 @@ import { sqliteTable, text, primaryKey } from "drizzle-orm/sqlite-core";
 export const repos = sqliteTable(
   "repos",
   {
+    // lowercased
     owner: text("owner").notNull(),
     repo: text("repo").notNull(),
+    // Canonical `OwnerCase/RepoCase` name as written to R2 by lfs-server,
+    // matching server Repos DO `name`.
+    name: text("name").notNull(),
     status: text("status", {
       enum: ["active", "missing", "deleted", "purged"],
     })
       .notNull()
       .default("active"),
-    // Exact `OwnerCase/RepoCase/` prefix as written to R2 by lfs-server (which
-    // does not lowercase). Identity columns are lowercased; this preserves the
-    // real case so R2 prefix listing matches. Populated by discovery + events.
-    storagePrefix: text("storage_prefix").notNull(),
     firstSeen: text("first_seen").notNull(),
     updatedAt: text("updated_at").notNull(),
     missingAt: text("missing_at"),
@@ -36,9 +36,4 @@ export const orgs = sqliteTable("orgs", {
   lastError: text("last_error"),
 });
 
-export type OrgStatus =
-  | "active"
-  | "missing"
-  | "no_installation"
-  | "forbidden"
-  | "transient_error";
+export type OrgStatus = "active" | "missing" | "no_installation" | "forbidden" | "transient_error";
