@@ -15,7 +15,7 @@ const repo: RepoRow = {
   owner: 'org',
   repo: 'my-repo',
   status: 'active',
-  storagePrefix: 'org/my-repo/',
+  name: 'org/my-repo',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
