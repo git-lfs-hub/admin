@@ -65,7 +65,13 @@
   },
   "vars": {
     "GITHUB_ORG": "{{github.org}}",
-    "GC_PURGE_GRACE_DAYS": "{{gc.purgeGraceDays}}",
+    "GC": {
+      "autoArchiveDays": {{gc.autoArchiveDays}},
+      "autoClearDays": {{gc.autoClearDays}},
+      "liveStorageRetentionDays": {{gc.liveStorageRetentionDays}},
+      "coldStorageRetentionDays": {{gc.coldStorageRetentionDays}},
+      "coldStorage": "{{gc.coldStorage}}",
+    },
     "ENV": "{{env}}",
   },
   "secrets": {

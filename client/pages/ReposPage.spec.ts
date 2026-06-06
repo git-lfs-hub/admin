@@ -19,6 +19,7 @@ const repo: RepoRow = {
   clearedAt: null,
   purgedAt: null,
   activeOp: null,
+  willArchiveAt: null,
   willPurgeAt: null,
   lastAccessedAt: null,
   usage: {

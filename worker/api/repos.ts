@@ -5,7 +5,9 @@ import type { AppEnv } from "@/_env";
 const app = new Hono<AppEnv>().get("/", async (c) => {
   const repos = c.env.REPOS.getByName("global");
   const rows = await repos.listAll();
-  const graceDays = Number(c.env.GC_PURGE_GRACE_DAYS);
+  const gc = c.env.GC;
+  const archiveDays = gc.autoArchiveDays;
+  const retentionDays = gc.coldStorage ? gc.coldStorageRetentionDays : gc.liveStorageRetentionDays;
   const result = await Promise.all(
     rows.map(async (row) => {
       const repo = c.env.REPO.getByName(row.name);
@@ -14,7 +16,8 @@ const app = new Hono<AppEnv>().get("/", async (c) => {
         ...row,
         usage,
         lastAccessedAt,
-        willPurgeAt: row.archivedAt ? isoAddDays(row.archivedAt, graceDays) : null,
+        willArchiveAt: row.status === "missing" && row.missingAt ? isoAddDays(row.missingAt, archiveDays) : null,
+        willPurgeAt: row.archivedAt ? isoAddDays(row.archivedAt, retentionDays) : null,
       };
     }),
   );

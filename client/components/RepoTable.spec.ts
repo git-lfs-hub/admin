@@ -25,6 +25,7 @@ const repo: RepoRow = {
   clearedAt: null,
   purgedAt: null,
   activeOp: null,
+  willArchiveAt: null,
   willPurgeAt: null,
   lastAccessedAt: '2026-05-24T12:00:00Z',
   usage: { ...zeroUsage, present: { count: 142, size: 1073741824 } },
