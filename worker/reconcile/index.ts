@@ -1,10 +1,11 @@
 import { discoverRepos } from "@/storage/discovery";
 import { reconcileRepos } from "@/reconcile/repos";
 import { reconcileObjects } from "@/reconcile/objects";
+import { autoArchive } from "@/gc/autoArchive";
 
 /**
- * Cron pipeline: discover repos from storage, reconcile them against GitHub,
- * then reconcile each non-purged repo's object index against storage.
+ * Cron pipeline: discover repos from storage, reconcile them against GitHub, reconcile
+ * each non-purged repo's object index against storage, then auto-Archive overdue ones.
  */
 export async function reconcileAll(env: CloudflareBindings, local = false): Promise<void> {
   const repos = env.REPOS.getByName("global");
@@ -30,5 +31,10 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
     } catch (e) {
       console.error(`[reconcile] object reconciliation failed for ${row.name}:`, e);
     }
+  }
+  try {
+    await autoArchive(env, repos);
+  } catch (e) {
+    console.error("[reconcile] auto-archive failed:", e);
   }
 }
