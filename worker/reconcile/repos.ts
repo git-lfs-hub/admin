@@ -9,7 +9,7 @@ export type RepoCounts = {
   active: number;
   missing: number;
   missingReappeared: number;
-  deletedReappeared: number;
+  archivedReappeared: number;
 };
 
 export type ReconcileSummary = {
@@ -53,7 +53,7 @@ export async function reconcileRepos(
   }
 
   const result = await repos.recordReconciliation({activeOrgs: new Set(orgs.active), activeRepos});
-  warnAnomalies(orgs, result.deletedReappeared);
+  warnAnomalies(orgs, result.archivedReappeared);
 
   return {
     orgs,
@@ -61,15 +61,15 @@ export async function reconcileRepos(
       active: activeRepos.size,
       missing: result.missing.length,
       missingReappeared: result.missingReappeared.length,
-      deletedReappeared: result.deletedReappeared.length,
+      archivedReappeared: result.archivedReappeared.length,
     },
   };
 }
 
-/** Log reconciliation anomalies: deleted repos that reappeared and non-active orgs. */
-function warnAnomalies(orgs: OrgsByStatus, deletedReappeared: RepoRow[]): void {
-  for (const r of deletedReappeared) {
-    console.warn(`[reconcile] deleted repo reappeared: ${r.owner}/${r.repo}`);
+/** Log reconciliation anomalies: archived repos that reappeared and non-active orgs. */
+function warnAnomalies(orgs: OrgsByStatus, archivedReappeared: RepoRow[]): void {
+  for (const r of archivedReappeared) {
+    console.warn(`[reconcile] archived repo reappeared: ${r.owner}/${r.repo}`);
   }
   for (const status of ["missing", "no_installation", "forbidden"] as const) {
     for (const org of orgs[status]) {
@@ -102,7 +102,7 @@ function emptySummary(): ReconcileSummary {
       active: 0,
       missing: 0,
       missingReappeared: 0,
-      deletedReappeared: 0,
+      archivedReappeared: 0,
     },
   };
 }

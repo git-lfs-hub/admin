@@ -33,7 +33,7 @@ function fakeRepos(owners: string[]) {
   let recordResult = {
     missing: [] as unknown[],
     missingReappeared: [] as unknown[],
-    deletedReappeared: [] as unknown[],
+    archivedReappeared: [] as unknown[],
   };
   return {
     orgStatuses,
@@ -126,13 +126,13 @@ describe("reconcileRepos", () => {
     repos.setRecordResult({
       missing: [{}, {}],
       missingReappeared: [{}],
-      deletedReappeared: [{}, {}, {}],
+      archivedReappeared: [{}, {}, {}],
     });
     const r = await reconcileRepos(env, repos);
     expect(r.repos.active).toBe(2);
     expect(r.repos.missing).toBe(2);
     expect(r.repos.missingReappeared).toBe(1);
-    expect(r.repos.deletedReappeared).toBe(3);
+    expect(r.repos.archivedReappeared).toBe(3);
   });
 
   test("listing errors classified by code, no throw out of reconcileRepos", async () => {

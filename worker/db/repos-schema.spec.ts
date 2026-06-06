@@ -12,7 +12,22 @@ test("repos table has composite primary key on (owner, repo)", () => {
 test("repos status column has expected enum values", () => {
   const config = getTableConfig(repos);
   const status = config.columns.find((c) => c.name === "status")!;
-  expect(status.enumValues).toEqual(["active", "missing", "deleted", "purged"]);
+  expect(status.enumValues).toEqual(["active", "missing", "archived", "purged"]);
+});
+
+test("repos table carries the cold-storage lifecycle columns", () => {
+  const config = getTableConfig(repos);
+  const names = config.columns.map((c) => c.name);
+  expect(names).toEqual(
+    expect.arrayContaining([
+      "archived_at",
+      "backed_up_at",
+      "backup_complete",
+      "cleared_at",
+      "active_op",
+    ]),
+  );
+  expect(names).not.toContain("deleted_at");
 });
 
 test("orgs table has primary key on org", () => {

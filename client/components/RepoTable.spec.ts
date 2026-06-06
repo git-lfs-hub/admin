@@ -19,8 +19,12 @@ const repo: RepoRow = {
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
-  deletedAt: null,
+  archivedAt: null,
+  backedUpAt: null,
+  backupComplete: false,
+  clearedAt: null,
   purgedAt: null,
+  activeOp: null,
   willPurgeAt: null,
   lastAccessedAt: '2026-05-24T12:00:00Z',
   usage: { ...zeroUsage, present: { count: 142, size: 1073741824 } },
@@ -48,7 +52,7 @@ describe('RepoTable', () => {
   })
 
   it('renders willPurgeAt when set', () => {
-    const purging = { ...repo, status: 'deleted' as const, deletedAt: '2026-05-20T00:00:00Z', willPurgeAt: '2026-05-27T00:00:00Z' }
+    const purging = { ...repo, status: 'archived' as const, archivedAt: '2026-05-20T00:00:00Z', willPurgeAt: '2026-05-27T00:00:00Z' }
     const wrapper = mount(RepoTable, { props: { repos: [purging] } })
     expect(wrapper.text()).toContain(new Date('2026-05-27T00:00:00Z').toLocaleString())
   })

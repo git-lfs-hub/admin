@@ -16,7 +16,7 @@ export type ReconciliationInput = {
 export type ReconciliationResult = {
   missing: RepoRow[];
   missingReappeared: RepoRow[];
-  deletedReappeared: RepoRow[];
+  archivedReappeared: RepoRow[];
 };
 
 export class Repos extends DurableObject<CloudflareBindings> {
@@ -28,15 +28,19 @@ export class Repos extends DurableObject<CloudflareBindings> {
     ctx.blockConcurrencyWhile(async () => {
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS repos (
-          owner          TEXT NOT NULL,
-          repo           TEXT NOT NULL,
-          name           TEXT NOT NULL,
-          status         TEXT NOT NULL DEFAULT 'active',
-          first_seen     TEXT NOT NULL,
-          updated_at     TEXT NOT NULL,
-          missing_at     TEXT,
-          deleted_at     TEXT,
-          purged_at      TEXT,
+          owner           TEXT NOT NULL,
+          repo            TEXT NOT NULL,
+          name            TEXT NOT NULL,
+          status          TEXT NOT NULL DEFAULT 'active',
+          first_seen      TEXT NOT NULL,
+          updated_at      TEXT NOT NULL,
+          missing_at      TEXT,
+          archived_at     TEXT,
+          backed_up_at    TEXT,
+          backup_complete INTEGER NOT NULL DEFAULT 0,
+          cleared_at      TEXT,
+          purged_at       TEXT,
+          active_op       TEXT,
           PRIMARY KEY (owner, repo)
         )
       `);
@@ -105,17 +109,17 @@ export class Repos extends DurableObject<CloudflareBindings> {
 
   async markActive(owner: string, repo: string): Promise<RepoRow | null> {
     const current = await this.get(owner, repo);
-    if (!current || (current.status !== "missing" && current.status !== "deleted")) {
+    if (!current || (current.status !== "missing" && current.status !== "archived")) {
       return null;
     }
     return this.updateStatus(owner, repo, setStatus("active", isoNow()));
   }
 
-  async markDeleted(owner: string, repo: string): Promise<RepoRow | null> {
+  async markArchived(owner: string, repo: string): Promise<RepoRow | null> {
     return this.updateStatus(
       owner,
       repo,
-      setStatus("deleted", isoNow()),
+      setStatus("archived", isoNow()),
       eq(repos.status, "missing"),
     );
   }
@@ -125,12 +129,12 @@ export class Repos extends DurableObject<CloudflareBindings> {
       owner,
       repo,
       setStatus("purged", isoNow()),
-      eq(repos.status, "deleted"),
+      eq(repos.status, "archived"),
     );
   }
 
   async recordReconciliation(input: ReconciliationInput): Promise<ReconciliationResult> {
-    const out: ReconciliationResult = { missing: [], missingReappeared: [], deletedReappeared: [] };
+    const out: ReconciliationResult = { missing: [], missingReappeared: [], archivedReappeared: [] };
     if (input.activeOrgs.size === 0) return out;
     const now = isoNow();
     const activeOrgs = [...input.activeOrgs].map((o) => o.toLowerCase());
@@ -143,8 +147,8 @@ export class Repos extends DurableObject<CloudflareBindings> {
         if (r.status === "missing") {
           const u = await this.updateStatus(r.owner, r.repo, setStatus("active", now));
           if (u) out.missingReappeared.push(u);
-        } else if (r.status === "deleted") {
-          out.deletedReappeared.push(r);
+        } else if (r.status === "archived") {
+          out.archivedReappeared.push(r);
         }
       } else if (r.status === "active") {
         const u = await this.updateStatus(r.owner, r.repo, setStatus("missing", now));
@@ -208,9 +212,9 @@ export class Repos extends DurableObject<CloudflareBindings> {
 }
 
 const STATUS_FIELDS = {
-  active: { clear: ["missingAt", "deletedAt"] },
+  active: { clear: ["missingAt", "archivedAt"] },
   missing: { stamp: "missingAt" },
-  deleted: { stamp: "deletedAt" },
+  archived: { stamp: "archivedAt" },
   purged: { stamp: "purgedAt" },
 } as const satisfies Record<RepoStatus, { stamp?: keyof RepoRow; clear?: (keyof RepoRow)[] }>;
 

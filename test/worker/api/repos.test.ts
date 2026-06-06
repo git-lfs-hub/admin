@@ -74,21 +74,21 @@ describe("GET /api/repos", () => {
     expect(row.usage.present).toEqual({ count: 2, size: 10 });
   });
 
-  test("willPurgeAt = deletedAt + GC_PURGE_GRACE_DAYS for deleted rows", async () => {
+  test("willPurgeAt = archivedAt + GC_PURGE_GRACE_DAYS for archived rows", async () => {
     await repos().upsert("alice", "gone");
     await repos().markMissing("alice", "gone");
-    const deleted = await repos().markDeleted("alice", "gone");
-    expect(deleted?.deletedAt).toBeTruthy();
+    const archived = await repos().markArchived("alice", "gone");
+    expect(archived?.archivedAt).toBeTruthy();
 
     const res = await exports.default.fetch("http://localhost/api/repos");
     const body = (await res.json()) as {
-      repos: Array<{ repo: string; deletedAt: string | null; willPurgeAt: string | null }>;
+      repos: Array<{ repo: string; archivedAt: string | null; willPurgeAt: string | null }>;
     };
     const row = body.repos.find((r) => r.repo === "gone")!;
-    expect(row.deletedAt).toBe(deleted!.deletedAt);
+    expect(row.archivedAt).toBe(archived!.archivedAt);
 
     const graceDays = Number(env.GC_PURGE_GRACE_DAYS);
-    const expected = new Date(row.deletedAt!).getTime() + graceDays * 24 * 60 * 60 * 1000;
+    const expected = new Date(row.archivedAt!).getTime() + graceDays * 24 * 60 * 60 * 1000;
     expect(new Date(row.willPurgeAt!).getTime()).toBe(expected);
   });
 

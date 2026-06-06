@@ -23,8 +23,12 @@ describe("upsert", () => {
     expect(row.firstSeen).toMatch(ISO_RE);
     expect(row.updatedAt).toMatch(ISO_RE);
     expect(row.missingAt).toBeNull();
-    expect(row.deletedAt).toBeNull();
+    expect(row.archivedAt).toBeNull();
     expect(row.purgedAt).toBeNull();
+    expect(row.backedUpAt).toBeNull();
+    expect(row.backupComplete).toBe(false);
+    expect(row.clearedAt).toBeNull();
+    expect(row.activeOp).toBeNull();
   });
 
   test("preserves firstSeen but updates updatedAt on second upsert", async () => {
@@ -102,7 +106,7 @@ describe("listByStatus", () => {
   });
 
   test("returns empty array when none match", async () => {
-    expect(await repos().listByStatus("deleted")).toEqual([]);
+    expect(await repos().listByStatus("archived")).toEqual([]);
   });
 });
 
@@ -138,14 +142,14 @@ describe("markActive", () => {
     expect(row?.missingAt).toBeNull();
   });
 
-  test("deleted → active clears deleted_at", async () => {
+  test("archived → active clears archived_at", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markDeleted("alice", "repo");
+    await repos().markArchived("alice", "repo");
     const row = await repos().markActive("alice", "repo");
     expect(row?.status).toBe("active");
     expect(row?.missingAt).toBeNull();
-    expect(row?.deletedAt).toBeNull();
+    expect(row?.archivedAt).toBeNull();
   });
 
   test("returns null when already active", async () => {
@@ -156,7 +160,7 @@ describe("markActive", () => {
   test("returns null when purged", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markDeleted("alice", "repo");
+    await repos().markArchived("alice", "repo");
     await repos().markPurged("alice", "repo");
     expect(await repos().markActive("alice", "repo")).toBeNull();
   });
@@ -166,37 +170,37 @@ describe("markActive", () => {
   });
 });
 
-describe("markDeleted", () => {
-  test("missing → deleted sets deleted_at", async () => {
+describe("markArchived", () => {
+  test("missing → archived sets archived_at", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    const row = await repos().markDeleted("alice", "repo");
-    expect(row?.status).toBe("deleted");
-    expect(row?.deletedAt).toMatch(ISO_RE);
+    const row = await repos().markArchived("alice", "repo");
+    expect(row?.status).toBe("archived");
+    expect(row?.archivedAt).toMatch(ISO_RE);
   });
 
   test("returns null when status is active", async () => {
     await repos().upsert("alice", "repo");
-    expect(await repos().markDeleted("alice", "repo")).toBeNull();
+    expect(await repos().markArchived("alice", "repo")).toBeNull();
   });
 
-  test("returns null when already deleted", async () => {
+  test("returns null when already archived", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markDeleted("alice", "repo");
-    expect(await repos().markDeleted("alice", "repo")).toBeNull();
+    await repos().markArchived("alice", "repo");
+    expect(await repos().markArchived("alice", "repo")).toBeNull();
   });
 
   test("returns null when repo does not exist", async () => {
-    expect(await repos().markDeleted("nope", "nope")).toBeNull();
+    expect(await repos().markArchived("nope", "nope")).toBeNull();
   });
 });
 
 describe("markPurged", () => {
-  test("deleted → purged sets purged_at", async () => {
+  test("archived → purged sets purged_at", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markDeleted("alice", "repo");
+    await repos().markArchived("alice", "repo");
     const row = await repos().markPurged("alice", "repo");
     expect(row?.status).toBe("purged");
     expect(row?.purgedAt).toMatch(ISO_RE);
@@ -218,14 +222,14 @@ describe("markPurged", () => {
 // ---------------------------------------------------------------------------
 
 describe("listOwners", () => {
-  test("returns distinct lowercased owners across active|missing|deleted", async () => {
+  test("returns distinct lowercased owners across active|missing|archived", async () => {
     await repos().upsert("Alice", "a");
     await repos().upsert("alice", "b");
     await repos().upsert("Bob", "c");
     await repos().upsert("Carol", "d");
     await repos().markMissing("Bob", "c");
     await repos().markMissing("Carol", "d");
-    await repos().markDeleted("Carol", "d");
+    await repos().markArchived("Carol", "d");
     const owners = (await repos().listOwners()).sort();
     expect(owners).toEqual(["alice", "bob", "carol"]);
   });
@@ -233,7 +237,7 @@ describe("listOwners", () => {
   test("excludes purged-only owners", async () => {
     await repos().upsert("alice", "a");
     await repos().markMissing("alice", "a");
-    await repos().markDeleted("alice", "a");
+    await repos().markArchived("alice", "a");
     await repos().markPurged("alice", "a");
     expect(await repos().listOwners()).toEqual([]);
   });
@@ -261,7 +265,7 @@ describe("recordReconciliation", () => {
     });
     expect(r.missing.map((x) => x.repo)).toEqual(["b"]);
     expect(r.missingReappeared).toEqual([]);
-    expect(r.deletedReappeared).toEqual([]);
+    expect(r.archivedReappeared).toEqual([]);
     expect((await repos().get("alice", "b"))?.status).toBe("missing");
     expect((await repos().get("alice", "a"))?.status).toBe("active");
   });
@@ -279,22 +283,22 @@ describe("recordReconciliation", () => {
     expect(row?.missingAt).toBeNull();
   });
 
-  test("deleted present → deletedReappeared, not mutated", async () => {
+  test("archived present → archivedReappeared, not mutated", async () => {
     await repos().upsert("alice", "a");
     await repos().markMissing("alice", "a");
-    await repos().markDeleted("alice", "a");
+    await repos().markArchived("alice", "a");
     const r = await repos().recordReconciliation({
       activeOrgs: new Set(["alice"]),
       activeRepos: new Set([key("alice", "a")]),
     });
-    expect(r.deletedReappeared.map((x) => x.repo)).toEqual(["a"]);
-    expect((await repos().get("alice", "a"))?.status).toBe("deleted");
+    expect(r.archivedReappeared.map((x) => x.repo)).toEqual(["a"]);
+    expect((await repos().get("alice", "a"))?.status).toBe("archived");
   });
 
   test("purged untouched", async () => {
     await repos().upsert("alice", "a");
     await repos().markMissing("alice", "a");
-    await repos().markDeleted("alice", "a");
+    await repos().markArchived("alice", "a");
     await repos().markPurged("alice", "a");
     const r = await repos().recordReconciliation({
       activeOrgs: new Set(["alice"]),

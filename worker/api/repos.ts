@@ -14,7 +14,7 @@ const app = new Hono<AppEnv>().get("/", async (c) => {
         ...row,
         usage,
         lastAccessedAt,
-        willPurgeAt: row.deletedAt ? isoAddDays(row.deletedAt, graceDays) : null,
+        willPurgeAt: row.archivedAt ? isoAddDays(row.archivedAt, graceDays) : null,
       };
     }),
   );
