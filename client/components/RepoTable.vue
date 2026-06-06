@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { formatSize, formatTime, formatRelative } from '@/lib/format'
+import { formatSize, formatTime, formatDate, formatRelative } from '@/lib/format'
+import { useRepoMutations } from '@/composables/useRepoMutations'
 import type { RepoRow } from '@/composables/useRepos'
 
 defineProps<{ repos: RepoRow[] }>()
-defineEmits<{ changed: [] }>()
+
+const { archive, restore } = useRepoMutations()
 
 // "Stored" = objects present in storage plus pending writes; excludes missing/deleted/purged.
 const storedCount = (r: RepoRow) => r.usage.present.count + r.usage.pending.count
@@ -21,13 +35,13 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
         <TableHead class="text-right">Size</TableHead>
         <TableHead class="text-right">Objects</TableHead>
         <TableHead>Last accessed</TableHead>
-        <TableHead>Will purge</TableHead>
-        <TableHead class="w-32" />
+        <TableHead>Will archive</TableHead>
+        <TableHead class="text-right">Actions</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
       <TableRow v-for="r in repos" :key="`${r.owner}/${r.repo}`">
-        <TableCell class="font-mono">{{ r.owner }}/{{ r.repo }}</TableCell>
+        <TableCell class="font-mono whitespace-normal break-all">{{ r.owner }}/{{ r.repo }}</TableCell>
         <TableCell><StatusBadge :status="r.status" /></TableCell>
         <TableCell class="text-right">{{ formatSize(storedSize(r)) }}</TableCell>
         <TableCell class="text-right">{{ storedCount(r) }}</TableCell>
@@ -35,8 +49,53 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
           <span v-if="r.lastAccessedAt" :title="formatTime(r.lastAccessedAt)">{{ formatRelative(r.lastAccessedAt) }}</span>
           <template v-else>—</template>
         </TableCell>
-        <TableCell>{{ r.willPurgeAt ? formatTime(r.willPurgeAt) : '—' }}</TableCell>
-        <TableCell><!-- actions: Phase 2 --></TableCell>
+        <TableCell>
+          <span v-if="r.willArchiveAt" :title="formatTime(r.willArchiveAt)">{{ formatDate(r.willArchiveAt) }}</span>
+          <template v-else>—</template>
+        </TableCell>
+        <TableCell class="text-right">
+          <AlertDialog v-if="r.status === 'missing'">
+            <AlertDialogTrigger as-child>
+              <Button size="xs" variant="destructive" :disabled="archive.isPending.value">Archive</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Archive {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Blocks LFS access — uploads and downloads return 404. Live storage is
+                  retained and the repo is restored automatically if it reappears on GitHub.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" @click="archive.mutate({ owner: r.owner, repo: r.repo })">
+                  Archive
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog v-else-if="r.status === 'archived'">
+            <AlertDialogTrigger as-child>
+              <Button size="xs" variant="outline" :disabled="restore.isPending.value">Restore</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Restore {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Unblocks LFS access — the repo serves again. Live storage was retained,
+                  so this is instant.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction @click="restore.mutate({ owner: r.owner, repo: r.repo })">
+                  Restore
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </TableCell>
       </TableRow>
     </TableBody>
   </Table>

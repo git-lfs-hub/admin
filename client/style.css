@@ -45,7 +45,9 @@
 }
 
 @layer base {
-  html { @apply bg-background text-foreground; }
+  /* Reserve the scrollbar gutter so opening a dialog (which locks body scroll)
+     never reflows the page and pops a horizontal scrollbar on wide tables. */
+  html { @apply bg-background text-foreground; scrollbar-gutter: stable; }
 }
 
 @theme inline {

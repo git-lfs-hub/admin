@@ -1,12 +1,32 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { reset } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
+
+import reposApp from "@/api/repos";
 
 afterEach(async () => {
   await reset();
 });
 
 const repos = () => env.REPOS.getByName("global");
+
+// The LFS_SERVER service binding is stripped from the test wrangler (services: null),
+// so drive the sub-app directly with a fabricated env: the real REPOS/REPO/GC bindings
+// plus a stub lfs-server we can assert on / make fail.
+function appEnv(lfs: Partial<Record<"blockRepo" | "unblockRepo" | "purgeRepo", unknown>> = {}) {
+  const LFS_SERVER = {
+    blockRepo: vi.fn(async () => {}),
+    unblockRepo: vi.fn(async () => {}),
+    purgeRepo: vi.fn(async () => {}),
+    ...lfs,
+  };
+  return {
+    env: { REPOS: env.REPOS, REPO: env.REPO, GC: env.GC, LFS_SERVER } as unknown as CloudflareBindings,
+    blockRepo: LFS_SERVER.blockRepo,
+    unblockRepo: LFS_SERVER.unblockRepo,
+  };
+}
+const post = (path: string, e: CloudflareBindings) => reposApp.request(path, { method: "POST" }, e);
 
 type Usage = Record<string, { count: number; size: number }>;
 
@@ -113,5 +133,114 @@ describe("GET /api/repos", () => {
     const res = await exports.default.fetch("http://admin.example.com/api/repos");
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "unauthenticated" });
+  });
+});
+
+describe("POST /api/repos/:owner/:repo/archive", () => {
+  test("missing repo → blockRepo then archived", async () => {
+    await repos().upsert("alice", "gone");
+    await repos().markMissing("alice", "gone");
+    const { env: e, blockRepo } = appEnv();
+
+    const res = await post("/alice/gone/archive", e);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { repo: { status: string } };
+    expect(body.repo.status).toBe("archived");
+    expect(blockRepo).toHaveBeenCalledWith("alice", "gone");
+    expect((await repos().get("alice", "gone"))?.status).toBe("archived");
+  });
+
+  test("active repo → 409, no block", async () => {
+    await repos().upsert("alice", "live");
+    const { env: e, blockRepo } = appEnv();
+
+    const res = await post("/alice/live/archive", e);
+    expect(res.status).toBe(409);
+    expect(blockRepo).not.toHaveBeenCalled();
+    expect((await repos().get("alice", "live"))?.status).toBe("active");
+  });
+
+  test("unknown repo → 404", async () => {
+    const { env: e } = appEnv();
+    const res = await post("/nobody/nope/archive", e);
+    expect(res.status).toBe(404);
+  });
+
+  test("blockRepo failure → 502, row stays missing (DO unchanged)", async () => {
+    await repos().upsert("alice", "gone");
+    await repos().markMissing("alice", "gone");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { env: e } = appEnv({
+      blockRepo: vi.fn(async () => {
+        throw new Error("rpc down");
+      }),
+    });
+
+    const res = await post("/alice/gone/archive", e);
+    expect(res.status).toBe(502);
+    expect((await repos().get("alice", "gone"))?.status).toBe("missing");
+    warn.mockRestore();
+  });
+});
+
+describe("POST /api/repos/:owner/:repo/restore", () => {
+  async function seedArchived(owner: string, repo: string) {
+    await repos().upsert(owner, repo);
+    await repos().markMissing(owner, repo);
+    await repos().markArchived(owner, repo);
+  }
+
+  test("archived repo → unblockRepo then active", async () => {
+    await seedArchived("alice", "gone");
+    const { env: e, unblockRepo } = appEnv();
+
+    const res = await post("/alice/gone/restore", e);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { repo: { status: string } };
+    expect(body.repo.status).toBe("active");
+    expect(unblockRepo).toHaveBeenCalledWith("alice", "gone");
+    expect((await repos().get("alice", "gone"))?.status).toBe("active");
+  });
+
+  test("non-archived repo → 409, no unblock", async () => {
+    await repos().upsert("alice", "live");
+    const { env: e, unblockRepo } = appEnv();
+
+    const res = await post("/alice/live/restore", e);
+    expect(res.status).toBe(409);
+    expect(unblockRepo).not.toHaveBeenCalled();
+  });
+
+  test("unknown repo → 404", async () => {
+    const { env: e } = appEnv();
+    expect((await post("/nobody/nope/restore", e)).status).toBe(404);
+  });
+
+  test("unblockRepo failure → 502, row stays archived", async () => {
+    await seedArchived("alice", "gone");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { env: e } = appEnv({
+      unblockRepo: vi.fn(async () => {
+        throw new Error("rpc down");
+      }),
+    });
+
+    const res = await post("/alice/gone/restore", e);
+    expect(res.status).toBe(502);
+    expect((await repos().get("alice", "gone"))?.status).toBe("archived");
+    warn.mockRestore();
+  });
+});
+
+describe("not-yet-implemented mutations → 501", () => {
+  test.each([
+    ["POST", "/alice/r/backup"],
+    ["DELETE", "/alice/r/backup"],
+    ["POST", "/alice/r/clear"],
+    ["POST", "/alice/r/purge"],
+  ])("%s %s", async (method, path) => {
+    const { env: e } = appEnv();
+    const res = await reposApp.request(path, { method }, e);
+    expect(res.status).toBe(501);
   });
 });

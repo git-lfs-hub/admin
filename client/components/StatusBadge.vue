@@ -5,11 +5,11 @@ import type { RepoStatus } from '@/composables/useRepos'
 const props = defineProps<{ status: RepoStatus }>()
 
 const variant = {
-  active:  'default',
-  missing: 'secondary',
-  deleted: 'destructive',
-  purged:  'outline',
-} as const
+  active:   'default',
+  missing:  'secondary',
+  archived: 'destructive',
+  purged:   'outline',
+} as const satisfies Record<RepoStatus, string>
 </script>
 
 <template>

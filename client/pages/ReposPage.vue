@@ -4,7 +4,7 @@ import RepoTable from '@/components/RepoTable.vue'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
-const { data: repos, isLoading, error, refetch } = useRepos()
+const { data: repos, isLoading, error } = useRepos()
 </script>
 
 <template>
@@ -26,6 +26,6 @@ const { data: repos, isLoading, error, refetch } = useRepos()
       No repositories discovered yet.
     </p>
 
-    <RepoTable v-else :repos="repos" @changed="() => refetch()" />
+    <RepoTable v-else :repos="repos" />
   </section>
 </template>

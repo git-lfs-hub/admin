@@ -1,7 +1,16 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import RepoTable from '@/components/RepoTable.vue'
 import type { RepoRow } from '@/composables/useRepos'
+
+function mountTable(repos: RepoRow[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return mount(RepoTable, {
+    props: { repos },
+    global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+  })
+}
 
 const zeroUsage = {
   deleted: { count: 0, size: 0 },
@@ -33,34 +42,35 @@ const repo: RepoRow = {
 
 describe('RepoTable', () => {
   it('renders repo rows', () => {
-    const wrapper = mount(RepoTable, { props: { repos: [repo] } })
+    const wrapper = mountTable([repo])
     expect(wrapper.text()).toContain('org/my-repo')
     expect(wrapper.text()).toContain('active')
   })
 
   it('renders size and object count', () => {
-    const wrapper = mount(RepoTable, { props: { repos: [repo] } })
+    const wrapper = mountTable([repo])
     expect(wrapper.text()).toContain('142')
     expect(wrapper.text()).toContain('1.07 GB')
   })
 
   it('renders zero size and count for empty usage', () => {
     const emptyRepo = { ...repo, usage: zeroUsage }
-    const wrapper = mount(RepoTable, { props: { repos: [emptyRepo] } })
+    const wrapper = mountTable([emptyRepo])
     const cells = wrapper.findAll('td')
     expect(cells[2].text()).toBe('0 B')
     expect(cells[3].text()).toBe('0')
   })
 
-  it('renders willPurgeAt when set', () => {
-    const purging = { ...repo, status: 'archived' as const, archivedAt: '2026-05-20T00:00:00Z', willPurgeAt: '2026-05-27T00:00:00Z' }
-    const wrapper = mount(RepoTable, { props: { repos: [purging] } })
-    expect(wrapper.text()).toContain(new Date('2026-05-27T00:00:00Z').toLocaleString())
+  it('renders willArchiveAt as a date with full timestamp on hover', () => {
+    const missing = { ...repo, status: 'missing' as const, missingAt: '2026-05-20T00:00:00Z', willArchiveAt: '2026-05-27T00:00:00Z' }
+    const span = mountTable([missing]).find('td:nth-child(6) span')
+    expect(span.text()).toBe(new Date('2026-05-27T00:00:00Z').toLocaleDateString())
+    expect(span.attributes('title')).toBe(new Date('2026-05-27T00:00:00Z').toLocaleString())
   })
 
   it('renders lastAccessed relative with absolute timestamp on hover', () => {
     const recent = { ...repo, lastAccessedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() }
-    const wrapper = mount(RepoTable, { props: { repos: [recent] } })
+    const wrapper = mountTable([recent])
     const span = wrapper.find('td:nth-child(5) span')
     expect(span.text()).toBe('5m ago')
     expect(span.attributes('title')).toBe(new Date(recent.lastAccessedAt).toLocaleString())
@@ -68,13 +78,27 @@ describe('RepoTable', () => {
 
   it('renders dash for null lastAccessedAt', () => {
     const noAccess = { ...repo, lastAccessedAt: null }
-    const wrapper = mount(RepoTable, { props: { repos: [noAccess] } })
+    const wrapper = mountTable([noAccess])
     expect(wrapper.find('td:nth-child(5)').text()).toBe('—')
   })
 
-  it('renders dash for null willPurgeAt', () => {
-    const wrapper = mount(RepoTable, { props: { repos: [repo] } })
+  it('renders dash for null willArchiveAt', () => {
+    const wrapper = mountTable([repo])
     const cells = wrapper.findAll('td')
     expect(cells.some((c) => c.text() === '—')).toBe(true)
+  })
+
+  const actionLabels = (repos: RepoRow[]) =>
+    mountTable(repos).findAll('button').map((b) => b.text())
+
+  it('shows Archive for missing repos only', () => {
+    expect(actionLabels([{ ...repo, status: 'missing' }])).toContain('Archive')
+    expect(actionLabels([repo])).not.toContain('Archive')
+  })
+
+  it('shows Restore for archived repos only', () => {
+    expect(actionLabels([{ ...repo, status: 'archived' }])).toContain('Restore')
+    expect(actionLabels([{ ...repo, status: 'missing' }])).not.toContain('Restore')
+    expect(actionLabels([repo])).not.toContain('Restore')
   })
 })

@@ -8,6 +8,11 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
+/** Date only (no time) — compact for deadline columns; pair with `formatTime` on hover. */
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString()
+}
+
 /** Coarse "time ago": seconds, then minutes, hours, days. */
 export function formatRelative(iso: string): string {
   const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))

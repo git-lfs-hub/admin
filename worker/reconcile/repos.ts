@@ -1,4 +1,4 @@
-import type { Repos, RepoRow } from "@/db/repos";
+import type { Repos, RepoRow, ReconciliationResult } from "@/db/repos";
 import type { OrgStatus } from "@/db/repos-schema";
 import { GithubApi, GithubError } from "@git-lfs-hub/lib/github";
 import { probeOrg, type OrgProbeResult } from "@/github/probeOrg";
@@ -54,8 +54,12 @@ export async function reconcileRepos(
     }
   }
 
-  const result = await repos.recordReconciliation({activeOrgs: new Set(orgs.active), activeRepos});
-  const reappeared = await restoreReappeared(env, repos, result);
+  const { result, reappeared } = await applyReconciliation(
+    env,
+    repos,
+    new Set(orgs.active),
+    activeRepos,
+  );
   warnAnomalies(orgs, reappeared.cleared);
 
   return {
@@ -68,6 +72,22 @@ export async function reconcileRepos(
       archivedReappearedCleared: reappeared.cleared.length,
     },
   };
+}
+
+/**
+ * Apply a computed GitHub-presence verdict to the repo rows: record the missing /
+ * reappeared transitions, then resume serving for the reappeared ones. Shared by the
+ * prod GitHub path (above) and the local-dev fixture path (`dev/reconcileLocal.ts`).
+ */
+export async function applyReconciliation(
+  env: CloudflareBindings,
+  repos: DurableObjectStub<Repos>,
+  activeOrgs: Set<string>,
+  activeRepos: Set<string>,
+): Promise<{ result: ReconciliationResult; reappeared: { live: number; cleared: RepoRow[] } }> {
+  const result = await repos.recordReconciliation({ activeOrgs, activeRepos });
+  const reappeared = await restoreReappeared(env, repos, result);
+  return { result, reappeared };
 }
 
 /**

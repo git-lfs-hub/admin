@@ -10,16 +10,18 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
   const repos = env.REPOS.getByName("global");
   await discoverRepos(env.LFS_BUCKET, repos);
   // GitHub repo reconciliation is independent of the object pass below (which only
-  // needs storage + the discovered repos). Skipped in local dev (no real GitHub App
-  // key); also guarded so a GitHub failure never blocks object reconciliation.
-  if (local || (env.ENV as string) === "local") {
-    console.warn("[reconcile] local mode: skipping GitHub repo reconciliation");
-  } else {
-    try {
+  // needs storage + the discovered repos). Local dev has no real GitHub App key, so
+  // it runs the fixture-driven stand-in (dev/github.ts) instead; both are guarded so
+  // a failure never blocks object reconciliation.
+  try {
+    if (local || (env.ENV as string) === "local") {
+      const { reconcileLocal } = await import("@/dev/reconcileLocal");
+      await reconcileLocal(env, repos);
+    } else {
       await reconcileRepos(env, repos);
-    } catch (e) {
-      console.error("[reconcile] repo reconciliation failed:", e);
     }
+  } catch (e) {
+    console.error("[reconcile] repo reconciliation failed:", e);
   }
   for (const row of await repos.listAll()) {
     if (row.status === "purged") continue;
