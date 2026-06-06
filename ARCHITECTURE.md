@@ -20,4 +20,4 @@ Admin API (GitHub OAuth, org admin role required)
 - **`LFS_BUCKET`** (R2) — LFS object storage; enumerated during R2 prefix listing and purged on confirmed deletion.
 
 **Vars:** `GITHUB_ORG`, `GC_PURGE_GRACE_DAYS`.
-**Secrets:** `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET`.
+**Secrets:** `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `LOGIN_SECRET`.

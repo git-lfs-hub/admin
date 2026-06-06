@@ -18,12 +18,12 @@ import {
 const mockProcessOAuth = vi.mocked(oauthCallback);
 const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
-const SESSION_SECRET = "a".repeat(64);
+const LOGIN_SECRET = "a".repeat(64);
 const ENV = {
   GITHUB_CLIENT_ID: "test-client-id",
   GITHUB_CLIENT_SECRET: "test-client-secret",
   GITHUB_ORG: "test-org",
-  SESSION_SECRET,
+  LOGIN_SECRET,
 };
 
 function get(path: string) {

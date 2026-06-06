@@ -22,7 +22,7 @@ With Cloudflare auth in place (`wrangler login` or `CLOUDFLARE_API_TOKEN`) and s
 ```sh
 wrangler secret put GITHUB_CLIENT_ID
 wrangler secret put GITHUB_CLIENT_SECRET
-wrangler secret put SESSION_SECRET   # openssl rand -hex 32
+wrangler secret put LOGIN_SECRET   # openssl rand -hex 32
 ```
 
 ```sh

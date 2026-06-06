@@ -15,7 +15,7 @@ vi.mock("@git-lfs-hub/lib/auth", async (orig) => ({
 import auth from "@/middleware/auth";
 
 const ENV = {
-  SESSION_SECRET: "a".repeat(64),
+  LOGIN_SECRET: "a".repeat(64),
   GITHUB_ORG: "test-org",
   GITHUB_CLIENT_ID: "test-client-id",
   GITHUB_CLIENT_SECRET: "test-client-secret",

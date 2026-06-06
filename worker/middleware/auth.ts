@@ -11,7 +11,7 @@ const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
 
   const session = await resolveSession(c, {
-    secret: c.env.SESSION_SECRET,
+    secret: c.env.LOGIN_SECRET,
     clientId: c.env.GITHUB_CLIENT_ID,
     clientSecret: c.env.GITHUB_CLIENT_SECRET,
   })
