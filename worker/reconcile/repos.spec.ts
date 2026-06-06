@@ -164,7 +164,7 @@ describe("reconcileRepos", () => {
     expect(repos.markActive).toHaveBeenCalledWith("a", "x");
   });
 
-  test("reappearance: archived + clearedAt set → no unblock, no markActive (alert only)", async () => {
+  test("reappearance: archived + clearedAt set → no unblock, no markActive, notify-only warn", async () => {
     const repos = fakeRepos(["a"]);
     probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/z"]) });
     repos.setRecordResult({
@@ -172,10 +172,27 @@ describe("reconcileRepos", () => {
       missingReappeared: [],
       archivedReappeared: [{ owner: "a", repo: "z", name: "a/z", clearedAt: "2026-01-01T00:00:00Z" }],
     });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const r = await reconcileRepos(env, repos);
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(repos.markActive).not.toHaveBeenCalled();
     expect(r.repos.archivedReappearedCleared).toBe(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("reappeared after clear"));
+    warn.mockRestore();
+  });
+
+  test("reappearance: archived-live restore does not emit the cleared alert", async () => {
+    const repos = fakeRepos(["a"]);
+    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x"]) });
+    repos.setRecordResult({
+      missing: [],
+      missingReappeared: [],
+      archivedReappeared: [{ owner: "a", repo: "x", name: "a/x", clearedAt: null }],
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await reconcileRepos(env, repos);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("reappeared after clear"));
+    warn.mockRestore();
   });
 
   test("reappearance: unblock RPC failure leaves status unflipped", async () => {
