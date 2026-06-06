@@ -25,7 +25,12 @@ vi.mock("@git-lfs-hub/lib/github", async (importOriginal) => {
 import { reconcileRepos } from "@/reconcile/repos";
 import type { OrgProbeResult } from "@/github/probeOrg";
 
-const env = { GITHUB_APP_ID: "1", GITHUB_APP_PRIVATE_KEY: "k" } as any;
+const unblockRepo = vi.fn(async () => {});
+const env = {
+  GITHUB_APP_ID: "1",
+  GITHUB_APP_PRIVATE_KEY: "k",
+  LFS_SERVER: { unblockRepo },
+} as any;
 
 function fakeRepos(owners: string[]) {
   const orgStatuses: { org: string; status: string; error?: string | null }[] = [];
@@ -44,6 +49,7 @@ function fakeRepos(owners: string[]) {
       return lastReconcileInput;
     },
     listOwners: vi.fn(async () => owners),
+    markActive: vi.fn(async (owner: string, repo: string) => ({ owner, repo, status: "active" })),
     upsertOrgStatus: vi.fn(async (org: string, status: string, error?: string | null) => {
       orgStatuses.push({ org, status, error });
       return { org, status };
@@ -60,6 +66,8 @@ function fakeRepos(owners: string[]) {
 beforeEach(() => {
   probeOrg.mockReset();
   orgApiMock.mockReset();
+  unblockRepo.mockReset();
+  unblockRepo.mockResolvedValue(undefined);
   // default: orgApi returns a fake GithubOrgApi-shaped stub
   orgApiMock.mockResolvedValue({});
 });
@@ -125,14 +133,63 @@ describe("reconcileRepos", () => {
     probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x", "a/y"]) });
     repos.setRecordResult({
       missing: [{}, {}],
-      missingReappeared: [{}],
-      archivedReappeared: [{}, {}, {}],
+      missingReappeared: [{ owner: "a", repo: "m", name: "a/m" }],
+      archivedReappeared: [
+        { owner: "a", repo: "x", name: "a/x", clearedAt: null },
+        { owner: "a", repo: "y", name: "a/y", clearedAt: null },
+        { owner: "a", repo: "z", name: "a/z", clearedAt: "2026-01-01T00:00:00Z" },
+      ],
     });
     const r = await reconcileRepos(env, repos);
     expect(r.repos.active).toBe(2);
     expect(r.repos.missing).toBe(2);
     expect(r.repos.missingReappeared).toBe(1);
-    expect(r.repos.archivedReappeared).toBe(3);
+    expect(r.repos.archivedReappearedLive).toBe(2);
+    expect(r.repos.archivedReappearedCleared).toBe(1);
+  });
+
+  test("reappearance: unblocks missing + archived-live, flips archived-live active", async () => {
+    const repos = fakeRepos(["a"]);
+    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x"]) });
+    repos.setRecordResult({
+      missing: [],
+      missingReappeared: [{ owner: "a", repo: "m", name: "a/m" }],
+      archivedReappeared: [{ owner: "a", repo: "x", name: "a/x", clearedAt: null }],
+    });
+    await reconcileRepos(env, repos);
+    expect(unblockRepo.mock.calls).toEqual([
+      ["a", "m"],
+      ["a", "x"],
+    ]);
+    expect(repos.markActive).toHaveBeenCalledWith("a", "x");
+  });
+
+  test("reappearance: archived + clearedAt set → no unblock, no markActive (alert only)", async () => {
+    const repos = fakeRepos(["a"]);
+    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/z"]) });
+    repos.setRecordResult({
+      missing: [],
+      missingReappeared: [],
+      archivedReappeared: [{ owner: "a", repo: "z", name: "a/z", clearedAt: "2026-01-01T00:00:00Z" }],
+    });
+    const r = await reconcileRepos(env, repos);
+    expect(unblockRepo).not.toHaveBeenCalled();
+    expect(repos.markActive).not.toHaveBeenCalled();
+    expect(r.repos.archivedReappearedCleared).toBe(1);
+  });
+
+  test("reappearance: unblock RPC failure leaves status unflipped", async () => {
+    const repos = fakeRepos(["a"]);
+    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x"]) });
+    repos.setRecordResult({
+      missing: [],
+      missingReappeared: [],
+      archivedReappeared: [{ owner: "a", repo: "x", name: "a/x", clearedAt: null }],
+    });
+    unblockRepo.mockRejectedValueOnce(new Error("rpc down"));
+    const r = await reconcileRepos(env, repos);
+    expect(repos.markActive).not.toHaveBeenCalled();
+    expect(r.repos.archivedReappearedLive).toBe(0);
   });
 
   test("listing errors classified by code, no throw out of reconcileRepos", async () => {

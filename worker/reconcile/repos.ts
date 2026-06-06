@@ -2,6 +2,7 @@ import type { Repos, RepoRow } from "@/db/repos";
 import type { OrgStatus } from "@/db/repos-schema";
 import { GithubApi, GithubError } from "@git-lfs-hub/lib/github";
 import { probeOrg, type OrgProbeResult } from "@/github/probeOrg";
+import { lfsServer } from "@/server/lfs-server";
 
 export type OrgsByStatus = Record<OrgStatus, string[]>;
 
@@ -9,7 +10,8 @@ export type RepoCounts = {
   active: number;
   missing: number;
   missingReappeared: number;
-  archivedReappeared: number;
+  archivedReappearedLive: number;
+  archivedReappearedCleared: number;
 };
 
 export type ReconcileSummary = {
@@ -53,7 +55,8 @@ export async function reconcileRepos(
   }
 
   const result = await repos.recordReconciliation({activeOrgs: new Set(orgs.active), activeRepos});
-  warnAnomalies(orgs, result.archivedReappeared);
+  const reappeared = await restoreReappeared(env, repos, result);
+  warnAnomalies(orgs, reappeared.cleared);
 
   return {
     orgs,
@@ -61,15 +64,55 @@ export async function reconcileRepos(
       active: activeRepos.size,
       missing: result.missing.length,
       missingReappeared: result.missingReappeared.length,
-      archivedReappeared: result.archivedReappeared.length,
+      archivedReappearedLive: reappeared.live,
+      archivedReappearedCleared: reappeared.cleared.length,
     },
   };
 }
 
-/** Log reconciliation anomalies: archived repos that reappeared and non-active orgs. */
-function warnAnomalies(orgs: OrgsByStatus, archivedReappeared: RepoRow[]): void {
-  for (const r of archivedReappeared) {
-    console.warn(`[reconcile] archived repo reappeared: ${r.owner}/${r.repo}`);
+/**
+ * Resume serving for repos that reappeared on GitHub (recordReconciliation already
+ * flipped `missing` rows to `active`; `archived` rows are left untouched here).
+ * `unblockRepo` must succeed before the status flips, so an RPC failure leaves the
+ * row archived/blocked for the next cron to retry. `archived` + `clearedAt` set (live
+ * cleared, cold path) does not auto-restore — returned for an alert (B2).
+ */
+async function restoreReappeared(
+  env: CloudflareBindings,
+  repos: DurableObjectStub<Repos>,
+  result: { missingReappeared: RepoRow[]; archivedReappeared: RepoRow[] },
+): Promise<{ live: number; cleared: RepoRow[] }> {
+  const server = lfsServer(env);
+  let live = 0;
+  const cleared: RepoRow[] = [];
+  // Missing repos are never blocked; unblock defensively (idempotent).
+  for (const r of result.missingReappeared) {
+    try {
+      await server.unblockRepo(r.owner, r.repo);
+    } catch (e) {
+      console.error(`[reconcile] unblock failed for ${r.name}:`, e);
+    }
+  }
+  for (const r of result.archivedReappeared) {
+    if (r.clearedAt) {
+      cleared.push(r);
+      continue;
+    }
+    try {
+      await server.unblockRepo(r.owner, r.repo);
+      await repos.markActive(r.owner, r.repo);
+      live++;
+    } catch (e) {
+      console.error(`[reconcile] auto-restore failed for ${r.name}:`, e);
+    }
+  }
+  return { live, cleared };
+}
+
+/** Log reconciliation anomalies: cleared-then-reappeared repos and non-active orgs. */
+function warnAnomalies(orgs: OrgsByStatus, archivedReappearedCleared: RepoRow[]): void {
+  for (const r of archivedReappearedCleared) {
+    console.warn(`[reconcile] archived repo reappeared after clear (manual restore needed): ${r.owner}/${r.repo}`);
   }
   for (const status of ["missing", "no_installation", "forbidden"] as const) {
     for (const org of orgs[status]) {
@@ -102,7 +145,8 @@ function emptySummary(): ReconcileSummary {
       active: 0,
       missing: 0,
       missingReappeared: 0,
-      archivedReappeared: 0,
+      archivedReappearedLive: 0,
+      archivedReappearedCleared: 0,
     },
   };
 }
