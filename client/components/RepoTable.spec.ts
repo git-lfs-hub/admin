@@ -91,14 +91,21 @@ describe('RepoTable', () => {
   const actionLabels = (repos: RepoRow[]) =>
     mountTable(repos).findAll('button').map((b) => b.text())
 
-  it('shows Archive for missing repos only', () => {
+  it('shows Archive for missing, not-yet-blocked repos only', () => {
     expect(actionLabels([{ ...repo, status: 'missing' }])).toContain('Archive')
-    expect(actionLabels([repo])).not.toContain('Archive')
+    expect(actionLabels([repo])).not.toContain('Archive') // active
+    // already blocked → Restore, not Archive
+    expect(actionLabels([{ ...repo, status: 'missing', archivedAt: '2026-05-25T00:00:00Z' }])).not.toContain('Archive')
   })
 
-  it('shows Restore for archived repos only', () => {
-    expect(actionLabels([{ ...repo, status: 'archived' }])).toContain('Restore')
+  it('shows Restore whenever the repo is blocked (archivedAt set), regardless of status', () => {
+    expect(actionLabels([{ ...repo, status: 'missing', archivedAt: '2026-05-25T00:00:00Z' }])).toContain('Restore')
     expect(actionLabels([{ ...repo, status: 'missing' }])).not.toContain('Restore')
-    expect(actionLabels([repo])).not.toContain('Restore')
+    expect(actionLabels([repo])).not.toContain('Restore') // active, unblocked
+  })
+
+  it('renders an Archived badge when blocked', () => {
+    expect(mountTable([{ ...repo, status: 'missing', archivedAt: '2026-05-25T00:00:00Z' }]).text()).toContain('archived')
+    expect(mountTable([repo]).text()).not.toContain('archived')
   })
 })

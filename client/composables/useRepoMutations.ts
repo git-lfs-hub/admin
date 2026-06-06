@@ -4,11 +4,8 @@ import { api } from '@/api'
 
 type RepoRef = { owner: string; repo: string }
 
-/**
- * Lifecycle mutations for a repo. Each invalidates the `['repos']` query on success
- * so the table reflects the new status, and surfaces failures as a toast (the shared
- * `authFetch` rejects non-2xx with the server's `error` message).
- */
+// Errors surface as toasts via the shared `authFetch`, which rejects non-2xx with the
+// server's `error` message.
 export function useRepoMutations() {
   const qc = useQueryClient()
   const invalidate = () => qc.invalidateQueries({ queryKey: ['repos'] })

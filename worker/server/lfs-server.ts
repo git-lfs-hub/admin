@@ -1,7 +1,5 @@
-// Narrow the LFS_SERVER service binding to the shared cross-worker contract.
-// wrangler types the binding as a bare `Service` (no cross-worker method
-// inference); the real shape is enforced on the producer (server/src/admin/
-// entrypoint.ts `implements LfsServer`).
+// wrangler types the binding as a bare `Service`, so narrow it to the contract here;
+// the shape is enforced on the producer (server `AdminEntrypoint implements LfsServer`).
 import type { LfsServer } from "@git-lfs-hub/lib/contracts";
 
 export type { LfsServer };

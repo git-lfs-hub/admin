@@ -14,6 +14,11 @@ const vuePlugin = vue()
 ;(vuePlugin as { api: { options: { compiler: unknown } } }).api.options.compiler = vueCompilerSfc
 
 export default defineConfig(({ command }) => ({
+  // Dev server (serve) keeps the @dev fixture reconcile; the deployed worker is bundled by
+  // wrangler (define __DEV__=false in wrangler.jsonc), which strips it.
+  define: {
+    __DEV__: JSON.stringify(command === 'serve'),
+  },
   resolve: {
     tsconfigPaths: true,
   },

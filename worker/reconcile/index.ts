@@ -9,13 +9,12 @@ import { reconcileObjects } from "@/reconcile/objects";
 export async function reconcileAll(env: CloudflareBindings, local = false): Promise<void> {
   const repos = env.REPOS.getByName("global");
   await discoverRepos(env.LFS_BUCKET, repos);
-  // GitHub repo reconciliation is independent of the object pass below (which only
-  // needs storage + the discovered repos). Local dev has no real GitHub App key, so
-  // it runs the fixture-driven stand-in (dev/github.ts) instead; both are guarded so
-  // a failure never blocks object reconciliation.
+  // Local dev has no GitHub App key → fixture stand-in. `__DEV__` is a build-time literal:
+  // false in the deployed bundle, so esbuild drops this branch and the `@dev` import with
+  // it. Guarded so a failure here never blocks the object pass below.
   try {
-    if (local || (env.ENV as string) === "local") {
-      const { reconcileLocal } = await import("@/dev/reconcileLocal");
+    if (__DEV__ && (local || (env.ENV as string) === "local")) {
+      const { reconcileLocal } = await import("@dev/reconcileLocal");
       await reconcileLocal(env, repos);
     } else {
       await reconcileRepos(env, repos);

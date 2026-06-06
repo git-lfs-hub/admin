@@ -63,6 +63,11 @@
   "triggers": {
     "crons": ["0 * * * *"],
   },
+  // Build-time DCE flag — false in the deployed bundle strips the dev-only fixture
+  // reconcile (`@dev/*`). Overridden to true for dev (vite.config) and tests (wrangler.test.json).
+  "define": {
+    "__DEV__": "false",
+  },
   "vars": {
     "GITHUB_ORG": "{{github.org}}",
     "GC": {

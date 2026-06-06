@@ -15,8 +15,9 @@
     "test-coverage": "bun run test -- --coverage",
     "dev": "ENV=local bun run vite",
     "build": "bun run vite build",
+    "check:bundle": "bun scripts/assert-no-dev.ts dist/worker/index.js",
     "preview": "bun run build && vite preview",
-    "deploy": "bun run build && wrangler deploy",
+    "deploy": "bun run build && wrangler deploy --outdir dist/worker && bun run check:bundle",
     "vitest": "bun run compile && bun run lint && bun run config:test && vitest",
     "playwright": "bun run compile && bun run lint && bun run config:test && playwright",
     "vite": "bun run compile && bun run lint && vite"

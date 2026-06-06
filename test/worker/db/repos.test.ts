@@ -106,7 +106,7 @@ describe("listByStatus", () => {
   });
 
   test("returns empty array when none match", async () => {
-    expect(await repos().listByStatus("archived")).toEqual([]);
+    expect(await repos().listByStatus("purged")).toEqual([]);
   });
 });
 
@@ -142,14 +142,14 @@ describe("markActive", () => {
     expect(row?.missingAt).toBeNull();
   });
 
-  test("archived → active clears archived_at", async () => {
+  test("presence flip only — keeps archivedAt (block is a separate axis)", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markArchived("alice", "repo");
+    await repos().block("alice", "repo");
     const row = await repos().markActive("alice", "repo");
     expect(row?.status).toBe("active");
     expect(row?.missingAt).toBeNull();
-    expect(row?.archivedAt).toBeNull();
+    expect(row?.archivedAt).not.toBeNull(); // still blocked
   });
 
   test("returns null when already active", async () => {
@@ -160,7 +160,7 @@ describe("markActive", () => {
   test("returns null when purged", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markArchived("alice", "repo");
+    await repos().block("alice", "repo");
     await repos().markPurged("alice", "repo");
     expect(await repos().markActive("alice", "repo")).toBeNull();
   });
@@ -170,43 +170,73 @@ describe("markActive", () => {
   });
 });
 
-describe("markArchived", () => {
-  test("missing → archived sets archived_at", async () => {
+describe("block", () => {
+  test("sets archivedAt without changing status (missing stays missing)", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    const row = await repos().markArchived("alice", "repo");
-    expect(row?.status).toBe("archived");
+    const row = await repos().block("alice", "repo");
+    expect(row?.status).toBe("missing");
     expect(row?.archivedAt).toMatch(ISO_RE);
   });
 
-  test("returns null when status is active", async () => {
+  test("can block an active repo without changing status", async () => {
     await repos().upsert("alice", "repo");
-    expect(await repos().markArchived("alice", "repo")).toBeNull();
+    const row = await repos().block("alice", "repo");
+    expect(row?.status).toBe("active");
+    expect(row?.archivedAt).toMatch(ISO_RE);
   });
 
-  test("returns null when already archived", async () => {
+  test("returns null when already blocked", async () => {
+    await repos().upsert("alice", "repo");
+    await repos().block("alice", "repo");
+    expect(await repos().block("alice", "repo")).toBeNull();
+  });
+
+  test("returns null when purged", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markArchived("alice", "repo");
-    expect(await repos().markArchived("alice", "repo")).toBeNull();
+    await repos().block("alice", "repo");
+    await repos().markPurged("alice", "repo");
+    expect(await repos().block("alice", "repo")).toBeNull();
   });
 
   test("returns null when repo does not exist", async () => {
-    expect(await repos().markArchived("nope", "nope")).toBeNull();
+    expect(await repos().block("nope", "nope")).toBeNull();
+  });
+});
+
+describe("unblock", () => {
+  test("clears archivedAt without changing status (missing stays missing)", async () => {
+    await repos().upsert("alice", "repo");
+    await repos().markMissing("alice", "repo");
+    await repos().block("alice", "repo");
+    const row = await repos().unblock("alice", "repo");
+    expect(row?.status).toBe("missing");
+    expect(row?.archivedAt).toBeNull();
+  });
+
+  test("returns null when not blocked", async () => {
+    await repos().upsert("alice", "repo");
+    await repos().markMissing("alice", "repo");
+    expect(await repos().unblock("alice", "repo")).toBeNull();
+  });
+
+  test("returns null when repo does not exist", async () => {
+    expect(await repos().unblock("nope", "nope")).toBeNull();
   });
 });
 
 describe("markPurged", () => {
-  test("archived → purged sets purged_at", async () => {
+  test("blocked → purged sets purged_at", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
-    await repos().markArchived("alice", "repo");
+    await repos().block("alice", "repo");
     const row = await repos().markPurged("alice", "repo");
     expect(row?.status).toBe("purged");
     expect(row?.purgedAt).toMatch(ISO_RE);
   });
 
-  test("returns null when status is missing", async () => {
+  test("returns null when not blocked (archivedAt null)", async () => {
     await repos().upsert("alice", "repo");
     await repos().markMissing("alice", "repo");
     expect(await repos().markPurged("alice", "repo")).toBeNull();
@@ -222,14 +252,14 @@ describe("markPurged", () => {
 // ---------------------------------------------------------------------------
 
 describe("listOwners", () => {
-  test("returns distinct lowercased owners across active|missing|archived", async () => {
+  test("returns distinct lowercased owners across active|missing|blocked", async () => {
     await repos().upsert("Alice", "a");
     await repos().upsert("alice", "b");
     await repos().upsert("Bob", "c");
     await repos().upsert("Carol", "d");
     await repos().markMissing("Bob", "c");
     await repos().markMissing("Carol", "d");
-    await repos().markArchived("Carol", "d");
+    await repos().block("Carol", "d");
     const owners = (await repos().listOwners()).sort();
     expect(owners).toEqual(["alice", "bob", "carol"]);
   });
@@ -237,7 +267,7 @@ describe("listOwners", () => {
   test("excludes purged-only owners", async () => {
     await repos().upsert("alice", "a");
     await repos().markMissing("alice", "a");
-    await repos().markArchived("alice", "a");
+    await repos().block("alice", "a");
     await repos().markPurged("alice", "a");
     expect(await repos().listOwners()).toEqual([]);
   });
@@ -264,8 +294,8 @@ describe("recordReconciliation", () => {
       activeRepos: new Set([key("alice", "a")]),
     });
     expect(r.missing.map((x) => x.repo)).toEqual(["b"]);
-    expect(r.missingReappeared).toEqual([]);
-    expect(r.archivedReappeared).toEqual([]);
+    expect(r.reappeared).toEqual([]);
+    expect(r.blockedPresent).toEqual([]);
     expect((await repos().get("alice", "b"))?.status).toBe("missing");
     expect((await repos().get("alice", "a"))?.status).toBe("active");
   });
@@ -277,28 +307,32 @@ describe("recordReconciliation", () => {
       activeOrgs: new Set(["alice"]),
       activeRepos: new Set([key("alice", "a")]),
     });
-    expect(r.missingReappeared.map((x) => x.repo)).toEqual(["a"]);
+    expect(r.reappeared.map((x) => x.repo)).toEqual(["a"]);
+    expect(r.blockedPresent).toEqual([]);
     const row = await repos().get("alice", "a");
     expect(row?.status).toBe("active");
     expect(row?.missingAt).toBeNull();
   });
 
-  test("archived present → archivedReappeared, not mutated", async () => {
+  test("blocked + present → reappeared + blockedPresent; block NOT cleared by the DO", async () => {
     await repos().upsert("alice", "a");
     await repos().markMissing("alice", "a");
-    await repos().markArchived("alice", "a");
+    await repos().block("alice", "a");
     const r = await repos().recordReconciliation({
       activeOrgs: new Set(["alice"]),
       activeRepos: new Set([key("alice", "a")]),
     });
-    expect(r.archivedReappeared.map((x) => x.repo)).toEqual(["a"]);
-    expect((await repos().get("alice", "a"))?.status).toBe("archived");
+    expect(r.reappeared.map((x) => x.repo)).toEqual(["a"]); // presence flipped
+    expect(r.blockedPresent.map((x) => x.repo)).toEqual(["a"]); // surfaced for unblock
+    const row = await repos().get("alice", "a");
+    expect(row?.status).toBe("active");
+    expect(row?.archivedAt).not.toBeNull(); // worker (RPC-gated) does the unblock, not the DO
   });
 
   test("purged untouched", async () => {
     await repos().upsert("alice", "a");
     await repos().markMissing("alice", "a");
-    await repos().markArchived("alice", "a");
+    await repos().block("alice", "a");
     await repos().markPurged("alice", "a");
     const r = await repos().recordReconciliation({
       activeOrgs: new Set(["alice"]),

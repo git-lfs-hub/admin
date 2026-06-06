@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
-import { reconcileLocal } from "@/dev/reconcileLocal";
+import { reconcileLocal } from "@dev/reconcileLocal";
 
 const unblockRepo = vi.fn(async () => {});
 const env = { LFS_SERVER: { unblockRepo } } as any;
@@ -9,10 +9,10 @@ function fakeRepos(owners: string[]) {
   return {
     lastInput: null as { activeOrgs: Set<string>; activeRepos: Set<string> } | null,
     listOwners: vi.fn(async () => owners),
-    markActive: vi.fn(async (owner: string, repo: string) => ({ owner, repo })),
+    unblock: vi.fn(async (owner: string, repo: string) => ({ owner, repo })),
     recordReconciliation: vi.fn(async function (this: any, input: any) {
       this.lastInput = input;
-      return { missing: [], missingReappeared: [], archivedReappeared: [] };
+      return { missing: [], reappeared: [], blockedPresent: [] };
     }),
   } as any;
 }

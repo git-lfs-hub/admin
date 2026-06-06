@@ -8,11 +8,13 @@
     "outDir": "../.tsbuild",
     "rootDir": "..",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@dev/*": ["../dev/*"]
     }
   },
   "include": [
     "**/*.ts",
+    "../dev/**/*.ts",
     "../worker-configuration.d.ts"
   ]
 }

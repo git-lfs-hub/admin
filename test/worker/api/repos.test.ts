@@ -111,10 +111,10 @@ describe("GET /api/repos", () => {
     expect(new Date(row.willArchiveAt!).getTime()).toBe(expected);
   });
 
-  test("willPurgeAt = archivedAt + GC_LIVE_STORAGE_RETENTION_DAYS (no cold storage) for archived rows", async () => {
+  test("willPurgeAt = archivedAt + GC_LIVE_STORAGE_RETENTION_DAYS (no cold storage) for blocked rows", async () => {
     await repos().upsert("alice", "gone");
     await repos().markMissing("alice", "gone");
-    const archived = await repos().markArchived("alice", "gone");
+    const archived = await repos().block("alice", "gone");
     expect(archived?.archivedAt).toBeTruthy();
 
     const res = await exports.default.fetch("http://localhost/api/repos");
@@ -137,17 +137,20 @@ describe("GET /api/repos", () => {
 });
 
 describe("POST /api/repos/:owner/:repo/archive", () => {
-  test("missing repo → blockRepo then archived", async () => {
+  test("missing repo → blockRepo + archivedAt set, status stays missing", async () => {
     await repos().upsert("alice", "gone");
     await repos().markMissing("alice", "gone");
     const { env: e, blockRepo } = appEnv();
 
     const res = await post("/alice/gone/archive", e);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { repo: { status: string } };
-    expect(body.repo.status).toBe("archived");
+    const body = (await res.json()) as { repo: { status: string; archivedAt: string | null } };
+    expect(body.repo.status).toBe("missing"); // block doesn't change status
+    expect(body.repo.archivedAt).toBeTruthy();
     expect(blockRepo).toHaveBeenCalledWith("alice", "gone");
-    expect((await repos().get("alice", "gone"))?.status).toBe("archived");
+    const row = await repos().get("alice", "gone");
+    expect(row?.status).toBe("missing");
+    expect(row?.archivedAt).toBeTruthy();
   });
 
   test("active repo → 409, no block", async () => {
@@ -157,7 +160,18 @@ describe("POST /api/repos/:owner/:repo/archive", () => {
     const res = await post("/alice/live/archive", e);
     expect(res.status).toBe(409);
     expect(blockRepo).not.toHaveBeenCalled();
-    expect((await repos().get("alice", "live"))?.status).toBe("active");
+    expect((await repos().get("alice", "live"))?.archivedAt).toBeNull();
+  });
+
+  test("already blocked → 409, no second block", async () => {
+    await repos().upsert("alice", "gone");
+    await repos().markMissing("alice", "gone");
+    await repos().block("alice", "gone");
+    const { env: e, blockRepo } = appEnv();
+
+    const res = await post("/alice/gone/archive", e);
+    expect(res.status).toBe(409);
+    expect(blockRepo).not.toHaveBeenCalled();
   });
 
   test("unknown repo → 404", async () => {
@@ -166,7 +180,7 @@ describe("POST /api/repos/:owner/:repo/archive", () => {
     expect(res.status).toBe(404);
   });
 
-  test("blockRepo failure → 502, row stays missing (DO unchanged)", async () => {
+  test("blockRepo failure → 502, row stays unblocked (DO unchanged)", async () => {
     await repos().upsert("alice", "gone");
     await repos().markMissing("alice", "gone");
     const warn = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -178,31 +192,36 @@ describe("POST /api/repos/:owner/:repo/archive", () => {
 
     const res = await post("/alice/gone/archive", e);
     expect(res.status).toBe(502);
-    expect((await repos().get("alice", "gone"))?.status).toBe("missing");
+    const row = await repos().get("alice", "gone");
+    expect(row?.status).toBe("missing");
+    expect(row?.archivedAt).toBeNull();
     warn.mockRestore();
   });
 });
 
 describe("POST /api/repos/:owner/:repo/restore", () => {
-  async function seedArchived(owner: string, repo: string) {
+  async function seedBlocked(owner: string, repo: string) {
     await repos().upsert(owner, repo);
     await repos().markMissing(owner, repo);
-    await repos().markArchived(owner, repo);
+    await repos().block(owner, repo);
   }
 
-  test("archived repo → unblockRepo then active", async () => {
-    await seedArchived("alice", "gone");
+  test("blocked repo → unblockRepo + archivedAt cleared, status unchanged (missing)", async () => {
+    await seedBlocked("alice", "gone");
     const { env: e, unblockRepo } = appEnv();
 
     const res = await post("/alice/gone/restore", e);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { repo: { status: string } };
-    expect(body.repo.status).toBe("active");
+    const body = (await res.json()) as { repo: { status: string; archivedAt: string | null } };
+    expect(body.repo.status).toBe("missing"); // presence untouched by restore
+    expect(body.repo.archivedAt).toBeNull();
     expect(unblockRepo).toHaveBeenCalledWith("alice", "gone");
-    expect((await repos().get("alice", "gone"))?.status).toBe("active");
+    const row = await repos().get("alice", "gone");
+    expect(row?.status).toBe("missing");
+    expect(row?.archivedAt).toBeNull();
   });
 
-  test("non-archived repo → 409, no unblock", async () => {
+  test("not-blocked repo → 409, no unblock", async () => {
     await repos().upsert("alice", "live");
     const { env: e, unblockRepo } = appEnv();
 
@@ -216,8 +235,8 @@ describe("POST /api/repos/:owner/:repo/restore", () => {
     expect((await post("/nobody/nope/restore", e)).status).toBe(404);
   });
 
-  test("unblockRepo failure → 502, row stays archived", async () => {
-    await seedArchived("alice", "gone");
+  test("unblockRepo failure → 502, row stays blocked", async () => {
+    await seedBlocked("alice", "gone");
     const warn = vi.spyOn(console, "error").mockImplementation(() => {});
     const { env: e } = appEnv({
       unblockRepo: vi.fn(async () => {
@@ -227,7 +246,7 @@ describe("POST /api/repos/:owner/:repo/restore", () => {
 
     const res = await post("/alice/gone/restore", e);
     expect(res.status).toBe(502);
-    expect((await repos().get("alice", "gone"))?.status).toBe("archived");
+    expect((await repos().get("alice", "gone"))?.archivedAt).toBeTruthy();
     warn.mockRestore();
   });
 });

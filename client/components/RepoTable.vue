@@ -12,6 +12,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { formatSize, formatTime, formatDate, formatRelative } from '@/lib/format'
 import { useRepoMutations } from '@/composables/useRepoMutations'
@@ -50,11 +51,12 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
           <template v-else>—</template>
         </TableCell>
         <TableCell>
-          <span v-if="r.willArchiveAt" :title="formatTime(r.willArchiveAt)">{{ formatDate(r.willArchiveAt) }}</span>
+          <Badge v-if="r.archivedAt" variant="destructive" :title="`Blocked since ${formatTime(r.archivedAt)}`">archived</Badge>
+          <span v-else-if="r.willArchiveAt" :title="formatTime(r.willArchiveAt)">{{ formatDate(r.willArchiveAt) }}</span>
           <template v-else>—</template>
         </TableCell>
         <TableCell class="text-right">
-          <AlertDialog v-if="r.status === 'missing'">
+          <AlertDialog v-if="r.status === 'missing' && !r.archivedAt">
             <AlertDialogTrigger as-child>
               <Button size="xs" variant="destructive" :disabled="archive.isPending.value">Archive</Button>
             </AlertDialogTrigger>
@@ -63,7 +65,8 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
                 <AlertDialogTitle>Archive {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
                 <AlertDialogDescription>
                   Blocks LFS access — uploads and downloads return 404. Live storage is
-                  retained and the repo is restored automatically if it reappears on GitHub.
+                  retained, the status stays <code>missing</code>, and the block is lifted
+                  automatically if the repo reappears on GitHub.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -75,7 +78,7 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
             </AlertDialogContent>
           </AlertDialog>
 
-          <AlertDialog v-else-if="r.status === 'archived'">
+          <AlertDialog v-else-if="r.archivedAt">
             <AlertDialogTrigger as-child>
               <Button size="xs" variant="outline" :disabled="restore.isPending.value">Restore</Button>
             </AlertDialogTrigger>
@@ -83,8 +86,8 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size
               <AlertDialogHeader>
                 <AlertDialogTitle>Restore {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Unblocks LFS access — the repo serves again. Live storage was retained,
-                  so this is instant.
+                  Unblocks LFS access — the repo serves again. Only the block is lifted;
+                  the status is unchanged (presence is reconciliation's call).
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

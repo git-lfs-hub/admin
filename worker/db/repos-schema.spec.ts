@@ -9,10 +9,10 @@ test("repos table has composite primary key on (owner, repo)", () => {
   expect(pk.columns.map((c) => c.name).sort()).toEqual(["owner", "repo"]);
 });
 
-test("repos status column has expected enum values", () => {
+test("repos status column is presence/lifecycle only (block is archivedAt, not a status)", () => {
   const config = getTableConfig(repos);
   const status = config.columns.find((c) => c.name === "status")!;
-  expect(status.enumValues).toEqual(["active", "missing", "archived", "purged"]);
+  expect(status.enumValues).toEqual(["active", "missing", "purged"]);
 });
 
 test("repos table carries the cold-storage lifecycle columns", () => {

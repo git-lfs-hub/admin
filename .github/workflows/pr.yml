@@ -7,6 +7,8 @@ on:
 env:
   GLH_VARS_JSON: ${{ vars.GLH_VARS_JSON || secrets.GLH_VARS_JSON }}
 
+permissions: { contents: read }
+
 jobs:
   test:
     name: Test
@@ -25,6 +27,5 @@ jobs:
   can-merge:
     name: Can merge
     runs-on: ubuntu-latest
-    permissions: { contents: read }
     steps:
       - uses: git-lfs-hub/ci-cd/actions/check-can-merge@main

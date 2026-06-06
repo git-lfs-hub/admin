@@ -3,13 +3,16 @@ import { defineConfig, defineProject } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
+  // Tests keep the dev fixture reconcile: node/happy-dom projects set __DEV__ via their
+  // own `define`; the integration pool reads it from test/worker/wrangler.test.json.
   test: {
     projects: [
       defineProject({
+        define: { __DEV__: "true" },
         resolve: { tsconfigPaths: true },
         test: {
           name: "unit",
-          include: ["worker/**/*.spec.ts"],
+          include: ["worker/**/*.spec.ts", "dev/**/*.spec.ts"],
           environment: "node",
         },
       }),
@@ -29,6 +32,7 @@ export default defineConfig({
       }),
       defineProject({
         plugins: [vue()],
+        define: { __DEV__: "true" },
         resolve: { tsconfigPaths: true },
         test: {
           name: "client",
@@ -40,7 +44,7 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ["text", "text-summary", "json", "json-summary", "lcov"],
-      include: ["worker/**/*.ts", "client/**/*.ts"],
+      include: ["worker/**/*.ts", "dev/**/*.ts", "client/**/*.ts"],
       exclude: ["**/*.spec.ts", "**/*.test.ts", "**/*.d.ts"],
       thresholds: {
         statements: 90,

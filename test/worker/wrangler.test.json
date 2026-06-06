@@ -7,6 +7,9 @@
   },
   "secrets": null,
   "services": null,
+  "define": {
+    "__DEV__": "true"
+  },
   "vars": {
     "GITHUB_CLIENT_ID": "test-client-id",
     "GITHUB_CLIENT_SECRET": "test-client-secret",

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 
 import { isoNow } from "@/lib/time";
@@ -14,9 +14,11 @@ export type ReconciliationInput = {
 };
 
 export type ReconciliationResult = {
-  missing: RepoRow[];
-  missingReappeared: RepoRow[];
-  archivedReappeared: RepoRow[];
+  missing: RepoRow[]; // active → missing (gone from GitHub)
+  reappeared: RepoRow[]; // missing → active (presence restored)
+  // present on GitHub but still blocked (archivedAt set) — caller unblocks
+  // (clearedAt null) or alerts (clearedAt set). Independent of the presence flip.
+  blockedPresent: RepoRow[];
 };
 
 export class Repos extends DurableObject<CloudflareBindings> {
@@ -107,34 +109,48 @@ export class Repos extends DurableObject<CloudflareBindings> {
     );
   }
 
+  /** Presence flip only — deliberately leaves the serve-block (`archivedAt`) alone. */
   async markActive(owner: string, repo: string): Promise<RepoRow | null> {
-    const current = await this.get(owner, repo);
-    if (!current || (current.status !== "missing" && current.status !== "archived")) {
-      return null;
-    }
-    return this.updateStatus(owner, repo, setStatus("active", isoNow()));
-  }
-
-  async markArchived(owner: string, repo: string): Promise<RepoRow | null> {
     return this.updateStatus(
       owner,
       repo,
-      setStatus("archived", isoNow()),
+      setStatus("active", isoNow()),
       eq(repos.status, "missing"),
     );
   }
 
+  /** Archive: set the serve-block, orthogonal to `status`. Refused if already blocked. */
+  async block(owner: string, repo: string): Promise<RepoRow | null> {
+    return this.updateStatus(
+      owner,
+      repo,
+      { archivedAt: isoNow(), updatedAt: isoNow() },
+      and(isNull(repos.archivedAt), ne(repos.status, "purged")),
+    );
+  }
+
+  /** Restore: clear the serve-block, orthogonal to `status`. (Cold fields → Group D.) */
+  async unblock(owner: string, repo: string): Promise<RepoRow | null> {
+    return this.updateStatus(
+      owner,
+      repo,
+      { archivedAt: null, updatedAt: isoNow() },
+      isNotNull(repos.archivedAt),
+    );
+  }
+
+  /** Purge: only a blocked repo is purgeable. */
   async markPurged(owner: string, repo: string): Promise<RepoRow | null> {
     return this.updateStatus(
       owner,
       repo,
       setStatus("purged", isoNow()),
-      eq(repos.status, "archived"),
+      isNotNull(repos.archivedAt),
     );
   }
 
   async recordReconciliation(input: ReconciliationInput): Promise<ReconciliationResult> {
-    const out: ReconciliationResult = { missing: [], missingReappeared: [], archivedReappeared: [] };
+    const out: ReconciliationResult = { missing: [], reappeared: [], blockedPresent: [] };
     if (input.activeOrgs.size === 0) return out;
     const now = isoNow();
     const activeOrgs = [...input.activeOrgs].map((o) => o.toLowerCase());
@@ -144,12 +160,13 @@ export class Repos extends DurableObject<CloudflareBindings> {
       .where(and(ne(repos.status, "purged"), inArray(repos.owner, [...activeOrgs])));
     for (const r of rows) {
       if (input.activeRepos.has(repoKey(r.owner, r.repo))) {
+        // Present on GitHub: flip presence here; the block is a separate axis, so a
+        // still-blocked row is only surfaced — the caller unblocks/alerts (RPC-gated).
         if (r.status === "missing") {
           const u = await this.updateStatus(r.owner, r.repo, setStatus("active", now));
-          if (u) out.missingReappeared.push(u);
-        } else if (r.status === "archived") {
-          out.archivedReappeared.push(r);
+          if (u) out.reappeared.push(u);
         }
+        if (r.archivedAt) out.blockedPresent.push(r);
       } else if (r.status === "active") {
         const u = await this.updateStatus(r.owner, r.repo, setStatus("missing", now));
         if (u) out.missing.push(u);
@@ -212,9 +229,9 @@ export class Repos extends DurableObject<CloudflareBindings> {
 }
 
 const STATUS_FIELDS = {
-  active: { clear: ["missingAt", "archivedAt"] },
+  // active clears `missingAt` only — the block (`archivedAt`) is cleared by `unblock`.
+  active: { clear: ["missingAt"] },
   missing: { stamp: "missingAt" },
-  archived: { stamp: "archivedAt" },
   purged: { stamp: "purgedAt" },
 } as const satisfies Record<RepoStatus, { stamp?: keyof RepoRow; clear?: (keyof RepoRow)[] }>;
 
