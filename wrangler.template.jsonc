@@ -42,6 +42,15 @@
       "bucket_name": "{{s3.bucket}}",
     },
   ],
+  // RPC into lfs-server (block/unblock/purge). In prod this targets the
+  // lfs-server worker; in dev the same-named auxiliary worker (vite.config.ts).
+  "services": [
+    {
+      "binding": "LFS_SERVER",
+      "service": "{{cloudflare.workerName}}",
+      "entrypoint": "AdminEntrypoint",
+    },
+  ],
   "queues": {
     "consumers": [
       {

@@ -6,6 +6,7 @@
     "not_found_handling": "single-page-application"
   },
   "secrets": null,
+  "services": null,
   "vars": {
     "GITHUB_CLIENT_ID": "test-client-id",
     "GITHUB_CLIENT_SECRET": "test-client-secret",
