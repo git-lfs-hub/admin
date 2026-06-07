@@ -374,6 +374,81 @@ describe("recordReconciliation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// applyRepoEvent (webhook single-repo presence flip)
+// ---------------------------------------------------------------------------
+
+describe("applyRepoEvent", () => {
+  test("active + absent → missing", async () => {
+    await repos().upsert("alice", "a");
+    const res = await repos().applyRepoEvent("alice", "a", false);
+    expect(res?.row.status).toBe("missing");
+    expect(res?.reappeared).toBe(false);
+    expect((await repos().get("alice", "a"))?.status).toBe("missing");
+  });
+
+  test("missing + present → reappeared (active, missing_at cleared)", async () => {
+    await repos().upsert("alice", "a");
+    await repos().markMissing("alice", "a");
+    const res = await repos().applyRepoEvent("alice", "a", true);
+    expect(res?.row.status).toBe("active");
+    expect(res?.reappeared).toBe(true);
+    expect(res?.row.missingAt).toBeNull();
+  });
+
+  test("missing + blocked + present → reappeared row keeps archivedAt (caller unblocks)", async () => {
+    await repos().upsert("alice", "a");
+    await repos().markMissing("alice", "a");
+    await repos().block("alice", "a");
+    const res = await repos().applyRepoEvent("alice", "a", true);
+    expect(res?.reappeared).toBe(true);
+    expect(res?.row.archivedAt).not.toBeNull();
+    expect(res?.row.status).toBe("active");
+  });
+
+  test("active + blocked + present → surfaced (reappeared false, archivedAt kept)", async () => {
+    await repos().upsert("alice", "a");
+    await repos().block("alice", "a");
+    const res = await repos().applyRepoEvent("alice", "a", true);
+    expect(res?.reappeared).toBe(false);
+    expect(res?.row.archivedAt).not.toBeNull();
+  });
+
+  test("idempotent: already-missing + absent → null, no change", async () => {
+    await repos().upsert("alice", "a");
+    await repos().markMissing("alice", "a");
+    expect(await repos().applyRepoEvent("alice", "a", false)).toBeNull();
+  });
+
+  test("idempotent: already-active + present (unblocked) → reappeared false", async () => {
+    await repos().upsert("alice", "a");
+    const res = await repos().applyRepoEvent("alice", "a", true);
+    expect(res?.reappeared).toBe(false);
+    expect(res?.row.archivedAt).toBeNull();
+  });
+
+  test("untracked repo → null", async () => {
+    expect(await repos().applyRepoEvent("nope", "nope", false)).toBeNull();
+    expect(await repos().applyRepoEvent("nope", "nope", true)).toBeNull();
+  });
+
+  test("purged repo ignored for both directions", async () => {
+    await repos().upsert("alice", "a");
+    await repos().markMissing("alice", "a");
+    await repos().block("alice", "a");
+    await repos().markPurged("alice", "a");
+    expect(await repos().applyRepoEvent("alice", "a", true)).toBeNull();
+    expect(await repos().applyRepoEvent("alice", "a", false)).toBeNull();
+    expect((await repos().get("alice", "a"))?.status).toBe("purged");
+  });
+
+  test("case-insensitive key", async () => {
+    await repos().upsert("Alice", "MyRepo");
+    const res = await repos().applyRepoEvent("ALICE", "MYREPO", false);
+    expect(res?.row.status).toBe("missing");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // orgs table
 // ---------------------------------------------------------------------------
 

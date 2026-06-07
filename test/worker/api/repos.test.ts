@@ -21,7 +21,12 @@ function appEnv(lfs: Partial<Record<"blockRepo" | "unblockRepo" | "purgeRepo", u
     ...lfs,
   };
   return {
-    env: { REPOS: env.REPOS, REPO: env.REPO, GC: env.GC, LFS_SERVER } as unknown as CloudflareBindings,
+    env: {
+      REPOS: env.REPOS,
+      REPO: env.REPO,
+      GC: env.GC,
+      LFS_SERVER,
+    } as unknown as CloudflareBindings,
     blockRepo: LFS_SERVER.blockRepo,
     unblockRepo: LFS_SERVER.unblockRepo,
   };
@@ -45,7 +50,13 @@ describe("GET /api/repos", () => {
     const res = await exports.default.fetch("http://localhost/api/repos");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      repos: Array<{ repo: string; status: string; usage: Usage; willPurgeAt: string | null; lastAccessedAt: string | null }>;
+      repos: Array<{
+        repo: string;
+        status: string;
+        usage: Usage;
+        willPurgeAt: string | null;
+        lastAccessedAt: string | null;
+      }>;
     };
 
     expect(body.repos).toHaveLength(2);
@@ -64,7 +75,9 @@ describe("GET /api/repos", () => {
     const row = await env.REPO.getByName("alice/a").recordObject("oid", 10, "download");
 
     const res = await exports.default.fetch("http://localhost/api/repos");
-    const body = (await res.json()) as { repos: Array<{ repo: string; lastAccessedAt: string | null }> };
+    const body = (await res.json()) as {
+      repos: Array<{ repo: string; lastAccessedAt: string | null }>;
+    };
     expect(body.repos.find((r) => r.repo === "a")!.lastAccessedAt).toBe(row.lastAccessed);
   });
 

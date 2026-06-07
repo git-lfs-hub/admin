@@ -9,7 +9,9 @@ const app = new Hono<AppEnv>()
     const rows = await repos.listAll();
     const gc = c.env.GC;
     const archiveDays = gc.autoArchiveDays;
-    const retentionDays = gc.coldStorage ? gc.coldStorageRetentionDays : gc.liveStorageRetentionDays;
+    const retentionDays = gc.coldStorage
+      ? gc.coldStorageRetentionDays
+      : gc.liveStorageRetentionDays;
     const result = await Promise.all(
       rows.map(async (row) => {
         const repo = c.env.REPO.getByName(row.name);
@@ -37,7 +39,8 @@ const app = new Hono<AppEnv>()
     const repos = c.env.REPOS.getByName('global');
     const cur = await repos.get(owner, repo);
     if (!cur) return c.json({ error: 'not_found' }, 404);
-    if (cur.status !== 'missing') return c.json({ error: 'invalid_state', status: cur.status }, 409);
+    if (cur.status !== 'missing')
+      return c.json({ error: 'invalid_state', status: cur.status }, 409);
     if (cur.archivedAt) return c.json({ error: 'already_blocked' }, 409);
     try {
       await lfsServer(c.env).blockRepo(owner, repo);

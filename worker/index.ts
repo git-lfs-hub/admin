@@ -3,6 +3,7 @@ import auth from '@/middleware/auth'
 import me from '@/api/me'
 import reposApi from '@/api/repos'
 import loginOauth from '@/login/oauth'
+import webhooks from '@/webhooks/index'
 import { reconcileAll } from '@/reconcile/index'
 import { handleObjectEvents, type ObjectEvent } from '@/server/object-events'
 import { isLocal } from '@/lib/host'
@@ -24,6 +25,7 @@ const app = new Hono<AppEnv>()
     await next()
   })
   .route('/login/oauth', loginOauth)
+  .route('/webhooks', webhooks)
   .use('/api/*', auth)
   .route('/api/me', me)
   .route('/api/repos', reposApi)

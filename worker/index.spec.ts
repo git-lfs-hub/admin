@@ -15,6 +15,7 @@ vi.mock("@/middleware/auth", () => ({ default: async (_c: unknown, next: () => P
 vi.mock("@/api/me", () => ({ default: new Hono() }));
 vi.mock("@/api/repos", () => ({ default: new Hono() }));
 vi.mock("@/login/oauth", () => ({ default: new Hono() }));
+vi.mock("@/webhooks/index", () => ({ default: new Hono() }));
 
 import worker from "@/index";
 

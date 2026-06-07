@@ -14,7 +14,13 @@ function fakeRepos(missing: unknown[]) {
 }
 
 const daysAgo = (n: number) => isoAddDays(isoNow(), -n);
-const row = (over: Record<string, unknown>) => ({ owner: "a", repo: "r", name: "a/r", archivedAt: null, ...over });
+const row = (over: Record<string, unknown>) => ({
+  owner: "a",
+  repo: "r",
+  name: "a/r",
+  archivedAt: null,
+  ...over,
+});
 
 beforeEach(() => blockRepo.mockReset());
 

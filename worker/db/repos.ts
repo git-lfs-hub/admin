@@ -1,9 +1,9 @@
-import { DurableObject } from "cloudflare:workers";
-import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
-import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
+import { DurableObject } from 'cloudflare:workers';
+import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
-import { isoNow } from "@/lib/time";
-import { repos, orgs, type RepoStatus, type OrgStatus } from "@/db/repos-schema";
+import { isoNow } from '@/lib/time';
+import { repos, orgs, type RepoStatus, type OrgStatus } from '@/db/repos-schema';
 
 export type RepoRow = typeof repos.$inferSelect;
 export type OrgRow = typeof orgs.$inferSelect;
@@ -74,9 +74,9 @@ export class Repos extends DurableObject<CloudflareBindings> {
 
   async listOwners(): Promise<string[]> {
     const rows = await this.db
-      .selectDistinct({ owner: sql<string>`lower(${repos.owner})`.as("owner") })
+      .selectDistinct({ owner: sql<string>`lower(${repos.owner})`.as('owner') })
       .from(repos)
-      .where(ne(repos.status, "purged"));
+      .where(ne(repos.status, 'purged'));
     return rows.map((r) => r.owner);
   }
 
@@ -100,12 +100,60 @@ export class Repos extends DurableObject<CloudflareBindings> {
     return row;
   }
 
+  async recordReconciliation(input: ReconciliationInput): Promise<ReconciliationResult> {
+    const out: ReconciliationResult = { missing: [], reappeared: [], blockedPresent: [] };
+    if (input.activeOrgs.size === 0) return out;
+    const activeOrgs = [...input.activeOrgs].map((o) => o.toLowerCase());
+    const rows = await this.db
+      .select()
+      .from(repos)
+      .where(and(ne(repos.status, 'purged'), inArray(repos.owner, [...activeOrgs])));
+    for (const r of rows) {
+      const present = input.activeRepos.has(repoKey(r.owner, r.repo));
+      const flipped = await this.setPresence(r, present);
+      if (present) {
+        // Block is a separate axis: a still-blocked present row is only surfaced — the
+        // caller unblocks/alerts (RPC-gated).
+        if (flipped) out.reappeared.push(flipped);
+        if (r.archivedAt) out.blockedPresent.push(r);
+      } else if (flipped) {
+        out.missing.push(flipped);
+      }
+    }
+    return out;
+  }
+
+  /** Per-repo analogue of `recordReconciliation` for a webhook event (idempotent).
+   *  Returns the still-blocked present row for the caller to unblock/alert (RPC-gated),
+   *  exactly as cron does via `blockedPresent`. */
+  async applyRepoEvent(
+    owner: string,
+    repo: string,
+    present: boolean,
+  ): Promise<{ row: RepoRow; reappeared: boolean } | null> {
+    const existing = await this.get(owner, repo);
+    if (!existing || existing.status === 'purged') return null;
+    const flipped = await this.setPresence(existing, present);
+    // Present: surface even a non-flipped row, so a present+blocked repo still auto-unblocks.
+    if (present) return { row: flipped ?? existing, reappeared: flipped !== null };
+    return flipped ? { row: flipped, reappeared: false } : null;
+  }
+
+  /** Presence flip for one fetched row: `missing`→`active` or `active`→`missing`, returning the
+   *  updated row. null when already at the target presence. The serve-block axis is untouched. */
+  private async setPresence(row: RepoRow, present: boolean): Promise<RepoRow | null> {
+    if (present) {
+      return row.status === 'missing' ? this.markActive(row.owner, row.repo) : null;
+    }
+    return row.status === 'active' ? this.markMissing(row.owner, row.repo) : null;
+  }
+
   async markMissing(owner: string, repo: string): Promise<RepoRow | null> {
     return this.updateStatus(
       owner,
       repo,
-      setStatus("missing", isoNow()),
-      eq(repos.status, "active"),
+      setStatus('missing', isoNow()),
+      eq(repos.status, 'active'),
     );
   }
 
@@ -114,18 +162,19 @@ export class Repos extends DurableObject<CloudflareBindings> {
     return this.updateStatus(
       owner,
       repo,
-      setStatus("active", isoNow()),
-      eq(repos.status, "missing"),
+      setStatus('active', isoNow()),
+      eq(repos.status, 'missing'),
     );
   }
 
   /** Archive: set the serve-block, orthogonal to `status`. Refused if already blocked. */
   async block(owner: string, repo: string): Promise<RepoRow | null> {
+    const now = isoNow();
     return this.updateStatus(
       owner,
       repo,
-      { archivedAt: isoNow(), updatedAt: isoNow() },
-      and(isNull(repos.archivedAt), ne(repos.status, "purged")),
+      { archivedAt: now, updatedAt: now },
+      and(isNull(repos.archivedAt), ne(repos.status, 'purged')),
     );
   }
 
@@ -144,35 +193,9 @@ export class Repos extends DurableObject<CloudflareBindings> {
     return this.updateStatus(
       owner,
       repo,
-      setStatus("purged", isoNow()),
+      setStatus('purged', isoNow()),
       isNotNull(repos.archivedAt),
     );
-  }
-
-  async recordReconciliation(input: ReconciliationInput): Promise<ReconciliationResult> {
-    const out: ReconciliationResult = { missing: [], reappeared: [], blockedPresent: [] };
-    if (input.activeOrgs.size === 0) return out;
-    const now = isoNow();
-    const activeOrgs = [...input.activeOrgs].map((o) => o.toLowerCase());
-    const rows = await this.db
-      .select()
-      .from(repos)
-      .where(and(ne(repos.status, "purged"), inArray(repos.owner, [...activeOrgs])));
-    for (const r of rows) {
-      if (input.activeRepos.has(repoKey(r.owner, r.repo))) {
-        // Present on GitHub: flip presence here; the block is a separate axis, so a
-        // still-blocked row is only surfaced — the caller unblocks/alerts (RPC-gated).
-        if (r.status === "missing") {
-          const u = await this.updateStatus(r.owner, r.repo, setStatus("active", now));
-          if (u) out.reappeared.push(u);
-        }
-        if (r.archivedAt) out.blockedPresent.push(r);
-      } else if (r.status === "active") {
-        const u = await this.updateStatus(r.owner, r.repo, setStatus("missing", now));
-        if (u) out.missing.push(u);
-      }
-    }
-    return out;
   }
 
   /** Update one repo by key (optionally guarded) and return the affected row (or null). */
@@ -182,7 +205,8 @@ export class Repos extends DurableObject<CloudflareBindings> {
     set: Partial<typeof repos.$inferInsert>,
     guard?: SQL,
   ): Promise<RepoRow | null> {
-    const where = guard ? and(byKey(owner, repo), guard) : byKey(owner, repo);
+    const key = byKey(owner, repo);
+    const where = guard ? and(key, guard) : key;
     const rows = await this.db.update(repos).set(set).where(where).returning();
     return rows[0] ?? null;
   }
@@ -201,7 +225,7 @@ export class Repos extends DurableObject<CloudflareBindings> {
         status,
         firstSeen: now,
         updatedAt: now,
-        missingAt: status === "missing" ? now : null,
+        missingAt: status === 'missing' ? now : null,
         lastError: lastError ?? null,
       };
       await this.db.insert(orgs).values(insertValues);
@@ -211,11 +235,11 @@ export class Repos extends DurableObject<CloudflareBindings> {
     const next: Partial<OrgRow> = {
       status,
       updatedAt: now,
-      lastError: status === "active" ? null : (lastError ?? null),
+      lastError: status === 'active' ? null : (lastError ?? null),
     };
-    if (status === "active") {
+    if (status === 'active') {
       next.missingAt = null;
-    } else if (status === "missing") {
+    } else if (status === 'missing') {
       next.missingAt = existing.missingAt ?? now;
     }
     await this.db.update(orgs).set(next).where(eq(orgs.org, key));
@@ -230,9 +254,9 @@ export class Repos extends DurableObject<CloudflareBindings> {
 
 const STATUS_FIELDS = {
   // active clears `missingAt` only — the block (`archivedAt`) is cleared by `unblock`.
-  active: { clear: ["missingAt"] },
-  missing: { stamp: "missingAt" },
-  purged: { stamp: "purgedAt" },
+  active: { clear: ['missingAt'] },
+  missing: { stamp: 'missingAt' },
+  purged: { stamp: 'purgedAt' },
 } as const satisfies Record<RepoStatus, { stamp?: keyof RepoRow; clear?: (keyof RepoRow)[] }>;
 
 function setStatus(to: RepoStatus, now: string): Partial<typeof repos.$inferInsert> {
@@ -240,8 +264,8 @@ function setStatus(to: RepoStatus, now: string): Partial<typeof repos.$inferInse
   return {
     status: to,
     updatedAt: now,
-    ...("stamp" in f ? { [f.stamp]: now } : {}),
-    ...("clear" in f ? Object.fromEntries(f.clear.map((k) => [k, null])) : {}),
+    ...('stamp' in f ? { [f.stamp]: now } : {}),
+    ...('clear' in f ? Object.fromEntries(f.clear.map((k) => [k, null])) : {}),
   };
 }
 

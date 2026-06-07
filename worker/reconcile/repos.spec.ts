@@ -22,7 +22,7 @@ vi.mock("@git-lfs-hub/lib/github", async (importOriginal) => {
   };
 });
 
-import { reconcileRepos } from "@/reconcile/repos";
+import { reconcileRepos, reconcileRepoEvent } from "@/reconcile/repos";
 import type { OrgProbeResult } from "@/github/probeOrg";
 
 const unblockRepo = vi.fn(async () => {});
@@ -243,5 +243,61 @@ describe("reconcileRepos", () => {
     orgApiMock.mockRejectedValueOnce(new Error("boom"));
     await reconcileRepos(env, repos);
     expect(repos.orgStatuses).toEqual([{ org: "a", status: "transient_error", error: "boom" }]);
+  });
+});
+
+describe("reconcileRepoEvent", () => {
+  function eventRepos(applyResult: unknown) {
+    return {
+      applyRepoEvent: vi.fn(async () => applyResult),
+      unblock: vi.fn(async (owner: string, repo: string) => ({ owner, repo })),
+    } as any;
+  }
+
+  test("presence flip with no block → no unblock", async () => {
+    const repos = eventRepos({ row: { archivedAt: null }, reappeared: false });
+    await reconcileRepoEvent(env, repos, "a", "x", false);
+    expect(repos.applyRepoEvent).toHaveBeenCalledWith("a", "x", false);
+    expect(unblockRepo).not.toHaveBeenCalled();
+  });
+
+  test("untracked repo (null) → no unblock", async () => {
+    const repos = eventRepos(null);
+    await reconcileRepoEvent(env, repos, "a", "x", true);
+    expect(unblockRepo).not.toHaveBeenCalled();
+    expect(repos.unblock).not.toHaveBeenCalled();
+  });
+
+  test("present + blocked + clearedAt null → unblockRepo + repos.unblock", async () => {
+    const repos = eventRepos({
+      row: { owner: "a", repo: "x", name: "a/x", archivedAt: "t", clearedAt: null },
+      reappeared: true,
+    });
+    await reconcileRepoEvent(env, repos, "a", "x", true);
+    expect(unblockRepo).toHaveBeenCalledWith("a", "x");
+    expect(repos.unblock).toHaveBeenCalledWith("a", "x");
+  });
+
+  test("present + blocked + clearedAt set → notify-only warn, no unblock", async () => {
+    const repos = eventRepos({
+      row: { owner: "a", repo: "z", name: "a/z", archivedAt: "t", clearedAt: "c" },
+      reappeared: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await reconcileRepoEvent(env, repos, "a", "z", true);
+    expect(unblockRepo).not.toHaveBeenCalled();
+    expect(repos.unblock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("manual restore"));
+    warn.mockRestore();
+  });
+
+  test("unblock RPC failure leaves the block (no repos.unblock)", async () => {
+    const repos = eventRepos({
+      row: { owner: "a", repo: "x", name: "a/x", archivedAt: "t", clearedAt: null },
+      reappeared: true,
+    });
+    unblockRepo.mockRejectedValueOnce(new Error("rpc down"));
+    await reconcileRepoEvent(env, repos, "a", "x", true);
+    expect(repos.unblock).not.toHaveBeenCalled();
   });
 });

@@ -85,11 +85,29 @@ export async function applyReconciliation(
 }
 
 /**
+ * Apply one webhook repo event onto the same path cron uses: DO presence flip, then RPC-gated
+ * auto-unblock (or cleared-reappearance alert) for a present+blocked row — the per-repo
+ * `recordReconciliation` + `autoUnblock`.
+ */
+export async function reconcileRepoEvent(
+  env: CloudflareBindings,
+  repos: DurableObjectStub<Repos>,
+  owner: string,
+  repo: string,
+  present: boolean,
+): Promise<void> {
+  const res = await repos.applyRepoEvent(owner, repo, present);
+  if (!res?.row.archivedAt) return;
+  const { cleared } = await autoUnblock(env, repos, [res.row]);
+  for (const r of cleared) warnClearedReappeared(r);
+}
+
+/**
  * Repos back on GitHub but still blocked. Unblock RPC before clearing `archivedAt`, so a
  * failure leaves the row blocked → next cron retries (still present + blocked). `clearedAt`
  * set (live gone) is NOT auto-unblocked — surfaced for an alert; admin restores via Glacier.
  */
-async function autoUnblock(
+export async function autoUnblock(
   env: CloudflareBindings,
   repos: DurableObjectStub<Repos>,
   blockedPresent: RepoRow[],
@@ -115,16 +133,19 @@ async function autoUnblock(
 
 /** Log reconciliation anomalies: cleared-then-reappeared repos and non-active orgs. */
 function warnAnomalies(orgs: OrgsByStatus, clearedReappeared: RepoRow[]): void {
-  for (const r of clearedReappeared) {
-    console.warn(
-      `[reconcile] blocked+cleared repo reappeared (manual restore needed): ${r.owner}/${r.repo}`,
-    );
-  }
+  for (const r of clearedReappeared) warnClearedReappeared(r);
   for (const status of ['missing', 'no_installation', 'forbidden'] as const) {
     for (const org of orgs[status]) {
       console.warn(`[reconcile] org=${org} status=${status}`);
     }
   }
+}
+
+/** Present + blocked + cleared (live gone): notify-only, admin must restore via Glacier. */
+export function warnClearedReappeared(r: RepoRow): void {
+  console.warn(
+    `[reconcile] blocked+cleared repo reappeared (manual restore needed): ${r.owner}/${r.repo}`,
+  );
 }
 
 /** Map a thrown probe error (acquisition or listing) to a non-active OrgProbeResult. */
