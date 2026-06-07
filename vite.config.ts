@@ -25,9 +25,9 @@ export default defineConfig(({ command }) => ({
   plugins: [
     vuePlugin,
     tailwindcss(),
-    ...(command === 'serve'
-      ? [
-          cloudflare({
+    cloudflare({
+      ...(command === 'serve'
+        ? {
             persistState: true,
             // Dev launches with ENV=local (see package.json `dev`) — inject it as a
             // worker var so reconcile skips GitHub (no real GitHub App key locally).
@@ -43,9 +43,9 @@ export default defineConfig(({ command }) => ({
                 },
               },
             ],
-          }),
-        ]
-      : []),
+          }
+        : {}),
+    }),
   ],
   server: {
     // Forwards console.error, console.warn, and unhandled errors by default
