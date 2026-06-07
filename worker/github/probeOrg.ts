@@ -1,9 +1,10 @@
-import type { GithubOrgApi } from "@git-lfs-hub/lib/github";
-import type { OrgStatus } from "@/db/repos-schema";
+import type { GithubOrgApi } from '@git-lfs-hub/lib/github';
+
+import type { OrgStatus } from '@/db/repos-schema';
 
 export type OrgProbeResult =
-  | { status: "active"; activeRepos: Set<string>; error?: undefined }
-  | { status: Exclude<OrgStatus, "active">; activeRepos?: undefined; error?: string };
+  | { status: 'active'; activeRepos: Set<string>; error?: undefined }
+  | { status: Exclude<OrgStatus, 'active'>; activeRepos?: undefined; error?: string };
 
 /**
  * Probe an org via an installation-authenticated GithubOrgApi: paginate
@@ -19,7 +20,7 @@ export async function probeOrg(api: GithubOrgApi): Promise<OrgProbeResult> {
   }
 
   if (active.size === 0) {
-    return { status: "transient_error", error: "empty listing despite 200" };
+    return { status: 'transient_error', error: 'empty listing despite 200' };
   }
-  return { status: "active", activeRepos: active };
+  return { status: 'active', activeRepos: active };
 }

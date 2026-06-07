@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import type { ToasterProps } from 'vue-sonner'
-
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -8,11 +6,13 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
   XIcon,
-} from 'lucide-vue-next'
-import { Toaster as Sonner } from 'vue-sonner'
-import { cn } from '@/lib/utils'
+} from 'lucide-vue-next';
+import type { ToasterProps } from 'vue-sonner';
+import { Toaster as Sonner } from 'vue-sonner';
 
-const props = defineProps<ToasterProps>()
+import { cn } from '@/lib/utils';
+
+const props = defineProps<ToasterProps>();
 </script>
 
 <template>

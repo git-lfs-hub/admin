@@ -1,6 +1,6 @@
-import type { Repos, RepoRow } from "@/db/repos";
-import { isoAddDays } from "@/lib/time";
-import { lfsServer } from "@/server/lfs-server";
+import type { Repos, RepoRow } from '@/db/repos';
+import { isoAddDays } from '@/lib/time';
+import { lfsServer } from '@/server/lfs-server';
 
 /** Cron: block `missing` repos past their grace window (`missingAt + autoArchiveDays`).
  *  Status untouched. RPC before the DB write, so a failure retries next tick. */
@@ -11,7 +11,7 @@ export async function autoArchive(
   const server = lfsServer(env);
   const now = Date.now();
   const archived: RepoRow[] = [];
-  for (const r of await repos.listByStatus("missing")) {
+  for (const r of await repos.listByStatus('missing')) {
     if (r.archivedAt || !r.missingAt) continue;
     if (Date.parse(isoAddDays(r.missingAt, env.GC.autoArchiveDays)) > now) continue;
     try {

@@ -5,6 +5,12 @@
   },
   "s3": { "bucket": "test-lfs-objects" },
   "github": { "org": "test-org" },
-  "gc": { "autoArchiveDays": 7, "autoClearDays": 30, "liveStorageRetentionDays": 30, "coldStorageRetentionDays": 365, "coldStorage": "" },
+  "gc": {
+    "autoArchiveDays": 7,
+    "autoClearDays": 30,
+    "liveStorageRetentionDays": 30,
+    "coldStorageRetentionDays": 365,
+    "coldStorage": ""
+  },
   "env": "test"
 }

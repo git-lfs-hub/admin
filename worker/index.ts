@@ -1,44 +1,45 @@
-import { Hono } from 'hono'
-import auth from '@/middleware/auth'
-import me from '@/api/me'
-import reposApi from '@/api/repos'
-import loginOauth from '@/login/oauth'
-import webhooks from '@/webhooks/index'
-import { reconcileAll } from '@/reconcile/index'
-import { handleObjectEvents, type ObjectEvent } from '@/server/object-events'
-import { isLocal } from '@/lib/host'
-import type { AppEnv } from '@/_env'
+import { Hono } from 'hono';
 
-export { Repos } from '@/db/repos'
-export { Repo } from '@/db/repo'
+import type { AppEnv } from '@/_env';
+import me from '@/api/me';
+import reposApi from '@/api/repos';
+import { isLocal } from '@/lib/host';
+import loginOauth from '@/login/oauth';
+import auth from '@/middleware/auth';
+import { reconcileAll } from '@/reconcile/index';
+import { handleObjectEvents, type ObjectEvent } from '@/server/object-events';
+import webhooks from '@/webhooks/index';
 
-let devReconcileFired = false
+export { Repos } from '@/db/repos';
+export { Repo } from '@/db/repo';
+
+let devReconcileFired = false;
 
 const app = new Hono<AppEnv>()
   .use('*', async (c, next) => {
     // Dev only (no cron locally): await to completion — the dev runtime truncates
     // waitUntil background tasks, leaving most repos unreconciled.
     if (!devReconcileFired && isLocal(c)) {
-      devReconcileFired = true
-      await reconcileAll(c.env, true)
+      devReconcileFired = true;
+      await reconcileAll(c.env, true);
     }
-    await next()
+    await next();
   })
   .route('/login/oauth', loginOauth)
   .route('/webhooks', webhooks)
   .use('/api/*', auth)
   .route('/api/me', me)
   .route('/api/repos', reposApi)
-  .get('*', auth, (c) => c.env.ASSETS.fetch(c.req.raw))
+  .get('*', auth, (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export type AppType = typeof app
+export type AppType = typeof app;
 
 export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(reconcileAll(env))
+    ctx.waitUntil(reconcileAll(env));
   },
   async queue(batch, env) {
-    await handleObjectEvents(batch as MessageBatch<ObjectEvent>, env)
+    await handleObjectEvents(batch as MessageBatch<ObjectEvent>, env);
   },
-} satisfies ExportedHandler<CloudflareBindings, ObjectEvent>
+} satisfies ExportedHandler<CloudflareBindings, ObjectEvent>;

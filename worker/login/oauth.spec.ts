@@ -1,7 +1,7 @@
-import { vi, describe, test, expect, afterEach } from "vitest";
+import { vi, describe, test, expect, afterEach } from 'vitest';
 
-vi.mock("@git-lfs-hub/lib/auth", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@git-lfs-hub/lib/auth")>();
+vi.mock('@git-lfs-hub/lib/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@git-lfs-hub/lib/auth')>();
   return {
     ...actual,
     oauthCallback: vi.fn(),
@@ -9,20 +9,18 @@ vi.mock("@git-lfs-hub/lib/auth", async (importOriginal) => {
   };
 });
 
-import app from "@/login/oauth";
-import {
-  oauthCallback,
-  requireOrgRole,
-} from "@git-lfs-hub/lib/auth";
+import { oauthCallback, requireOrgRole } from '@git-lfs-hub/lib/auth';
+
+import app from '@/login/oauth';
 
 const mockProcessOAuth = vi.mocked(oauthCallback);
 const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
-const LOGIN_SECRET = "a".repeat(64);
+const LOGIN_SECRET = 'a'.repeat(64);
 const ENV = {
-  GITHUB_CLIENT_ID: "test-client-id",
-  GITHUB_CLIENT_SECRET: "test-client-secret",
-  GITHUB_ORG: "test-org",
+  GITHUB_CLIENT_ID: 'test-client-id',
+  GITHUB_CLIENT_SECRET: 'test-client-secret',
+  GITHUB_ORG: 'test-org',
   LOGIN_SECRET,
 };
 
@@ -30,109 +28,100 @@ function get(path: string) {
   return app.request(path, {}, ENV);
 }
 
-async function makeSignedState(returnTo = "/repos") {
+async function makeSignedState(returnTo = '/repos') {
   const res = await get(`/authorize?state=${encodeURIComponent(returnTo)}`);
-  const location = new URL(res.headers.get("Location")!);
-  return location.searchParams.get("state")!;
+  const location = new URL(res.headers.get('Location')!);
+  return location.searchParams.get('state')!;
 }
 
-describe("GET /authorize", () => {
-  test("redirects to GitHub with client_id and scope", async () => {
-    const res = await get("/authorize?state=/repos");
+describe('GET /authorize', () => {
+  test('redirects to GitHub with client_id and scope', async () => {
+    const res = await get('/authorize?state=/repos');
     expect(res.status).toBe(302);
-    const location = new URL(res.headers.get("Location")!);
-    expect(location.origin + location.pathname).toBe(
-      "https://github.com/login/oauth/authorize",
-    );
-    expect(location.searchParams.get("client_id")).toBe("test-client-id");
-    expect(location.searchParams.get("scope")).toBe("read:org");
+    const location = new URL(res.headers.get('Location')!);
+    expect(location.origin + location.pathname).toBe('https://github.com/login/oauth/authorize');
+    expect(location.searchParams.get('client_id')).toBe('test-client-id');
+    expect(location.searchParams.get('scope')).toBe('read:org');
   });
-
 });
 
-describe("GET /callback", () => {
+describe('GET /callback', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  test("returns 400 without code or state", async () => {
-    mockProcessOAuth.mockResolvedValue({ ok: false, error: "invalid_state" });
-    const res = await get("/callback");
+  test('returns 400 without code or state', async () => {
+    mockProcessOAuth.mockResolvedValue({ ok: false, error: 'invalid_state' });
+    const res = await get('/callback');
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 when state is missing", async () => {
-    mockProcessOAuth.mockResolvedValue({ ok: false, error: "invalid_state" });
-    const res = await get("/callback?code=gh_code");
+  test('returns 400 when state is missing', async () => {
+    mockProcessOAuth.mockResolvedValue({ ok: false, error: 'invalid_state' });
+    const res = await get('/callback?code=gh_code');
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 on invalid state (oauthCallback fails without state)", async () => {
+  test('returns 400 on invalid state (oauthCallback fails without state)', async () => {
     mockProcessOAuth.mockResolvedValue({
       ok: false,
-      error: "invalid_state",
+      error: 'invalid_state',
     });
-    const res = await get("/callback?code=gh_code&state=invalid");
+    const res = await get('/callback?code=gh_code&state=invalid');
     expect(res.status).toBe(400);
-    expect(await res.text()).toContain("invalid_state");
+    expect(await res.text()).toContain('invalid_state');
   });
 
-  test("redirects with error when oauthCallback fails with state", async () => {
-    const signedState = await makeSignedState("/repos");
+  test('redirects with error when oauthCallback fails with state', async () => {
+    const signedState = await makeSignedState('/repos');
     mockProcessOAuth.mockResolvedValue({
       ok: false,
-      error: "bad_verification_code",
+      error: 'bad_verification_code',
       state: {
-        redirect_uri: "http://localhost/login/oauth/authorize",
-        client_state: "/repos",
-        scopes: "read:org",
+        redirect_uri: 'http://localhost/login/oauth/authorize',
+        client_state: '/repos',
+        scopes: 'read:org',
       },
     });
-    const res = await get(
-      `/callback?code=bad&state=${encodeURIComponent(signedState)}`,
-    );
+    const res = await get(`/callback?code=bad&state=${encodeURIComponent(signedState)}`);
     expect(res.status).toBe(302);
-    const location = res.headers.get("Location")!;
-    expect(location).toContain("error=bad_verification_code");
+    const location = res.headers.get('Location')!;
+    expect(location).toContain('error=bad_verification_code');
   });
 
-  test("returns 403 when requireOrgRole rejects", async () => {
+  test('returns 403 when requireOrgRole rejects', async () => {
     const signedState = await makeSignedState();
     mockProcessOAuth.mockResolvedValue({
       ok: true,
-      tokens: { access: "ghu_tok" },
+      tokens: { access: 'ghu_tok' },
       state: {
-        redirect_uri: "http://localhost/login/oauth/authorize",
-        client_state: "/repos",
-        scopes: "read:org",
+        redirect_uri: 'http://localhost/login/oauth/authorize',
+        client_state: '/repos',
+        scopes: 'read:org',
       },
     });
     mockRequireOrgRole.mockResolvedValue(
-      new Response("Forbidden: org admin required", { status: 403 }),
+      new Response('Forbidden: org admin required', { status: 403 }),
     );
-    const res = await get(
-      `/callback?code=gh_code&state=${encodeURIComponent(signedState)}`,
-    );
+    const res = await get(`/callback?code=gh_code&state=${encodeURIComponent(signedState)}`);
     expect(res.status).toBe(403);
   });
 
-  test("sets session cookie and redirects to client_state on success", async () => {
-    const signedState = await makeSignedState("/dashboard");
+  test('sets session cookie and redirects to client_state on success', async () => {
+    const signedState = await makeSignedState('/dashboard');
     mockProcessOAuth.mockResolvedValue({
       ok: true,
-      tokens: { access: "ghu_tok" },
+      tokens: { access: 'ghu_tok' },
       state: {
-        redirect_uri: "http://localhost/login/oauth/authorize",
-        client_state: "/dashboard",
-        scopes: "read:org",
+        redirect_uri: 'http://localhost/login/oauth/authorize',
+        client_state: '/dashboard',
+        scopes: 'read:org',
       },
     });
     mockRequireOrgRole.mockResolvedValue(null);
 
-    const res = await get(
-      `/callback?code=gh_code&state=${encodeURIComponent(signedState)}`,
-    );
+    const res = await get(`/callback?code=gh_code&state=${encodeURIComponent(signedState)}`);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/dashboard");
-    const cookie = res.headers.get("Set-Cookie")!;
+    expect(res.headers.get('Location')).toBe('/dashboard');
+    const cookie = res.headers.get('Set-Cookie')!;
     expect(cookie).toMatch(/^gh_access=[^;]+/);
   });
 });

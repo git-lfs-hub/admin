@@ -1,4 +1,4 @@
-import type { Repos } from "@/db/repos";
+import type { Repos } from '@/db/repos';
 
 /**
  * Scan R2 for `owner/repo/` prefixes and upsert each into the REPOS DO.
@@ -10,7 +10,7 @@ export async function discoverRepos(
 ): Promise<{ owner: string; repo: string }[]> {
   const found: { owner: string; repo: string }[] = [];
 
-  for await (const ownerPrefix of listPrefixes(bucket, "")) {
+  for await (const ownerPrefix of listPrefixes(bucket, '')) {
     const owner = ownerPrefix.slice(0, -1);
     /* istanbul ignore next -- defensive: R2 delimited prefixes always have a non-empty owner segment */
     if (!owner) {
@@ -32,13 +32,10 @@ export async function discoverRepos(
   return found;
 }
 
-async function* listPrefixes(
-  bucket: R2Bucket,
-  prefix: string,
-): AsyncGenerator<string> {
+async function* listPrefixes(bucket: R2Bucket, prefix: string): AsyncGenerator<string> {
   let cursor: string | undefined;
   do {
-    const listed = await bucket.list({ prefix, delimiter: "/", cursor });
+    const listed = await bucket.list({ prefix, delimiter: '/', cursor });
     for (const p of listed.delimitedPrefixes) yield p;
     cursor = listed.truncated ? listed.cursor : undefined;
   } while (cursor);

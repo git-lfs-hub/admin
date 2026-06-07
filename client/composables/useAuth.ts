@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/vue-query'
-import { api } from '@/api'
+import { useQuery } from '@tanstack/vue-query';
+
+import { api } from '@/api';
 
 export function useAuth() {
   const query = useQuery({
@@ -7,6 +8,6 @@ export function useAuth() {
     queryFn: async () => (await api.api.me.$get()).json(),
     select: (d) => d.admin,
     staleTime: Infinity,
-  })
-  return { admin: query.data }
+  });
+  return { admin: query.data };
 }

@@ -1,4 +1,4 @@
 export type AppEnv = {
   Bindings: CloudflareBindings;
-  Variables: { admin: string }
-}
+  Variables: { admin: string };
+};

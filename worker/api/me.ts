@@ -1,7 +1,7 @@
-import { Hono } from 'hono'
-import type { AppEnv } from '@/_env'
+import { Hono } from 'hono';
 
-const app = new Hono<AppEnv>()
-  .get('/', (c) => c.json({ admin: c.var.admin }))
+import type { AppEnv } from '@/_env';
 
-export default app
+const app = new Hono<AppEnv>().get('/', (c) => c.json({ admin: c.var.admin }));
+
+export default app;

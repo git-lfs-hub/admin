@@ -12,9 +12,5 @@
       "@dev/*": ["../dev/*"]
     }
   },
-  "include": [
-    "**/*.ts",
-    "../dev/**/*.ts",
-    "../worker-configuration.d.ts"
-  ]
+  "include": ["**/*.ts", "../dev/**/*.ts", "../worker-configuration.d.ts"]
 }

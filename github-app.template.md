@@ -11,11 +11,13 @@ keeps its own OAuth App — see `server/github-app.md`.)
 form top to bottom.
 
 **GitHub App name**
+
 ```
 {{org}} Admin{{#if env}} ({{env}}){{/if}}
 ```
 
 **Description** (Markdown; shown on the install/authorization screen)
+
 ```md
 Install this app to sign in to the LFS admin dashboard and let it scan your
 organization's repositories on GitHub. It uses:
@@ -25,6 +27,7 @@ organization's repositories on GitHub. It uses:
 ```
 
 **Homepage URL**
+
 ```
 {{github.adminHome}}
 ```
@@ -54,9 +57,11 @@ Leave defaults (no Setup URL).
 ### Permissions
 
 **Repository**
+
 - Metadata → `Read-only` (mandatory default) — detect which repos still exist
 
 **Organization**
+
 - Members → `Read-only` — confirm the user is an org admin at login
 
 ### Subscribe to events
@@ -65,7 +70,7 @@ Leave defaults (no Setup URL).
 
 ### Where can this app be installed?
 
-* **Only on this account** (`{{org}}`).
+- **Only on this account** (`{{org}}`).
 
 ## Collect and store secrets
 

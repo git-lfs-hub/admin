@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { Badge } from '@/components/ui/badge'
-import type { RepoStatus } from '@/composables/useRepos'
+import { Badge } from '@/components/ui/badge';
+import type { RepoStatus } from '@/composables/useRepos';
 
-const props = defineProps<{ status: RepoStatus }>()
+const props = defineProps<{ status: RepoStatus }>();
 
 const variant = {
-  active:  'default',
+  active: 'default',
   missing: 'secondary',
-  purged:  'outline',
-} as const satisfies Record<RepoStatus, string>
+  purged: 'outline',
+} as const satisfies Record<RepoStatus, string>;
 </script>
 
 <template>

@@ -1,4 +1,4 @@
-import type { Repo, ObjectReconciliationResult } from "@/db/repo";
+import type { Repo, ObjectReconciliationResult } from '@/db/repo';
 
 export type ReconcileObjectsResult = ObjectReconciliationResult;
 

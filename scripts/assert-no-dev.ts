@@ -8,20 +8,20 @@
 // husk esbuild leaves in index.ts references `reconcileLocal`, never this name.)
 const file = Bun.argv[2];
 if (!file) {
-  console.error("usage: assert-no-dev <bundle.js>");
+  console.error('usage: assert-no-dev <bundle.js>');
   process.exit(2);
 }
 
 const src = await Bun.file(file).text();
 
-const leaked = ["devPresentRepos"].filter((sym) => src.includes(sym));
+const leaked = ['devPresentRepos'].filter((sym) => src.includes(sym));
 if (leaked.length) {
-  console.error(`✘ dev-only code leaked into deployed bundle ${file}: ${leaked.join(", ")}`);
+  console.error(`✘ dev-only code leaked into deployed bundle ${file}: ${leaked.join(', ')}`);
   process.exit(1);
 }
 
 // Sanity: make sure we inspected the actual worker bundle, not an empty/wrong file.
-if (!src.includes("discoverRepos")) {
+if (!src.includes('discoverRepos')) {
   console.error(`✘ ${file} does not look like the worker bundle (missing real code)`);
   process.exit(1);
 }

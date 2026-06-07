@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { useRepos } from '@/composables/useRepos'
-import RepoTable from '@/components/RepoTable.vue'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import RepoTable from '@/components/RepoTable.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useRepos } from '@/composables/useRepos';
 
-const { data: repos, isLoading, error } = useRepos()
+const { data: repos, isLoading, error } = useRepos();
 </script>
 
 <template>

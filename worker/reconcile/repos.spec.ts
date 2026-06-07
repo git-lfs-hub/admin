@@ -1,14 +1,14 @@
-import { test, expect, vi, beforeEach, describe } from "vitest";
-import { GithubError } from "@git-lfs-hub/lib/github";
+import { GithubError } from '@git-lfs-hub/lib/github';
+import { test, expect, vi, beforeEach, describe } from 'vitest';
 
 const probeOrg = vi.fn();
-vi.mock("@/github/probeOrg", () => ({
+vi.mock('@/github/probeOrg', () => ({
   probeOrg: (...args: unknown[]) => probeOrg(...args),
 }));
 
 const orgApiMock = vi.fn();
-vi.mock("@git-lfs-hub/lib/github", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@git-lfs-hub/lib/github")>();
+vi.mock('@git-lfs-hub/lib/github', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@git-lfs-hub/lib/github')>();
   return {
     ...actual,
     GithubApi: class {
@@ -22,13 +22,13 @@ vi.mock("@git-lfs-hub/lib/github", async (importOriginal) => {
   };
 });
 
-import { reconcileRepos, reconcileRepoEvent } from "@/reconcile/repos";
-import type { OrgProbeResult } from "@/github/probeOrg";
+import type { OrgProbeResult } from '@/github/probeOrg';
+import { reconcileRepos, reconcileRepoEvent } from '@/reconcile/repos';
 
 const unblockRepo = vi.fn(async () => {});
 const env = {
-  GITHUB_APP_ID: "1",
-  GITHUB_APP_PRIVATE_KEY: "k",
+  GITHUB_APP_ID: '1',
+  GITHUB_APP_PRIVATE_KEY: 'k',
   LFS_SERVER: { unblockRepo },
 } as any;
 
@@ -72,8 +72,8 @@ beforeEach(() => {
   orgApiMock.mockResolvedValue({});
 });
 
-describe("reconcileRepos", () => {
-  test("empty owners → no-op, no probe, no record", async () => {
+describe('reconcileRepos', () => {
+  test('empty owners → no-op, no probe, no record', async () => {
     const repos = fakeRepos([]);
     const summary = await reconcileRepos(env, repos);
     expect(probeOrg).not.toHaveBeenCalled();
@@ -82,62 +82,62 @@ describe("reconcileRepos", () => {
     expect(summary.orgs.active).toEqual([]);
   });
 
-  test("single active org → activeRepos passed through", async () => {
-    const repos = fakeRepos(["alice"]);
+  test('single active org → activeRepos passed through', async () => {
+    const repos = fakeRepos(['alice']);
     probeOrg.mockResolvedValue({
-      status: "active",
-      activeRepos: new Set(["alice/foo"]),
+      status: 'active',
+      activeRepos: new Set(['alice/foo']),
     } satisfies OrgProbeResult);
     await reconcileRepos(env, repos);
-    expect(repos.upsertOrgStatus).toHaveBeenCalledWith("alice", "active", null);
+    expect(repos.upsertOrgStatus).toHaveBeenCalledWith('alice', 'active', null);
     expect(repos.getLastReconcileInput()).toEqual({
-      activeOrgs: new Set(["alice"]),
-      activeRepos: new Set(["alice/foo"]),
+      activeOrgs: new Set(['alice']),
+      activeRepos: new Set(['alice/foo']),
     });
   });
 
-  test("non-active org not in activeOrgs; status recorded with error", async () => {
-    const repos = fakeRepos(["a", "b"]);
+  test('non-active org not in activeOrgs; status recorded with error', async () => {
+    const repos = fakeRepos(['a', 'b']);
     probeOrg
-      .mockResolvedValueOnce({ status: "active", activeRepos: new Set(["a/x"]) })
-      .mockResolvedValueOnce({ status: "forbidden", error: "403" });
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
+      .mockResolvedValueOnce({ status: 'forbidden', error: '403' });
     await reconcileRepos(env, repos);
-    expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set(["a"]));
+    expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set(['a']));
     expect(repos.orgStatuses).toEqual([
-      { org: "a", status: "active", error: null },
-      { org: "b", status: "forbidden", error: "403" },
+      { org: 'a', status: 'active', error: null },
+      { org: 'b', status: 'forbidden', error: '403' },
     ]);
   });
 
-  test("missing org → activeRepos union excludes it", async () => {
-    const repos = fakeRepos(["a", "b"]);
+  test('missing org → activeRepos union excludes it', async () => {
+    const repos = fakeRepos(['a', 'b']);
     probeOrg
-      .mockResolvedValueOnce({ status: "active", activeRepos: new Set(["a/x"]) })
-      .mockResolvedValueOnce({ status: "missing", error: "404" });
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
+      .mockResolvedValueOnce({ status: 'missing', error: '404' });
     await reconcileRepos(env, repos);
     const input = repos.getLastReconcileInput()!;
-    expect(input.activeOrgs).toEqual(new Set(["a"]));
-    expect(input.activeRepos).toEqual(new Set(["a/x"]));
+    expect(input.activeOrgs).toEqual(new Set(['a']));
+    expect(input.activeRepos).toEqual(new Set(['a/x']));
   });
 
   test("transient_error → no mutation on that org's rows", async () => {
-    const repos = fakeRepos(["x"]);
-    probeOrg.mockResolvedValue({ status: "transient_error", error: "5xx" });
+    const repos = fakeRepos(['x']);
+    probeOrg.mockResolvedValue({ status: 'transient_error', error: '5xx' });
     const r = await reconcileRepos(env, repos);
-    expect(r.orgs.transient_error).toEqual(["x"]);
+    expect(r.orgs.transient_error).toEqual(['x']);
     expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
   });
 
-  test("summary counts reflect record result", async () => {
-    const repos = fakeRepos(["a"]);
-    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x", "a/y"]) });
+  test('summary counts reflect record result', async () => {
+    const repos = fakeRepos(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x', 'a/y']) });
     repos.setRecordResult({
       missing: [{}, {}],
-      reappeared: [{ owner: "a", repo: "m", name: "a/m" }],
+      reappeared: [{ owner: 'a', repo: 'm', name: 'a/m' }],
       blockedPresent: [
-        { owner: "a", repo: "x", name: "a/x", clearedAt: null },
-        { owner: "a", repo: "y", name: "a/y", clearedAt: null },
-        { owner: "a", repo: "z", name: "a/z", clearedAt: "2026-01-01T00:00:00Z" },
+        { owner: 'a', repo: 'x', name: 'a/x', clearedAt: null },
+        { owner: 'a', repo: 'y', name: 'a/y', clearedAt: null },
+        { owner: 'a', repo: 'z', name: 'a/z', clearedAt: '2026-01-01T00:00:00Z' },
       ],
     });
     const r = await reconcileRepos(env, repos);
@@ -148,105 +148,105 @@ describe("reconcileRepos", () => {
     expect(r.repos.clearedReappeared).toBe(1);
   });
 
-  test("auto-unblock: present+blocked (clearedAt null) → unblockRepo + repos.unblock", async () => {
-    const repos = fakeRepos(["a"]);
-    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x"]) });
+  test('auto-unblock: present+blocked (clearedAt null) → unblockRepo + repos.unblock', async () => {
+    const repos = fakeRepos(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
     repos.setRecordResult({
       missing: [],
-      reappeared: [{ owner: "a", repo: "x", name: "a/x" }],
-      blockedPresent: [{ owner: "a", repo: "x", name: "a/x", clearedAt: null }],
+      reappeared: [{ owner: 'a', repo: 'x', name: 'a/x' }],
+      blockedPresent: [{ owner: 'a', repo: 'x', name: 'a/x', clearedAt: null }],
     });
     await reconcileRepos(env, repos);
-    expect(unblockRepo).toHaveBeenCalledWith("a", "x");
-    expect(repos.unblock).toHaveBeenCalledWith("a", "x");
+    expect(unblockRepo).toHaveBeenCalledWith('a', 'x');
+    expect(repos.unblock).toHaveBeenCalledWith('a', 'x');
   });
 
-  test("present+blocked + clearedAt set → no unblock, notify-only warn", async () => {
-    const repos = fakeRepos(["a"]);
-    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/z"]) });
+  test('present+blocked + clearedAt set → no unblock, notify-only warn', async () => {
+    const repos = fakeRepos(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/z']) });
     repos.setRecordResult({
       missing: [],
       reappeared: [],
-      blockedPresent: [{ owner: "a", repo: "z", name: "a/z", clearedAt: "2026-01-01T00:00:00Z" }],
+      blockedPresent: [{ owner: 'a', repo: 'z', name: 'a/z', clearedAt: '2026-01-01T00:00:00Z' }],
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await reconcileRepos(env, repos);
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(repos.unblock).not.toHaveBeenCalled();
     expect(r.repos.clearedReappeared).toBe(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("reappeared"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reappeared'));
     warn.mockRestore();
   });
 
-  test("auto-unblock (clearedAt null) does not emit the cleared alert", async () => {
-    const repos = fakeRepos(["a"]);
-    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x"]) });
+  test('auto-unblock (clearedAt null) does not emit the cleared alert', async () => {
+    const repos = fakeRepos(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
     repos.setRecordResult({
       missing: [],
       reappeared: [],
-      blockedPresent: [{ owner: "a", repo: "x", name: "a/x", clearedAt: null }],
+      blockedPresent: [{ owner: 'a', repo: 'x', name: 'a/x', clearedAt: null }],
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await reconcileRepos(env, repos);
-    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("manual restore"));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('manual restore'));
     warn.mockRestore();
   });
 
-  test("auto-unblock: RPC failure leaves the block (no repos.unblock)", async () => {
-    const repos = fakeRepos(["a"]);
-    probeOrg.mockResolvedValue({ status: "active", activeRepos: new Set(["a/x"]) });
+  test('auto-unblock: RPC failure leaves the block (no repos.unblock)', async () => {
+    const repos = fakeRepos(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
     repos.setRecordResult({
       missing: [],
       reappeared: [],
-      blockedPresent: [{ owner: "a", repo: "x", name: "a/x", clearedAt: null }],
+      blockedPresent: [{ owner: 'a', repo: 'x', name: 'a/x', clearedAt: null }],
     });
-    unblockRepo.mockRejectedValueOnce(new Error("rpc down"));
+    unblockRepo.mockRejectedValueOnce(new Error('rpc down'));
     const r = await reconcileRepos(env, repos);
     expect(repos.unblock).not.toHaveBeenCalled();
     expect(r.repos.unblocked).toBe(0);
   });
 
-  test("listing errors classified by code, no throw out of reconcileRepos", async () => {
-    const repos = fakeRepos(["b", "c", "d"]);
+  test('listing errors classified by code, no throw out of reconcileRepos', async () => {
+    const repos = fakeRepos(['b', 'c', 'd']);
     probeOrg
-      .mockRejectedValueOnce(new GithubError("forbidden", "403"))
-      .mockRejectedValueOnce(new GithubError("missing", "404"))
-      .mockRejectedValueOnce(new GithubError("transient", "5xx"));
+      .mockRejectedValueOnce(new GithubError('forbidden', '403'))
+      .mockRejectedValueOnce(new GithubError('missing', '404'))
+      .mockRejectedValueOnce(new GithubError('transient', '5xx'));
     const r = await reconcileRepos(env, repos);
-    expect(r.orgs.forbidden).toEqual(["b"]);
-    expect(r.orgs.missing).toEqual(["c"]);
-    expect(r.orgs.transient_error).toEqual(["d"]);
+    expect(r.orgs.forbidden).toEqual(['b']);
+    expect(r.orgs.missing).toEqual(['c']);
+    expect(r.orgs.transient_error).toEqual(['d']);
     expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
   });
 
-  test("acquisition no_installation classified, probeOrg not called for that org", async () => {
-    const repos = fakeRepos(["ghost", "alice"]);
+  test('acquisition no_installation classified, probeOrg not called for that org', async () => {
+    const repos = fakeRepos(['ghost', 'alice']);
     orgApiMock
-      .mockRejectedValueOnce(new GithubError("no_installation", "no install for ghost"))
+      .mockRejectedValueOnce(new GithubError('no_installation', 'no install for ghost'))
       .mockResolvedValueOnce({});
-    probeOrg.mockResolvedValueOnce({ status: "active", activeRepos: new Set(["alice/x"]) });
+    probeOrg.mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['alice/x']) });
     const r = await reconcileRepos(env, repos);
-    expect(r.orgs.no_installation).toEqual(["ghost"]);
-    expect(r.orgs.active).toEqual(["alice"]);
+    expect(r.orgs.no_installation).toEqual(['ghost']);
+    expect(r.orgs.active).toEqual(['alice']);
     expect(probeOrg).toHaveBeenCalledTimes(1);
   });
 
-  test("unauthorized → transient_error", async () => {
-    const repos = fakeRepos(["a"]);
-    orgApiMock.mockRejectedValueOnce(new GithubError("unauthorized", "401"));
+  test('unauthorized → transient_error', async () => {
+    const repos = fakeRepos(['a']);
+    orgApiMock.mockRejectedValueOnce(new GithubError('unauthorized', '401'));
     const r = await reconcileRepos(env, repos);
-    expect(r.orgs.transient_error).toEqual(["a"]);
+    expect(r.orgs.transient_error).toEqual(['a']);
   });
 
-  test("non-GithubError throw → transient_error with raw message", async () => {
-    const repos = fakeRepos(["a"]);
-    orgApiMock.mockRejectedValueOnce(new Error("boom"));
+  test('non-GithubError throw → transient_error with raw message', async () => {
+    const repos = fakeRepos(['a']);
+    orgApiMock.mockRejectedValueOnce(new Error('boom'));
     await reconcileRepos(env, repos);
-    expect(repos.orgStatuses).toEqual([{ org: "a", status: "transient_error", error: "boom" }]);
+    expect(repos.orgStatuses).toEqual([{ org: 'a', status: 'transient_error', error: 'boom' }]);
   });
 });
 
-describe("reconcileRepoEvent", () => {
+describe('reconcileRepoEvent', () => {
   function eventRepos(applyResult: unknown) {
     return {
       applyRepoEvent: vi.fn(async () => applyResult),
@@ -254,50 +254,50 @@ describe("reconcileRepoEvent", () => {
     } as any;
   }
 
-  test("presence flip with no block → no unblock", async () => {
+  test('presence flip with no block → no unblock', async () => {
     const repos = eventRepos({ row: { archivedAt: null }, reappeared: false });
-    await reconcileRepoEvent(env, repos, "a", "x", false);
-    expect(repos.applyRepoEvent).toHaveBeenCalledWith("a", "x", false);
+    await reconcileRepoEvent(env, repos, 'a', 'x', false);
+    expect(repos.applyRepoEvent).toHaveBeenCalledWith('a', 'x', false);
     expect(unblockRepo).not.toHaveBeenCalled();
   });
 
-  test("untracked repo (null) → no unblock", async () => {
+  test('untracked repo (null) → no unblock', async () => {
     const repos = eventRepos(null);
-    await reconcileRepoEvent(env, repos, "a", "x", true);
+    await reconcileRepoEvent(env, repos, 'a', 'x', true);
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(repos.unblock).not.toHaveBeenCalled();
   });
 
-  test("present + blocked + clearedAt null → unblockRepo + repos.unblock", async () => {
+  test('present + blocked + clearedAt null → unblockRepo + repos.unblock', async () => {
     const repos = eventRepos({
-      row: { owner: "a", repo: "x", name: "a/x", archivedAt: "t", clearedAt: null },
+      row: { owner: 'a', repo: 'x', name: 'a/x', archivedAt: 't', clearedAt: null },
       reappeared: true,
     });
-    await reconcileRepoEvent(env, repos, "a", "x", true);
-    expect(unblockRepo).toHaveBeenCalledWith("a", "x");
-    expect(repos.unblock).toHaveBeenCalledWith("a", "x");
+    await reconcileRepoEvent(env, repos, 'a', 'x', true);
+    expect(unblockRepo).toHaveBeenCalledWith('a', 'x');
+    expect(repos.unblock).toHaveBeenCalledWith('a', 'x');
   });
 
-  test("present + blocked + clearedAt set → notify-only warn, no unblock", async () => {
+  test('present + blocked + clearedAt set → notify-only warn, no unblock', async () => {
     const repos = eventRepos({
-      row: { owner: "a", repo: "z", name: "a/z", archivedAt: "t", clearedAt: "c" },
+      row: { owner: 'a', repo: 'z', name: 'a/z', archivedAt: 't', clearedAt: 'c' },
       reappeared: true,
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await reconcileRepoEvent(env, repos, "a", "z", true);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await reconcileRepoEvent(env, repos, 'a', 'z', true);
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(repos.unblock).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("manual restore"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('manual restore'));
     warn.mockRestore();
   });
 
-  test("unblock RPC failure leaves the block (no repos.unblock)", async () => {
+  test('unblock RPC failure leaves the block (no repos.unblock)', async () => {
     const repos = eventRepos({
-      row: { owner: "a", repo: "x", name: "a/x", archivedAt: "t", clearedAt: null },
+      row: { owner: 'a', repo: 'x', name: 'a/x', archivedAt: 't', clearedAt: null },
       reappeared: true,
     });
-    unblockRepo.mockRejectedValueOnce(new Error("rpc down"));
-    await reconcileRepoEvent(env, repos, "a", "x", true);
+    unblockRepo.mockRejectedValueOnce(new Error('rpc down'));
+    await reconcileRepoEvent(env, repos, 'a', 'x', true);
     expect(repos.unblock).not.toHaveBeenCalled();
   });
 });

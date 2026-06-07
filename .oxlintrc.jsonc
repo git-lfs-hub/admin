@@ -10,12 +10,7 @@
           {
             "patterns": [
               {
-                "group": [
-                  "**/*.spec",
-                  "**/*.spec.*",
-                  "**/*.test",
-                  "**/*.test.*"
-                ],
+                "group": ["**/*.spec", "**/*.spec.*", "**/*.test", "**/*.test.*"],
                 "message": "Do not import test files from non-test files."
               }
             ]

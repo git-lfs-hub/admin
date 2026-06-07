@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test'
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'test/e2e',
@@ -13,4 +13,4 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 30_000,
   },
-})
+});

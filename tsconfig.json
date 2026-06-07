@@ -7,9 +7,5 @@
     "skipLibCheck": true
   },
   "files": [],
-  "references": [
-    { "path": "./client" },
-    { "path": "./worker" },
-    { "path": "./test/worker" }
-  ]
+  "references": [{ "path": "./client" }, { "path": "./worker" }, { "path": "./test/worker" }]
 }

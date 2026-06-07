@@ -1,9 +1,9 @@
-import { DurableObject } from "cloudflare:workers";
-import { count, eq, inArray, max, sum } from "drizzle-orm";
-import { drizzle, DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
+import { DurableObject } from 'cloudflare:workers';
+import { count, eq, inArray, max, sum } from 'drizzle-orm';
+import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
-import { isoNow } from "@/lib/time";
-import { objects, objectStatuses, type ObjectStatus } from "@/db/repo-schema";
+import { objects, objectStatuses, type ObjectStatus } from '@/db/repo-schema';
+import { isoNow } from '@/lib/time';
 
 export type ObjectRow = typeof objects.$inferSelect;
 
@@ -59,16 +59,16 @@ export class Repo extends DurableObject<CloudflareBindings> {
   async recordObject(
     oid: string,
     size: number,
-    operation: "upload" | "verify" | "download",
+    operation: 'upload' | 'verify' | 'download',
   ): Promise<ObjectRow> {
     const now = isoNow();
-    const confirmed = operation !== "upload";
+    const confirmed = operation !== 'upload';
     const [row] = await this.db
       .insert(objects)
       .values({
         oid,
         size,
-        status: confirmed ? "present" : "pending",
+        status: confirmed ? 'present' : 'pending',
         source: operation,
         firstSeen: now,
         lastSeen: now,
@@ -80,7 +80,7 @@ export class Repo extends DurableObject<CloudflareBindings> {
           size,
           lastSeen: now,
           lastAccessed: now,
-          ...(confirmed ? { status: "present" } : {}),
+          ...(confirmed ? { status: 'present' } : {}),
         },
       })
       .returning();
@@ -131,8 +131,8 @@ export class Repo extends DurableObject<CloudflareBindings> {
       for (const row of rows) {
         const storageSize = storageSizes[row.oid];
         const set: Partial<typeof objects.$inferInsert> = {};
-        if (row.status === "pending") {
-          set.status = "present";
+        if (row.status === 'pending') {
+          set.status = 'present';
           out.confirmed++;
         }
         if (row.size !== storageSize) {
@@ -149,8 +149,8 @@ export class Repo extends DurableObject<CloudflareBindings> {
         .map((oid) => ({
           oid,
           size: storageSizes[oid],
-          status: "present" as const,
-          source: "storage_scan" as const,
+          status: 'present' as const,
+          source: 'storage_scan' as const,
           firstSeen: now,
           lastSeen: now,
           lastAccessed: now,

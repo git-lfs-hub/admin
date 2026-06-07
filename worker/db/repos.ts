@@ -2,8 +2,8 @@ import { DurableObject } from 'cloudflare:workers';
 import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
-import { isoNow } from '@/lib/time';
 import { repos, orgs, type RepoStatus, type OrgStatus } from '@/db/repos-schema';
+import { isoNow } from '@/lib/time';
 
 export type RepoRow = typeof repos.$inferSelect;
 export type OrgRow = typeof orgs.$inferSelect;
