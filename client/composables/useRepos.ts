@@ -3,10 +3,9 @@ import type { InferResponseType } from 'hono/client';
 
 import { api } from '@/api';
 
+// GitHub presence (git identity), cross-linked to its storage prefix by same-key lookup.
 export type RepoRow = InferResponseType<typeof api.api.repos.$get>['repos'][number];
-// The list now surfaces `storage` rows (prefix lifecycle); their status drives the badge.
-// Full two-view "Repositories + Storage" UI language is C1.5.
-export { type StorageStatus as RepoStatus } from '@worker/db/registry-schema';
+export { type RepoStatus } from '@worker/db/registry-schema';
 
 export function useRepos() {
   return useQuery({

@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '@/_env';
 import me from '@/api/me';
 import reposApi from '@/api/repos';
+import storageApi from '@/api/storage';
 import { isLocal } from '@/lib/host';
 import loginOauth from '@/login/oauth';
 import auth from '@/middleware/auth';
@@ -30,6 +31,7 @@ const app = new Hono<AppEnv>()
   .use('/api/*', auth)
   .route('/api/me', me)
   .route('/api/repos', reposApi)
+  .route('/api/storage', storageApi)
   .get('*', auth, (c) => c.env.ASSETS.fetch(c.req.raw));
 
 export type AppType = typeof app;

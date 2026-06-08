@@ -3,18 +3,36 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, toRaw } from 'vue';
 
-import { useRepos, type RepoRow } from '@/composables/useRepos';
+import { useStorage, type StorageRow } from '@/composables/useStorage';
 
-const mockRepos: RepoRow[] = [
+const mockStorage: StorageRow[] = [
   {
+    prefix: 'org/test-repo',
     owner: 'org',
     repo: 'test-repo',
+    status: 'used',
     name: 'org/test-repo',
-    status: 'active',
     firstSeen: '2026-01-01T00:00:00Z',
     updatedAt: '2026-05-01T00:00:00Z',
-    missingAt: null,
-    storage: { prefix: 'org/test-repo', status: 'used', archivedAt: null },
+    lastChangeAt: null,
+    unusedAt: null,
+    archivedAt: null,
+    backedUpAt: null,
+    backupComplete: false,
+    clearedAt: null,
+    purgedAt: null,
+    activeOp: null,
+    gitRepo: { owner: 'org', repo: 'test-repo', status: 'active' },
+    willArchiveAt: null,
+    willPurgeAt: null,
+    lastAccessedAt: null,
+    usage: {
+      deleted: { count: 0, size: 0 },
+      missing: { count: 0, size: 0 },
+      pending: { count: 0, size: 0 },
+      present: { count: 10, size: 1024 },
+      purged: { count: 0, size: 0 },
+    },
   },
 ];
 
@@ -24,7 +42,7 @@ function mountWithQuery() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Wrapper = defineComponent({
     setup() {
-      return useRepos();
+      return useStorage();
     },
     render() {
       return null;
@@ -35,19 +53,19 @@ function mountWithQuery() {
   });
 }
 
-describe('useRepos', () => {
+describe('useStorage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('fetches repos on mount', async () => {
+  it('fetches storage on mount', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
       clone() {
         return this;
       },
-      json: () => Promise.resolve({ repos: mockRepos }),
+      json: () => Promise.resolve({ storage: mockStorage }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -55,10 +73,10 @@ describe('useRepos', () => {
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/repos',
+      '/api/storage',
       expect.objectContaining({ credentials: 'same-origin' }),
     );
-    expect(toRaw(wrapper.vm.data)).toEqual(mockRepos);
+    expect(toRaw(wrapper.vm.data)).toEqual(mockStorage);
     expect(wrapper.vm.isLoading).toBe(false);
     expect(wrapper.vm.error).toBeNull();
     wrapper.unmount();

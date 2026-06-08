@@ -3,18 +3,36 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRouter, createMemoryHistory } from 'vue-router';
 
-import type { RepoRow } from '@/composables/useRepos';
-import ReposPage from '@/pages/ReposPage.vue';
+import type { StorageRow } from '@/composables/useStorage';
+import StoragePage from '@/pages/StoragePage.vue';
 
-const repo: RepoRow = {
+const row: StorageRow = {
+  prefix: 'org/my-repo',
   owner: 'org',
   repo: 'my-repo',
+  status: 'used',
   name: 'org/my-repo',
-  status: 'active',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
-  missingAt: null,
-  storage: { prefix: 'org/my-repo', status: 'used', archivedAt: null },
+  lastChangeAt: null,
+  unusedAt: null,
+  archivedAt: null,
+  backedUpAt: null,
+  backupComplete: false,
+  clearedAt: null,
+  purgedAt: null,
+  activeOp: null,
+  gitRepo: { owner: 'org', repo: 'my-repo', status: 'active' },
+  willArchiveAt: null,
+  willPurgeAt: null,
+  lastAccessedAt: null,
+  usage: {
+    deleted: { count: 0, size: 0 },
+    missing: { count: 0, size: 0 },
+    pending: { count: 0, size: 0 },
+    present: { count: 42, size: 2048 },
+    purged: { count: 0, size: 0 },
+  },
 };
 
 function makeRouter() {
@@ -29,13 +47,13 @@ function makeRouter() {
 
 function mountPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return mount(ReposPage, {
+  return mount(StoragePage, {
     global: { plugins: [makeRouter(), [VueQueryPlugin, { queryClient }]] },
   });
 }
 
 function okResponse(body: unknown) {
-  const res = {
+  return {
     ok: true,
     status: 200,
     clone() {
@@ -43,7 +61,6 @@ function okResponse(body: unknown) {
     },
     json: () => Promise.resolve(body),
   };
-  return res;
 }
 
 function errResponse(status: number, statusText: string, body: unknown) {
@@ -60,16 +77,16 @@ function errResponse(status: number, statusText: string, body: unknown) {
 
 const fetchMock = vi.fn();
 
-describe('ReposPage', () => {
+describe('StoragePage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('renders empty state when no repos', async () => {
-    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ repos: [] })));
+  it('renders empty state when no prefixes', async () => {
+    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ storage: [] })));
     const wrapper = mountPage();
     await flushPromises();
-    expect(wrapper.text()).toContain('No repositories discovered yet.');
+    expect(wrapper.text()).toContain('No storage discovered yet.');
   });
 
   it('renders error alert on fetch failure', async () => {
@@ -83,27 +100,17 @@ describe('ReposPage', () => {
     expect(wrapper.text()).toContain('db down');
   });
 
-  it('renders loading skeletons initially', () => {
-    vi.stubGlobal('fetch', fetchMock.mockReturnValue(new Promise(() => {})));
-    const wrapper = mountPage();
-    expect(wrapper.text()).toContain('Repositories');
-    expect(wrapper.findAll('[class*="skeleton"], [data-slot="skeleton"]').length).toBeGreaterThan(
-      0,
-    );
-  });
-
-  it('renders repo table when repos exist', async () => {
-    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ repos: [repo] })));
+  it('renders the storage table when prefixes exist', async () => {
+    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ storage: [row] })));
     const wrapper = mountPage();
     await flushPromises();
     expect(wrapper.text()).toContain('org/my-repo');
-    expect(wrapper.text()).toContain('active');
   });
 
-  it('has Repositories heading', async () => {
-    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ repos: [] })));
+  it('has Storage heading', async () => {
+    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ storage: [] })));
     const wrapper = mountPage();
     await flushPromises();
-    expect(wrapper.find('h2').text()).toBe('Repositories');
+    expect(wrapper.find('h2').text()).toBe('Storage');
   });
 });

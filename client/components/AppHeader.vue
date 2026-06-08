@@ -10,6 +10,7 @@ const { admin } = useAuth();
     <div class="container mx-auto flex items-center justify-between p-4">
       <RouterLink to="/repos" class="text-xl font-bold">lfs-admin</RouterLink>
       <nav class="flex items-center gap-4 text-sm">
+        <RouterLink to="/storage" class="hover:underline">Storage</RouterLink>
         <RouterLink to="/repos" class="hover:underline">Repos</RouterLink>
         <span v-if="admin" class="text-muted-foreground">{{ admin }}</span>
       </nav>

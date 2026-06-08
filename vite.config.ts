@@ -53,6 +53,10 @@ export default defineConfig(({ command }) => ({
   server: {
     // Forwards console.error, console.warn, and unhandled errors by default
     forwardConsole: true,
+    // Tests aren't part of the dev bundle — don't trigger HMR/reload on their saves.
+    watch: {
+      ignored: ['**/*.{spec,test}.ts'],
+    },
   },
   build: {
     rollupOptions: {

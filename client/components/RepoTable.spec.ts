@@ -1,127 +1,106 @@
-import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { describe, expect, it, vi } from 'vitest';
+import { createRouter, createMemoryHistory } from 'vue-router';
 
 import RepoTable from '@/components/RepoTable.vue';
 import type { RepoRow } from '@/composables/useRepos';
 
-function mountTable(repos: RepoRow[]) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return mount(RepoTable, {
-    props: { repos },
-    global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+function makeRouter() {
+  return createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/repos', component: { template: '<div />' } },
+      { path: '/storage', component: { template: '<div />' } },
+    ],
   });
 }
 
-const zeroUsage = {
-  deleted: { count: 0, size: 0 },
-  missing: { count: 0, size: 0 },
-  pending: { count: 0, size: 0 },
-  present: { count: 0, size: 0 },
-  purged: { count: 0, size: 0 },
-};
+async function mountTable(repos: RepoRow[]) {
+  const router = makeRouter();
+  router.push('/repos');
+  await router.isReady();
+  return mount(RepoTable, {
+    props: { repos },
+    global: { plugins: [router] },
+  });
+}
 
 const repo: RepoRow = {
-  prefix: 'org/my-repo',
   owner: 'org',
   repo: 'my-repo',
-  status: 'used',
   name: 'org/my-repo',
+  status: 'active',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
-  lastChangeAt: '2026-05-24T12:00:00Z',
-  unusedAt: null,
-  archivedAt: null,
-  backedUpAt: null,
-  backupComplete: false,
-  clearedAt: null,
-  purgedAt: null,
-  activeOp: null,
-  willArchiveAt: null,
-  willPurgeAt: null,
-  lastAccessedAt: '2026-05-24T12:00:00Z',
-  usage: { ...zeroUsage, present: { count: 142, size: 1073741824 } },
+  missingAt: null,
+  storage: { prefix: 'org/my-repo', status: 'used', archivedAt: null },
+};
+
+const openHoverCard = async (trigger: ReturnType<ReturnType<typeof mount>['find']>) => {
+  vi.useFakeTimers();
+  await trigger.trigger('focus');
+  vi.advanceTimersByTime(1000);
+  vi.useRealTimers();
+  await flushPromises();
 };
 
 describe('RepoTable', () => {
-  it('renders repo rows', () => {
-    const wrapper = mountTable([repo]);
+  it('renders repo rows with git status', async () => {
+    const wrapper = await mountTable([repo]);
     expect(wrapper.text()).toContain('org/my-repo');
-    expect(wrapper.text()).toContain('used');
+    expect(wrapper.text()).toContain('active');
   });
 
-  it('renders size and object count', () => {
-    const wrapper = mountTable([repo]);
-    expect(wrapper.text()).toContain('142');
-    expect(wrapper.text()).toContain('1.07 GB');
+  it('links to the matching storage, hiding the redundant "used" badge', async () => {
+    const wrapper = await mountTable([repo]);
+    const link = wrapper.find('a[href="/storage"]');
+    expect(link.exists()).toBe(true);
+    expect(link.text()).toContain('org/my-repo');
+    expect(wrapper.find('td:nth-child(2)').text()).not.toContain('used');
   });
 
-  it('renders zero size and count for empty usage', () => {
-    const emptyRepo = { ...repo, usage: zeroUsage };
-    const wrapper = mountTable([emptyRepo]);
-    const cells = wrapper.findAll('td');
-    expect(cells[2].text()).toBe('0 B');
-    expect(cells[3].text()).toBe('0');
+  it('badges purged storage but not the now-redundant unused state', async () => {
+    const purged = await mountTable([{ ...repo, storage: { ...repo.storage!, status: 'purged' } }]);
+    expect(purged.find('td:nth-child(2)').text()).toContain('purged');
+
+    // `unused` is implied by the repo being missing — no badge.
+    const unused = await mountTable([{ ...repo, storage: { ...repo.storage!, status: 'unused' } }]);
+    expect(unused.find('td:nth-child(2)').text()).not.toContain('unused');
   });
 
-  it('renders willArchiveAt as a date with full timestamp on hover', () => {
-    const unused = {
+  it('badges archived storage', async () => {
+    const wrapper = await mountTable([
+      { ...repo, storage: { ...repo.storage!, archivedAt: '2026-05-25T00:00:00Z' } },
+    ]);
+    expect(wrapper.find('td:nth-child(2)').text()).toContain('archived');
+  });
+
+  it('renders a dash when no storage prefix matches', async () => {
+    const wrapper = await mountTable([{ ...repo, storage: null }]);
+    expect(wrapper.find('a[href="/storage"]').exists()).toBe(false);
+    expect(wrapper.find('td:nth-child(2)').text()).toBe('—');
+  });
+
+  it('merges status with "missing since" age, full timestamp + meaning on hover', async () => {
+    const missing = {
       ...repo,
-      status: 'unused' as const,
-      unusedAt: '2026-05-20T00:00:00Z',
-      willArchiveAt: '2026-05-27T00:00:00Z',
+      status: 'missing' as const,
+      missingAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
     };
-    const span = mountTable([unused]).find('td:nth-child(6) span');
-    expect(span.text()).toBe(new Date('2026-05-27T00:00:00Z').toLocaleDateString());
-    expect(span.attributes('title')).toBe(new Date('2026-05-27T00:00:00Z').toLocaleString());
+    const wrapper = await mountTable([missing]);
+    const status = wrapper.find('td:nth-child(3)');
+    expect(status.text()).toContain('missing');
+    expect(status.text()).toContain('since 5m ago');
+    await openHoverCard(status.find('[data-slot="hover-card-trigger"]'));
+    expect(document.body.textContent).toContain(new Date(missing.missingAt).toLocaleString());
+    expect(document.body.textContent).toContain('No longer found on GitHub');
+    wrapper.unmount();
   });
 
-  it('renders lastAccessed relative with absolute timestamp on hover', () => {
-    const recent = { ...repo, lastAccessedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() };
-    const wrapper = mountTable([recent]);
-    const span = wrapper.find('td:nth-child(5) span');
-    expect(span.text()).toBe('5m ago');
-    expect(span.attributes('title')).toBe(new Date(recent.lastAccessedAt).toLocaleString());
-  });
-
-  it('renders dash for null lastAccessedAt', () => {
-    const noAccess = { ...repo, lastAccessedAt: null };
-    const wrapper = mountTable([noAccess]);
-    expect(wrapper.find('td:nth-child(5)').text()).toBe('—');
-  });
-
-  it('renders dash for null willArchiveAt', () => {
-    const wrapper = mountTable([repo]);
-    const cells = wrapper.findAll('td');
-    expect(cells.some((c) => c.text() === '—')).toBe(true);
-  });
-
-  const actionLabels = (repos: RepoRow[]) =>
-    mountTable(repos)
-      .findAll('button')
-      .map((b) => b.text());
-
-  it('shows Archive for unused, not-yet-blocked repos only', () => {
-    expect(actionLabels([{ ...repo, status: 'unused' }])).toContain('Archive');
-    expect(actionLabels([repo])).not.toContain('Archive'); // used
-    // already blocked → Restore, not Archive
-    expect(
-      actionLabels([{ ...repo, status: 'unused', archivedAt: '2026-05-25T00:00:00Z' }]),
-    ).not.toContain('Archive');
-  });
-
-  it('shows Restore whenever the repo is blocked (archivedAt set), regardless of status', () => {
-    expect(
-      actionLabels([{ ...repo, status: 'unused', archivedAt: '2026-05-25T00:00:00Z' }]),
-    ).toContain('Restore');
-    expect(actionLabels([{ ...repo, status: 'unused' }])).not.toContain('Restore');
-    expect(actionLabels([repo])).not.toContain('Restore'); // used, unblocked
-  });
-
-  it('renders an Archived badge when blocked', () => {
-    expect(
-      mountTable([{ ...repo, status: 'unused', archivedAt: '2026-05-25T00:00:00Z' }]).text(),
-    ).toContain('archived');
-    expect(mountTable([repo]).text()).not.toContain('archived');
+  it('shows the active status without a "since" age', async () => {
+    const wrapper = await mountTable([repo]);
+    const status = wrapper.find('td:nth-child(3)');
+    expect(status.text()).toContain('active');
+    expect(status.text()).not.toContain('since');
   });
 });

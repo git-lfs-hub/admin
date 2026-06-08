@@ -1,18 +1,9 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router';
+
 import StatusBadge from '@/components/StatusBadge.vue';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import {
   Table,
   TableBody,
@@ -21,17 +12,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useRepoMutations } from '@/composables/useRepoMutations';
 import type { RepoRow } from '@/composables/useRepos';
-import { formatSize, formatTime, formatDate, formatRelative } from '@/lib/format';
+import { formatTime, formatRelative } from '@/lib/format';
 
 defineProps<{ repos: RepoRow[] }>();
-
-const { archive, restore } = useRepoMutations();
-
-// "Stored" = objects present in storage plus pending writes; excludes missing/deleted/purged.
-const storedCount = (r: RepoRow) => r.usage.present.count + r.usage.pending.count;
-const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size;
 </script>
 
 <template>
@@ -39,12 +23,8 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size;
     <TableHeader>
       <TableRow>
         <TableHead>Repo</TableHead>
+        <TableHead>Storage</TableHead>
         <TableHead>Status</TableHead>
-        <TableHead class="text-right">Size</TableHead>
-        <TableHead class="text-right">Objects</TableHead>
-        <TableHead>Last accessed</TableHead>
-        <TableHead>Will archive</TableHead>
-        <TableHead class="text-right">Actions</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -52,77 +32,70 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size;
         <TableCell class="font-mono whitespace-normal break-all"
           >{{ r.owner }}/{{ r.repo }}</TableCell
         >
-        <TableCell><StatusBadge :status="r.status" /></TableCell>
-        <TableCell class="text-right">{{ formatSize(storedSize(r)) }}</TableCell>
-        <TableCell class="text-right">{{ storedCount(r) }}</TableCell>
-        <TableCell>
-          <span v-if="r.lastAccessedAt" :title="formatTime(r.lastAccessedAt)">{{
-            formatRelative(r.lastAccessedAt)
-          }}</span>
-          <template v-else>—</template>
-        </TableCell>
-        <TableCell>
-          <Badge
-            v-if="r.archivedAt"
-            variant="destructive"
-            :title="`Blocked since ${formatTime(r.archivedAt)}`"
-            >archived</Badge
-          >
-          <span v-else-if="r.willArchiveAt" :title="formatTime(r.willArchiveAt)">{{
-            formatDate(r.willArchiveAt)
-          }}</span>
-          <template v-else>—</template>
-        </TableCell>
-        <TableCell class="text-right">
-          <AlertDialog v-if="r.status === 'unused' && !r.archivedAt">
-            <AlertDialogTrigger as-child>
-              <Button size="xs" variant="destructive" :disabled="archive.isPending.value"
-                >Archive</Button
-              >
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Archive {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Blocks LFS access — uploads and downloads return 404. Live storage is retained,
-                  the status stays <code>unused</code>, and the block is lifted automatically if the
-                  repo reappears on GitHub.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  @click="archive.mutate({ owner: r.owner, repo: r.repo })"
-                >
-                  Archive
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
 
-          <AlertDialog v-else-if="r.archivedAt">
-            <AlertDialogTrigger as-child>
-              <Button size="xs" variant="outline" :disabled="restore.isPending.value"
-                >Restore</Button
-              >
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Restore {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Unblocks LFS access — the repo serves again. Only the block is lifted; the status
-                  is unchanged (presence is reconciliation's call).
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction @click="restore.mutate({ owner: r.owner, repo: r.repo })">
-                  Restore
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        <!-- Inferred storage prefix. `used`/`unused` are implied by the repo status, so only the
+             notable storage states (`purged`, `archived`) are badged here. -->
+        <TableCell>
+          <span v-if="r.storage" class="inline-flex items-center gap-2">
+            <RouterLink to="/storage" class="font-mono hover:underline">{{
+              r.storage.prefix
+            }}</RouterLink>
+            <HoverCard v-if="r.storage.status === 'purged'">
+              <HoverCardTrigger as-child>
+                <StatusBadge :status="r.storage.status" class="h-6" />
+              </HoverCardTrigger>
+              <HoverCardContent class="w-auto">
+                <p class="font-medium">Purged</p>
+                <p class="text-muted-foreground">
+                  Every file in this storage was permanently deleted.
+                </p>
+              </HoverCardContent>
+            </HoverCard>
+            <HoverCard v-else-if="r.storage.archivedAt">
+              <HoverCardTrigger as-child>
+                <Badge variant="destructive" class="h-6">archived</Badge>
+              </HoverCardTrigger>
+              <HoverCardContent class="w-auto space-y-2">
+                <p class="font-medium">Archived {{ formatRelative(r.storage.archivedAt) }}</p>
+                <p class="text-muted-foreground">
+                  {{ formatTime(r.storage.archivedAt) }} — this storage no longer serves Git LFS.
+                  Files are kept; nothing is deleted.
+                </p>
+              </HoverCardContent>
+            </HoverCard>
+          </span>
+          <span v-else class="text-muted-foreground">—</span>
+        </TableCell>
+
+        <!-- Status merges the repo's GitHub presence with its "missing since" age. -->
+        <TableCell>
+          <HoverCard>
+            <HoverCardTrigger as-child>
+              <span class="inline-flex items-center gap-2">
+                <StatusBadge :status="r.status" class="h-6" />
+                <span v-if="r.status === 'missing' && r.missingAt" class="text-muted-foreground"
+                  >since {{ formatRelative(r.missingAt) }}</span
+                >
+              </span>
+            </HoverCardTrigger>
+            <HoverCardContent class="w-auto">
+              <template v-if="r.status === 'missing'">
+                <p class="font-medium">
+                  Repository missing<template v-if="r.missingAt">
+                    since {{ formatTime(r.missingAt) }}</template
+                  >
+                </p>
+                <p class="text-muted-foreground">
+                  No longer found on GitHub. Its storage is now unused and will be archived
+                  automatically.
+                </p>
+              </template>
+              <template v-else>
+                <p class="font-medium">Active</p>
+                <p class="text-muted-foreground">Present on GitHub and serving Git LFS.</p>
+              </template>
+            </HoverCardContent>
+          </HoverCard>
         </TableCell>
       </TableRow>
     </TableBody>

@@ -12,7 +12,10 @@ function makeQueryClient() {
 function makeRouter() {
   return createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/repos', component: { template: '<div />' } }],
+    routes: [
+      { path: '/repos', component: { template: '<div />' } },
+      { path: '/storage', component: { template: '<div />' } },
+    ],
   });
 }
 
@@ -53,6 +56,22 @@ describe('AppHeader', () => {
       global: { plugins: [makeRouter(), [VueQueryPlugin, { queryClient: makeQueryClient() }]] },
     });
     expect(wrapper.text()).toContain('Repos');
+  });
+
+  it('shows Storage nav link', () => {
+    vi.stubGlobal(
+      'fetch',
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ admin: 'dev' }),
+      }),
+    );
+
+    const wrapper = mount(AppHeader, {
+      global: { plugins: [makeRouter(), [VueQueryPlugin, { queryClient: makeQueryClient() }]] },
+    });
+    expect(wrapper.text()).toContain('Storage');
   });
 
   it('shows admin username after /api/me resolves', async () => {

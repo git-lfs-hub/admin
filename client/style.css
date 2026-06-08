@@ -10,6 +10,8 @@
   --color-foreground: hsl(222.2 84% 4.9%);
   --color-card: hsl(0 0% 100%);
   --color-card-foreground: hsl(222.2 84% 4.9%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(222.2 84% 4.9%);
   --color-primary: hsl(222.2 47.4% 11.2%);
   --color-primary-foreground: hsl(210 40% 98%);
   --color-secondary: hsl(210 40% 96.1%);
@@ -29,6 +31,8 @@
     --color-foreground: hsl(210 40% 98%);
     --color-card: hsl(222.2 84% 4.9%);
     --color-card-foreground: hsl(210 40% 98%);
+    --color-popover: hsl(222.2 84% 4.9%);
+    --color-popover-foreground: hsl(210 40% 98%);
     --color-primary: hsl(210 40% 98%);
     --color-primary-foreground: hsl(222.2 47.4% 11.2%);
     --color-secondary: hsl(217.2 32.6% 17.5%);

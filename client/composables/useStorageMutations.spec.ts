@@ -6,7 +6,7 @@ import { defineComponent } from 'vue';
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('vue-sonner', () => ({ toast }));
 
-import { useRepoMutations } from '@/composables/useRepoMutations';
+import { useStorageMutations } from '@/composables/useStorageMutations';
 
 const fetchMock = vi.fn();
 
@@ -17,7 +17,7 @@ function mountWithQuery() {
   const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
   const Wrapper = defineComponent({
     setup() {
-      return useRepoMutations();
+      return useStorageMutations();
     },
     render() {
       return null;
@@ -27,21 +27,21 @@ function mountWithQuery() {
   return { wrapper, invalidate };
 }
 
-describe('useRepoMutations', () => {
+describe('useStorageMutations', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     toast.success.mockReset();
     toast.error.mockReset();
   });
 
-  it('archive POSTs, toasts success, invalidates the repos query', async () => {
+  it('archive POSTs, toasts success, invalidates the storage query', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
       clone() {
         return this;
       },
-      json: () => Promise.resolve({ repo: { status: 'archived' } }),
+      json: () => Promise.resolve({ storage: { archivedAt: '2026-05-25T00:00:00Z' } }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -50,22 +50,22 @@ describe('useRepoMutations', () => {
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/repos/alice/gone/archive',
+      '/api/storage/alice/gone/archive',
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     );
     expect(toast.success).toHaveBeenCalledWith('Archived alice/gone');
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['repos'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
     wrapper.unmount();
   });
 
-  it('restore POSTs, toasts success, invalidates the repos query', async () => {
+  it('restore POSTs, toasts success, invalidates the storage query', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
       clone() {
         return this;
       },
-      json: () => Promise.resolve({ repo: { status: 'active' } }),
+      json: () => Promise.resolve({ storage: { archivedAt: null } }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -74,11 +74,11 @@ describe('useRepoMutations', () => {
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/repos/alice/gone/restore',
+      '/api/storage/alice/gone/restore',
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     );
     expect(toast.success).toHaveBeenCalledWith('Restored alice/gone');
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['repos'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
     wrapper.unmount();
   });
 
