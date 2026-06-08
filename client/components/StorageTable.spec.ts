@@ -174,8 +174,14 @@ describe('StorageTable', () => {
     );
   });
 
-  it('shows Purge for any non-purged storage; purged shows a badge instead', async () => {
-    expect(await actionLabels([row])).toContain('Purge');
+  it('shows Purge for unused storage only; used and purged show a badge instead', async () => {
+    expect(await actionLabels([unused])).toContain('Purge');
+
+    // Used storage is actively serving — no Purge, just a dash (its badge lives in Archive).
+    const used = await mountTable([row]);
+    expect(used.findAll('button').map((b) => b.text())).not.toContain('Purge');
+    expect(used.find('td:nth-child(6)').text()).toBe('—');
+
     const purged = await mountTable([
       { ...row, status: 'purged', purgedAt: '2026-05-26T00:00:00Z' },
     ]);
@@ -234,7 +240,7 @@ describe('StorageTable', () => {
   });
 
   it('explains Purge on hover and confirms in a popover with Purge disabled', async () => {
-    const wrapper = await mountTable([row]);
+    const wrapper = await mountTable([unused]);
     const cell = wrapper.find('td:nth-child(6)');
     // Hover-card trigger is the cell span; its hover carries the warning.
     await openHoverCard(cell.find('[data-slot="hover-card-trigger"]'));

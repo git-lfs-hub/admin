@@ -271,7 +271,8 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
         </TableCell>
 
         <!-- Purge is the only storage action, so this column also carries the terminal `purged`
-             state: a badge once purged, the Purge confirm otherwise. -->
+             state: a badge once purged. Purge is offered for `unused` storage only; `used` storage
+             is actively serving, so its files must never be deleted — it shows a badge instead. -->
         <TableCell class="text-center">
           <HoverCard v-if="r.status === 'purged'">
             <HoverCardTrigger as-child>
@@ -287,6 +288,10 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
               </p>
             </HoverCardContent>
           </HoverCard>
+
+          <!-- Used → actively serving; its files must never be deleted, so no Purge. The Archive
+               column already carries the `used` badge, so this column stays empty. -->
+          <template v-else-if="r.status === 'used'">—</template>
 
           <HoverCard v-else>
             <HoverCardTrigger as-child>
