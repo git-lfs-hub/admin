@@ -28,7 +28,10 @@ export default defineConfig(({ command }) => ({
     cloudflare({
       ...(command === 'serve'
         ? {
-            persistState: true,
+            // server/ is the dependency; keep the shared dev state under it so
+            // the auxiliary lfs-server worker and standalone `bun dev/start.ts`
+            // (which persists to server/.wrangler/state) read/write one place.
+            persistState: { path: '../server/.wrangler/state' },
             // Dev launches with ENV=local (see package.json `dev`) — inject it as a
             // worker var so reconcile skips GitHub (no real GitHub App key locally).
             config: (config) => {
