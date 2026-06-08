@@ -151,9 +151,13 @@ test('confirm popover is centered over the trigger, aligned like the hover-card'
   await expect(pop).toBeInViewport();
   const pb = (await pop.boundingBox())!;
   const popCenter = pb.x + pb.width / 2;
-  // Popover is centered over the trigger and shares the hover-card's horizontal alignment.
+  // Box is centered over the trigger, sharing the hover-card's horizontal alignment.
   expect(Math.abs(popCenter - triggerCenter)).toBeLessThanOrEqual(2);
   expect(Math.abs(popCenter - cardCenter)).toBeLessThanOrEqual(2);
+  // …but within the centered box, Cancel's right edge lands on the trigger's right edge.
+  const cancel = pop.getByRole('button', { name: 'Cancel' });
+  const cb = (await cancel.boundingBox())!;
+  expect(Math.abs(tb.x + tb.width - (cb.x + cb.width))).toBeLessThanOrEqual(2);
 });
 
 test('hover-card stays anchored to the cell — never jumps to the top-left', async ({ page }) => {

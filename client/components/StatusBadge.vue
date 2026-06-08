@@ -13,7 +13,7 @@ const props = defineProps<{
 const variant = {
   // git presence (`repos`)
   active: 'default',
-  missing: 'destructive',
+  missing: 'secondary',
   // storage lifecycle (`storage`)
   used: 'default',
   unused: 'secondary',

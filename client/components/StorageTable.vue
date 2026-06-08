@@ -70,7 +70,7 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
             >
             <HoverCard v-if="r.gitRepo.status === 'missing'">
               <HoverCardTrigger as-child>
-                <StatusBadge :status="r.gitRepo.status" class="h-6" />
+                <StatusBadge status="missing" class="h-6" />
               </HoverCardTrigger>
               <HoverCardContent>
                 <p class="font-medium">Repository missing</p>
@@ -83,7 +83,7 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
           </span>
           <HoverCard v-else>
             <HoverCardTrigger as-child>
-              <StatusBadge status="missing" class="-ml-[9px] h-6" />
+              <StatusBadge status="missing" class="h-6" />
             </HoverCardTrigger>
             <HoverCardContent>
               <p class="font-medium">Repository missing</p>
@@ -141,7 +141,7 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
           <HoverCard v-if="r.archivedAt">
             <HoverCardTrigger as-child>
               <span class="group relative inline-flex items-center">
-                <Badge variant="destructive" class="h-6">archived</Badge>
+                <Badge variant="secondary" class="h-6">archived</Badge>
                 <Popover>
                   <PopoverTrigger as-child>
                     <Button size="xs" variant="outline" :class="triggerOverlay">Restore</Button>
