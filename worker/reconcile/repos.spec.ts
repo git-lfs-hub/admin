@@ -45,10 +45,7 @@ type StorageReconResult = {
 
 /** `installed` = accounts the App is on (the install list); `tracked` = existing `orgs` rows
  *  the uninstall sweep scans. */
-function fakeRegistry(
-  installed: string[],
-  tracked: { org: string; status: string }[] = [],
-) {
+function fakeRegistry(installed: string[], tracked: { org: string; status: string }[] = []) {
   installations = installed.map((login, i) => ({ login, id: i + 1 }));
   const orgStatuses: { org: string; status: string; error?: string | null }[] = [];
   let lastReconcileInput: { activeOrgs: Set<string>; activeRepos: Set<string> } | null = null;
@@ -136,10 +133,13 @@ describe('reconcileRepos', () => {
 
   test('uninstall sweep: tracked org absent from install list → no_installation, repos untouched', async () => {
     // 'a' is installed; 'gone' is a tracked org row no longer in the install list.
-    const registry = fakeRegistry(['a'], [
-      { org: 'a', status: 'active' },
-      { org: 'gone', status: 'active' },
-    ]);
+    const registry = fakeRegistry(
+      ['a'],
+      [
+        { org: 'a', status: 'active' },
+        { org: 'gone', status: 'active' },
+      ],
+    );
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
     const r = await reconcileRepos(env, registry);
     expect(registry.upsertOrgStatus).toHaveBeenCalledWith('gone', 'no_installation');

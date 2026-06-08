@@ -44,13 +44,13 @@ export async function reconcileRepos(
   };
 
   for (const account of accounts) {
-    const org = account.login.toLowerCase();
     let probe: OrgProbeResult;
     try {
       probe = await probeOrg(await app.orgApi(account));
     } catch (e) {
       probe = classifyError(e);
     }
+    const org = account.login.toLowerCase();
     orgs[probe.status].push(org);
     await registry.upsertOrgStatus(org, probe.status, probe.error ?? null);
     if (probe.status === 'active') {
@@ -179,10 +179,8 @@ export function warnClearedReappeared(r: StorageRow): void {
 /** Map a thrown probe error (acquisition or listing) to a non-active OrgProbeResult. */
 function classifyError(e: unknown): OrgProbeResult {
   if (e instanceof GithubError) {
-    if (e.code === 'no_installation') return { status: 'no_installation', error: e.message };
-    if (e.code === 'forbidden') return { status: 'forbidden', error: e.message };
-    if (e.code === 'missing') return { status: 'missing', error: e.message };
-    return { status: 'transient_error', error: e.message };
+    if (e.code === 'no_installation' || e.code === 'forbidden' || e.code === 'missing')
+      return { status: e.code, error: e.message };
   }
   return { status: 'transient_error', error: e instanceof Error ? e.message : String(e) };
 }
