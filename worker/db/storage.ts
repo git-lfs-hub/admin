@@ -1,11 +1,21 @@
 import { DurableObject } from 'cloudflare:workers';
-import { count, eq, inArray, max, sum } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, max, sum } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
-import { objects, objectStatuses, type ObjectStatus } from '@/db/repo-schema';
+import { Registry } from '@/db/registry';
+import type { StorageStatus } from '@/db/registry-schema';
+import {
+  objects,
+  objectStatuses,
+  workflows,
+  type ObjectStatus,
+  type WorkflowOp,
+  type WorkflowStatus,
+} from '@/db/storage-schema';
 import { isoNow } from '@/lib/time';
 
 export type ObjectRow = typeof objects.$inferSelect;
+export type WorkflowRow = typeof workflows.$inferSelect;
 
 /** CF Durable Object SQLite caps bound parameters per statement at 100. */
 const SQL_VAR_LIMIT = 100;
@@ -19,9 +29,14 @@ export type ObjectReconciliationResult = {
   resized: number; // size corrected from storage truth
 };
 
-/** Per-repo index DO (keyed by `${owner}/${repo}`). Tracks LFS objects. */
-export class Repo extends DurableObject<CloudflareBindings> {
+/** Per-prefix storage DO (keyed by the canonical `OwnerCase/RepoCase` prefix). Holds the LFS
+ *  object inventory and the `workflows` table (one-active-op guard for the GC lifecycle). */
+export class Storage extends DurableObject<CloudflareBindings> {
   private db: DrizzleSqliteDODatabase;
+
+  static byPrefix(env: CloudflareBindings, prefix: string): DurableObjectStub<Storage> {
+    return env.STORAGE.getByName(prefix);
+  }
 
   constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env);
@@ -38,6 +53,21 @@ export class Repo extends DurableObject<CloudflareBindings> {
           last_accessed TEXT NOT NULL
         )
       `);
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS workflows (
+          instance_id         TEXT PRIMARY KEY,
+          op                  TEXT NOT NULL,
+          shard               INTEGER,
+          status              TEXT NOT NULL,
+          started_at          TEXT NOT NULL,
+          ended_at            TEXT,
+          cancel_requested_at TEXT,
+          error               TEXT
+        )
+      `);
+      this.ctx.storage.sql.exec(
+        `CREATE INDEX IF NOT EXISTS workflows_active ON workflows (ended_at)`,
+      );
     });
   }
 
@@ -112,10 +142,9 @@ export class Repo extends DurableObject<CloudflareBindings> {
 
   /**
    * Reconcile one page of storage truth (`oid -> size` for keys present under the
-   * repo prefix): insert objects present in storage but absent from the index
-   * (as `present`, source `storage_scan`), confirm `pending` objects to `present`,
-   * and correct sizes. Callers stream pages from storage; only the page's oids
-   * are touched (objects absent from storage are left untouched).
+   * prefix): insert objects present in storage but absent from the index (as `present`,
+   * source `storage_scan`), confirm `pending` objects to `present`, and correct sizes.
+   * Callers stream pages from storage; only the page's oids are touched.
    */
   async recordReconciliation(
     storageSizes: Record<string, number>,
@@ -167,5 +196,78 @@ export class Repo extends DurableObject<CloudflareBindings> {
       }
     }
     return out;
+  }
+
+  // --- workflows: one-active-op guard for the GC lifecycle (Group D wires the executors) ---
+
+  async listWorkflows(): Promise<WorkflowRow[]> {
+    return await this.db.select().from(workflows);
+  }
+
+  /** The prefix is busy iff ≥1 row has `endedAt` null. */
+  async activeOp(): Promise<WorkflowOp | null> {
+    const [row] = await this.db
+      .select({ op: workflows.op })
+      .from(workflows)
+      .where(isNull(workflows.endedAt))
+      .limit(1);
+    return row?.op ?? null;
+  }
+
+  /**
+   * Start (a shard of) an op. Refused while the prefix is busy with a *different* op (409);
+   * another shard of the same op is allowed. Denormalizes `activeOp` onto `REGISTRY.storage`
+   * so the list view shows running ops without fanning out.
+   */
+  async beginOp(
+    prefix: string,
+    instanceId: string,
+    op: WorkflowOp,
+    shard: number | null = null,
+  ): Promise<WorkflowRow> {
+    const active = await this.activeOp();
+    if (active && active !== op) {
+      throw new Error(`storage busy: ${active} in flight, cannot start ${op}`);
+    }
+    const now = isoNow();
+    const [row] = await this.db
+      .insert(workflows)
+      .values({ instanceId, op, shard, status: 'running', startedAt: now })
+      .returning();
+    if (!active) await Registry.global(this.env).setActiveOp(prefix, op);
+    return row;
+  }
+
+  /**
+   * Close one op row with its engine status. When the last active row for the prefix closes,
+   * write the resting `status` and clear `activeOp` on `REGISTRY.storage` (cross-DO).
+   */
+  async endOp(
+    prefix: string,
+    instanceId: string,
+    engineStatus: WorkflowStatus,
+    restingStatus: StorageStatus,
+    error: string | null = null,
+  ): Promise<void> {
+    const now = isoNow();
+    await this.db
+      .update(workflows)
+      .set({ status: engineStatus, endedAt: now, error })
+      .where(eq(workflows.instanceId, instanceId));
+    const stillActive = await this.activeOp();
+    if (!stillActive) {
+      await Registry.global(this.env).endStorageOp(prefix, restingStatus);
+    }
+  }
+
+  /** Flag every active row for cancellation; the executors check this at batch boundaries. */
+  async requestCancel(): Promise<number> {
+    const now = isoNow();
+    const rows = await this.db
+      .update(workflows)
+      .set({ cancelRequestedAt: now })
+      .where(and(isNull(workflows.endedAt), isNull(workflows.cancelRequestedAt)))
+      .returning();
+    return rows.length;
   }
 }

@@ -8,42 +8,34 @@ afterEach(async () => {
   await reset();
 });
 
-const repos = () => env.REPOS.getByName('global');
+const reg = () => env.REGISTRY.getByName('global');
 
 async function seed(keys: string[]) {
   for (const k of keys) await env.LFS_BUCKET.put(k, 'x');
 }
 
 describe('discoverRepos', () => {
-  test('discovers owner/repo pairs from R2', async () => {
+  test('discovers owner/repo prefixes from R2', async () => {
     await seed(['alice/one/aaa', 'alice/one/bbb', 'alice/two/ccc', 'bob/three/ddd']);
-    const found = await discoverRepos(env.LFS_BUCKET, repos());
-    expect(found.map((r) => `${r.owner}/${r.repo}`).sort()).toEqual([
-      'alice/one',
-      'alice/two',
-      'bob/three',
-    ]);
-    const rows = await repos().listAll();
-    expect(rows.map((r) => `${r.owner}/${r.repo}`).sort()).toEqual([
-      'alice/one',
-      'alice/two',
-      'bob/three',
-    ]);
+    const found = await discoverRepos(env.LFS_BUCKET, reg());
+    expect([...found].sort()).toEqual(['alice/one', 'alice/two', 'bob/three']);
+    const rows = await reg().listStorage();
+    expect(rows.map((r) => r.prefix).sort()).toEqual(['alice/one', 'alice/two', 'bob/three']);
   });
 
-  test('is idempotent with existing repos (preserves firstSeen)', async () => {
+  test('is idempotent with existing storage rows (preserves firstSeen)', async () => {
     await seed(['alice/one/aaa']);
-    await discoverRepos(env.LFS_BUCKET, repos());
-    const first = await repos().get('alice', 'one');
+    await discoverRepos(env.LFS_BUCKET, reg());
+    const first = await reg().getStorage('alice/one');
     await new Promise((r) => setTimeout(r, 1100));
-    await discoverRepos(env.LFS_BUCKET, repos());
-    const second = await repos().get('alice', 'one');
+    await discoverRepos(env.LFS_BUCKET, reg());
+    const second = await reg().getStorage('alice/one');
     expect(second?.firstSeen).toBe(first?.firstSeen);
     expect(second?.updatedAt).not.toBe(first?.updatedAt);
   });
 
   test('returns empty array when bucket is empty', async () => {
-    const found = await discoverRepos(env.LFS_BUCKET, repos());
+    const found = await discoverRepos(env.LFS_BUCKET, reg());
     expect(found).toEqual([]);
   });
 
@@ -54,7 +46,7 @@ describe('discoverRepos', () => {
       for (let i = 0; i < 5; i++) keys.push(`${o}/r${i}/obj`);
     }
     await seed(keys);
-    const found = await discoverRepos(env.LFS_BUCKET, repos());
+    const found = await discoverRepos(env.LFS_BUCKET, reg());
     expect(found.length).toBe(15);
   });
 
@@ -79,7 +71,7 @@ describe('discoverRepos', () => {
       },
     } as unknown as R2Bucket;
 
-    const found = await discoverRepos(bucket, repos());
-    expect(found.map((r) => `${r.owner}/${r.repo}`).sort()).toEqual(['alice/one', 'bob/two']);
+    const found = await discoverRepos(bucket, reg());
+    expect([...found].sort()).toEqual(['alice/one', 'bob/two']);
   });
 });

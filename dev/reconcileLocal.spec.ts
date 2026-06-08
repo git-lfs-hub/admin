@@ -4,15 +4,20 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 const unblockRepo = vi.fn(async () => {});
 const env = { LFS_SERVER: { unblockRepo } } as any;
 
-function fakeRepos(owners: string[]) {
+function fakeRegistry(owners: string[]) {
   return {
     lastInput: null as { activeOrgs: Set<string>; activeRepos: Set<string> } | null,
     listOwners: vi.fn(async () => owners),
-    unblock: vi.fn(async (owner: string, repo: string) => ({ owner, repo })),
+    unblock: vi.fn(async (prefix: string) => ({ prefix })),
     recordReconciliation: vi.fn(async function (this: any, input: any) {
       this.lastInput = input;
-      return { missing: [], reappeared: [], blockedPresent: [] };
+      return { missing: [], reappeared: [] };
     }),
+    reconcileStorage: vi.fn(async () => ({
+      becameUnused: [],
+      becameUsed: [],
+      blockedReused: [],
+    })),
   } as any;
 }
 
@@ -20,18 +25,19 @@ beforeEach(() => unblockRepo.mockReset());
 
 describe('reconcileLocal', () => {
   test('present list → activeRepos; discovered owners → activeOrgs (lowercased)', async () => {
-    const repos = fakeRepos(['acme', 'globex']);
-    await reconcileLocal(env, repos, ['ACME/Keep', 'globex/site']);
-    expect(repos.lastInput).toEqual({
+    const registry = fakeRegistry(['acme', 'globex']);
+    await reconcileLocal(env, registry, ['ACME/Keep', 'globex/site']);
+    expect(registry.lastInput).toEqual({
       activeOrgs: new Set(['acme', 'globex']),
       activeRepos: new Set(['acme/keep', 'globex/site']),
     });
+    expect(registry.reconcileStorage).toHaveBeenCalledOnce();
   });
 
   test('empty present list → every discovered repo evaluated as gone', async () => {
-    const repos = fakeRepos(['acme']);
-    await reconcileLocal(env, repos, []);
-    expect(repos.lastInput?.activeRepos).toEqual(new Set());
-    expect(repos.recordReconciliation).toHaveBeenCalledOnce();
+    const registry = fakeRegistry(['acme']);
+    await reconcileLocal(env, registry, []);
+    expect(registry.lastInput?.activeRepos).toEqual(new Set());
+    expect(registry.recordReconciliation).toHaveBeenCalledOnce();
   });
 });

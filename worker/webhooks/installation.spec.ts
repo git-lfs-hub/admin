@@ -8,8 +8,8 @@ vi.mock('@/reconcile/repos', () => ({
 import { handleInstallation, handleInstallationRepositories } from '@/webhooks/installation';
 
 const upsertOrgStatus = vi.fn(async () => ({}));
-const reposStub = { upsertOrgStatus };
-const env = { REPOS: { getByName: () => reposStub } } as any;
+const registryStub = { upsertOrgStatus };
+const env = { REGISTRY: { getByName: () => registryStub } } as any;
 
 beforeEach(() => {
   reconcileRepoEvent.mockClear();
@@ -42,8 +42,8 @@ describe('handleInstallationRepositories', () => {
       action: 'removed',
       repositories_removed: [{ full_name: 'acme/a' }, { full_name: 'acme/b' }],
     });
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'acme', 'a', false);
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'acme', 'b', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'a', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'b', false);
   });
 
   test('added → present=true per repo', async () => {
@@ -51,7 +51,7 @@ describe('handleInstallationRepositories', () => {
       action: 'added',
       repositories_added: [{ full_name: 'acme/c' }],
     });
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'acme', 'c', true);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'c', true);
   });
 
   test('missing arrays → no-op', async () => {

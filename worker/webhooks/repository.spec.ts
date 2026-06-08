@@ -7,8 +7,8 @@ vi.mock('@/reconcile/repos', () => ({
 
 import { handleRepository } from '@/webhooks/repository';
 
-const reposStub = { id: 'repos' };
-const env = { REPOS: { getByName: () => reposStub } } as any;
+const registryStub = { id: 'registry' };
+const env = { REGISTRY: { getByName: () => registryStub } } as any;
 
 function repoEvent(action: string, extra: Record<string, unknown> = {}) {
   return {
@@ -23,12 +23,12 @@ beforeEach(() => reconcileRepoEvent.mockClear());
 describe('handleRepository', () => {
   test.each(['deleted', 'privatized', 'archived'])('%s → present=false', async (action) => {
     await handleRepository(env, repoEvent(action));
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'acme', 'foo', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'foo', false);
   });
 
   test.each(['created', 'publicized', 'unarchived'])('%s → present=true', async (action) => {
     await handleRepository(env, repoEvent(action));
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'acme', 'foo', true);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'foo', true);
   });
 
   test('unknown action → no-op', async () => {
@@ -41,7 +41,7 @@ describe('handleRepository', () => {
       env,
       repoEvent('renamed', { changes: { repository: { name: { from: 'old' } } } }),
     );
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'acme', 'old', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'old', false);
   });
 
   test('renamed without changes → no-op', async () => {
@@ -56,7 +56,7 @@ describe('handleRepository', () => {
         changes: { owner: { from: { organization: { login: 'oldorg' } } } },
       }),
     );
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'oldorg', 'foo', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'oldorg', 'foo', false);
   });
 
   test('transferred (from user) → old user owner', async () => {
@@ -66,7 +66,7 @@ describe('handleRepository', () => {
         changes: { owner: { from: { user: { login: 'olduser' } } } },
       }),
     );
-    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, reposStub, 'olduser', 'foo', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'olduser', 'foo', false);
   });
 
   test('transferred without changes → no-op', async () => {

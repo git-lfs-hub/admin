@@ -1,16 +1,16 @@
-import type { Repo, ObjectReconciliationResult } from '@/db/repo';
+import type { Storage, ObjectReconciliationResult } from '@/db/storage';
 
 export type ReconcileObjectsResult = ObjectReconciliationResult;
 
 /**
- * Reconcile a repo's object index against storage. Streams the repo's `prefix`
- * one list page at a time, reconciling each page's `oid -> size` against the
- * index DO (confirm `pending` -> `present`, correct sizes) without buffering the
- * full listing. Counts are accumulated across pages.
+ * Reconcile a prefix's object index against storage. Streams the prefix one list page at a
+ * time, reconciling each page's `oid -> size` against the per-prefix STORAGE DO (confirm
+ * `pending` -> `present`, correct sizes) without buffering the full listing. Counts are
+ * accumulated across pages.
  */
 export async function reconcileObjects(
   bucket: R2Bucket,
-  index: DurableObjectStub<Repo>,
+  index: DurableObjectStub<Storage>,
   prefix: string,
 ): Promise<ReconcileObjectsResult> {
   const total: ReconcileObjectsResult = { added: 0, confirmed: 0, resized: 0 };

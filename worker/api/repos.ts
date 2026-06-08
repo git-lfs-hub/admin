@@ -1,13 +1,22 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 
 import type { AppEnv } from '@/_env';
+import { Registry, type StorageRow } from '@/db/registry';
+import { Storage } from '@/db/storage';
 import { isoAddDays } from '@/lib/time';
-import { lfsServer } from '@/server/lfs-server';
+import { blockPrefix, unblockPrefix } from '@/server/lfs-server';
+
+/** Resolve the storage row for the URL-path repo (same-key match), or a 404 the caller returns. */
+async function resolveStorage(c: Context<AppEnv>): Promise<StorageRow | Response> {
+  const { owner, repo } = c.req.param();
+  const cur = await Registry.global(c.env).storageForRepo(owner, repo);
+  return cur ?? c.json({ error: 'not_found' }, 404);
+}
 
 const app = new Hono<AppEnv>()
   .get('/', async (c) => {
-    const repos = c.env.REPOS.getByName('global');
-    const rows = await repos.listAll();
+    const registry = Registry.global(c.env);
+    const rows = await registry.listStorage();
     const gc = c.env.GC;
     const archiveDays = gc.autoArchiveDays;
     const retentionDays = gc.coldStorage
@@ -15,16 +24,20 @@ const app = new Hono<AppEnv>()
       : gc.liveStorageRetentionDays;
     const result = await Promise.all(
       rows.map(async (row) => {
-        const repo = c.env.REPO.getByName(row.name);
-        const [usage, lastAccessedAt] = await Promise.all([repo.usage(), repo.lastAccessedAt()]);
+        const store = Storage.byPrefix(c.env, row.prefix);
+        const [usage, lastAccessedAt] = await Promise.all([store.usage(), store.lastAccessedAt()]);
+        const [owner, repo] = row.prefix.split('/');
         return {
           ...row,
+          owner,
+          repo,
+          name: row.prefix,
           usage,
           lastAccessedAt,
-          // Only a still-missing, not-yet-blocked repo has an auto-archive deadline.
+          // Only an `unused`, not-yet-blocked prefix has an auto-archive deadline.
           willArchiveAt:
-            row.status === 'missing' && !row.archivedAt && row.missingAt
-              ? isoAddDays(row.missingAt, archiveDays)
+            row.status === 'unused' && !row.archivedAt && row.unusedAt
+              ? isoAddDays(row.unusedAt, archiveDays)
               : null,
           willPurgeAt: row.archivedAt ? isoAddDays(row.archivedAt, retentionDays) : null,
         };
@@ -32,46 +45,44 @@ const app = new Hono<AppEnv>()
     );
     return c.json({ repos: result });
   })
+
   // Archive = serve-block. RPC before the DB write so a failure leaves the row unchanged.
-  // `missing`-only: blocking an `active` repo would be auto-unblocked by reconcile
-  // (present + blocked) until block-reason tracking exists.
+  // `unused`-only: blocking a `used` prefix (live git repo) would be auto-unblocked by
+  // reconcile (present + blocked) until block-reason tracking exists.
   .post('/:owner/:repo/archive', async (c) => {
-    const { owner, repo } = c.req.param();
-    const repos = c.env.REPOS.getByName('global');
-    const cur = await repos.get(owner, repo);
-    if (!cur) return c.json({ error: 'not_found' }, 404);
-    if (cur.status !== 'missing')
-      return c.json({ error: 'invalid_state', status: cur.status }, 409);
+    const cur = await resolveStorage(c);
+    if (cur instanceof Response) return cur;
+    if (cur.status !== 'unused') return c.json({ error: 'invalid_state', status: cur.status }, 409);
     if (cur.archivedAt) return c.json({ error: 'already_blocked' }, 409);
     try {
-      await lfsServer(c.env).blockRepo(owner, repo);
+      await blockPrefix(c.env, cur.prefix);
     } catch (e) {
-      console.error(`[archive] blockRepo failed for ${cur.name}:`, e);
+      console.error(`[archive] blockRepo failed for ${cur.prefix}:`, e);
       return c.json({ error: 'lfs_server_unavailable' }, 502);
     }
-    const row = await repos.block(owner, repo);
+    const row = await Registry.global(c.env).block(cur.prefix);
     if (!row) return c.json({ error: 'invalid_state' }, 409);
     return c.json({ repo: row });
   })
+
   // Restore (undo Archive) = clear the serve-block. Status untouched — never forces
-  // `active` (presence is reconcile's call). RPC before the DB write. Cold restore
+  // `used` (link state is reconcile's call). RPC before the DB write. Cold restore
   // (clearedAt set → Glacier) is Group D3.
   .post('/:owner/:repo/restore', async (c) => {
-    const { owner, repo } = c.req.param();
-    const repos = c.env.REPOS.getByName('global');
-    const cur = await repos.get(owner, repo);
-    if (!cur) return c.json({ error: 'not_found' }, 404);
+    const cur = await resolveStorage(c);
+    if (cur instanceof Response) return cur;
     if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
     try {
-      await lfsServer(c.env).unblockRepo(owner, repo);
+      await unblockPrefix(c.env, cur.prefix);
     } catch (e) {
-      console.error(`[restore] unblockRepo failed for ${cur.name}:`, e);
+      console.error(`[restore] unblockRepo failed for ${cur.prefix}:`, e);
       return c.json({ error: 'lfs_server_unavailable' }, 502);
     }
-    const row = await repos.unblock(owner, repo);
+    const row = await Registry.global(c.env).unblock(cur.prefix);
     if (!row) return c.json({ error: 'invalid_state' }, 409);
     return c.json({ repo: row });
   })
+
   // Destructive / cold-storage ops land in Groups C and D.
   .post('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .delete('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))

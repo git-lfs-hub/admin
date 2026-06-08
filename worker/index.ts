@@ -10,8 +10,8 @@ import { reconcileAll } from '@/reconcile/index';
 import { handleObjectEvents, type ObjectEvent } from '@/server/object-events';
 import webhooks from '@/webhooks/index';
 
-export { Repos } from '@/db/repos';
-export { Repo } from '@/db/repo';
+export { Registry } from '@/db/registry';
+export { Storage } from '@/db/storage';
 
 let devReconcileFired = false;
 

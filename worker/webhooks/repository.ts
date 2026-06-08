@@ -1,8 +1,8 @@
+import { Registry } from '@/db/registry';
 import { reconcileRepoEvent } from '@/reconcile/repos';
 
-// `repository` webhook → shared DO path. The `action` carries precision REST org-listing
-// lacks (deleted vs privatized vs transferred), but all gone/inaccessible actions collapse to
-// one `missing` presence in the 3-state model.
+// The `action` carries precision REST org-listing lacks (deleted vs privatized vs
+// transferred), but all gone/inaccessible actions collapse to one `missing` presence.
 export type RepositoryEvent = {
   action: string;
   repository: {
@@ -22,7 +22,7 @@ const ABSENT = new Set(['deleted', 'privatized', 'archived']);
 const PRESENT = new Set(['created', 'publicized', 'unarchived']);
 
 export async function handleRepository(env: CloudflareBindings, payload: RepositoryEvent) {
-  const repos = env.REPOS.getByName('global');
+  const registry = Registry.global(env);
   const { action, repository } = payload;
   const owner = repository.owner.login;
   const repo = repository.name;
@@ -30,13 +30,13 @@ export async function handleRepository(env: CloudflareBindings, payload: Reposit
   // rename/transfer: source location goes missing; the new name is left to R2 discovery.
   if (action === 'renamed' || action === 'transferred') {
     const old = oldLocation(payload, owner, repo);
-    if (old) await reconcileRepoEvent(env, repos, old.owner, old.repo, false);
+    if (old) await reconcileRepoEvent(env, registry, old.owner, old.repo, false);
     return;
   }
   if (PRESENT.has(action)) {
-    await reconcileRepoEvent(env, repos, owner, repo, true);
+    await reconcileRepoEvent(env, registry, owner, repo, true);
   } else if (ABSENT.has(action)) {
-    await reconcileRepoEvent(env, repos, owner, repo, false);
+    await reconcileRepoEvent(env, registry, owner, repo, false);
   }
 }
 

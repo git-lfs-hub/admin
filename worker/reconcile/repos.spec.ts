@@ -32,24 +32,37 @@ const env = {
   LFS_SERVER: { unblockRepo },
 } as any;
 
-function fakeRepos(owners: string[]) {
+type StorageReconResult = {
+  becameUnused: unknown[];
+  becameUsed: unknown[];
+  blockedReused: unknown[];
+};
+
+function fakeRegistry(owners: string[]) {
   const orgStatuses: { org: string; status: string; error?: string | null }[] = [];
   let lastReconcileInput: { activeOrgs: Set<string>; activeRepos: Set<string> } | null = null;
-  let recordResult = {
+  let gitResult = {
     missing: [] as unknown[],
     reappeared: [] as unknown[],
-    blockedPresent: [] as unknown[],
+  };
+  let storageResult: StorageReconResult = {
+    becameUnused: [],
+    becameUsed: [],
+    blockedReused: [],
   };
   return {
     orgStatuses,
-    setRecordResult(r: typeof recordResult) {
-      recordResult = r;
+    setGitResult(r: typeof gitResult) {
+      gitResult = r;
+    },
+    setStorageResult(r: StorageReconResult) {
+      storageResult = r;
     },
     getLastReconcileInput() {
       return lastReconcileInput;
     },
     listOwners: vi.fn(async () => owners),
-    unblock: vi.fn(async (owner: string, repo: string) => ({ owner, repo })),
+    unblock: vi.fn(async (prefix: string) => ({ prefix })),
     upsertOrgStatus: vi.fn(async (org: string, status: string, error?: string | null) => {
       orgStatuses.push({ org, status, error });
       return { org, status };
@@ -57,9 +70,10 @@ function fakeRepos(owners: string[]) {
     recordReconciliation: vi.fn(
       async (input: { activeOrgs: Set<string>; activeRepos: Set<string> }) => {
         lastReconcileInput = input;
-        return recordResult;
+        return gitResult;
       },
     ),
+    reconcileStorage: vi.fn(async () => storageResult),
   } as any;
 }
 
@@ -74,230 +88,267 @@ beforeEach(() => {
 
 describe('reconcileRepos', () => {
   test('empty owners → no-op, no probe, no record', async () => {
-    const repos = fakeRepos([]);
-    const summary = await reconcileRepos(env, repos);
+    const registry = fakeRegistry([]);
+    const summary = await reconcileRepos(env, registry);
     expect(probeOrg).not.toHaveBeenCalled();
-    expect(repos.recordReconciliation).not.toHaveBeenCalled();
+    expect(registry.recordReconciliation).not.toHaveBeenCalled();
     expect(summary.repos.active).toBe(0);
     expect(summary.orgs.active).toEqual([]);
   });
 
   test('single active org → activeRepos passed through', async () => {
-    const repos = fakeRepos(['alice']);
+    const registry = fakeRegistry(['alice']);
     probeOrg.mockResolvedValue({
       status: 'active',
       activeRepos: new Set(['alice/foo']),
     } satisfies OrgProbeResult);
-    await reconcileRepos(env, repos);
-    expect(repos.upsertOrgStatus).toHaveBeenCalledWith('alice', 'active', null);
-    expect(repos.getLastReconcileInput()).toEqual({
+    await reconcileRepos(env, registry);
+    expect(registry.upsertOrgStatus).toHaveBeenCalledWith('alice', 'active', null);
+    expect(registry.getLastReconcileInput()).toEqual({
       activeOrgs: new Set(['alice']),
       activeRepos: new Set(['alice/foo']),
     });
   });
 
   test('non-active org not in activeOrgs; status recorded with error', async () => {
-    const repos = fakeRepos(['a', 'b']);
+    const registry = fakeRegistry(['a', 'b']);
     probeOrg
       .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
       .mockResolvedValueOnce({ status: 'forbidden', error: '403' });
-    await reconcileRepos(env, repos);
-    expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set(['a']));
-    expect(repos.orgStatuses).toEqual([
+    await reconcileRepos(env, registry);
+    expect(registry.getLastReconcileInput()?.activeOrgs).toEqual(new Set(['a']));
+    expect(registry.orgStatuses).toEqual([
       { org: 'a', status: 'active', error: null },
       { org: 'b', status: 'forbidden', error: '403' },
     ]);
   });
 
   test('missing org → activeRepos union excludes it', async () => {
-    const repos = fakeRepos(['a', 'b']);
+    const registry = fakeRegistry(['a', 'b']);
     probeOrg
       .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
       .mockResolvedValueOnce({ status: 'missing', error: '404' });
-    await reconcileRepos(env, repos);
-    const input = repos.getLastReconcileInput()!;
+    await reconcileRepos(env, registry);
+    const input = registry.getLastReconcileInput()!;
     expect(input.activeOrgs).toEqual(new Set(['a']));
     expect(input.activeRepos).toEqual(new Set(['a/x']));
   });
 
   test("transient_error → no mutation on that org's rows", async () => {
-    const repos = fakeRepos(['x']);
+    const registry = fakeRegistry(['x']);
     probeOrg.mockResolvedValue({ status: 'transient_error', error: '5xx' });
-    const r = await reconcileRepos(env, repos);
+    const r = await reconcileRepos(env, registry);
     expect(r.orgs.transient_error).toEqual(['x']);
-    expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
+    expect(registry.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
   });
 
-  test('summary counts reflect record result', async () => {
-    const repos = fakeRepos(['a']);
+  test('summary counts reflect git + storage results', async () => {
+    const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x', 'a/y']) });
-    repos.setRecordResult({
+    registry.setGitResult({
       missing: [{}, {}],
       reappeared: [{ owner: 'a', repo: 'm', name: 'a/m' }],
-      blockedPresent: [
-        { owner: 'a', repo: 'x', name: 'a/x', clearedAt: null },
-        { owner: 'a', repo: 'y', name: 'a/y', clearedAt: null },
-        { owner: 'a', repo: 'z', name: 'a/z', clearedAt: '2026-01-01T00:00:00Z' },
+    });
+    registry.setStorageResult({
+      becameUnused: [],
+      becameUsed: [],
+      blockedReused: [
+        { prefix: 'a/x', archivedAt: 't', clearedAt: null },
+        { prefix: 'a/y', archivedAt: 't', clearedAt: null },
+        { prefix: 'a/z', archivedAt: 't', clearedAt: '2026-01-01T00:00:00Z' },
       ],
     });
-    const r = await reconcileRepos(env, repos);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = await reconcileRepos(env, registry);
     expect(r.repos.active).toBe(2);
     expect(r.repos.missing).toBe(2);
     expect(r.repos.reappeared).toBe(1);
     expect(r.repos.unblocked).toBe(2);
     expect(r.repos.clearedReappeared).toBe(1);
+    warn.mockRestore();
   });
 
-  test('auto-unblock: present+blocked (clearedAt null) → unblockRepo + repos.unblock', async () => {
-    const repos = fakeRepos(['a']);
+  test('auto-unblock: present+blocked (clearedAt null) → unblockRepo + registry.unblock', async () => {
+    const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
-    repos.setRecordResult({
-      missing: [],
-      reappeared: [{ owner: 'a', repo: 'x', name: 'a/x' }],
-      blockedPresent: [{ owner: 'a', repo: 'x', name: 'a/x', clearedAt: null }],
+    registry.setStorageResult({
+      becameUnused: [],
+      becameUsed: [],
+      blockedReused: [{ prefix: 'a/x', archivedAt: 't', clearedAt: null }],
     });
-    await reconcileRepos(env, repos);
+    await reconcileRepos(env, registry);
     expect(unblockRepo).toHaveBeenCalledWith('a', 'x');
-    expect(repos.unblock).toHaveBeenCalledWith('a', 'x');
+    expect(registry.unblock).toHaveBeenCalledWith('a/x');
   });
 
   test('present+blocked + clearedAt set → no unblock, notify-only warn', async () => {
-    const repos = fakeRepos(['a']);
+    const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/z']) });
-    repos.setRecordResult({
-      missing: [],
-      reappeared: [],
-      blockedPresent: [{ owner: 'a', repo: 'z', name: 'a/z', clearedAt: '2026-01-01T00:00:00Z' }],
+    registry.setStorageResult({
+      becameUnused: [],
+      becameUsed: [],
+      blockedReused: [{ prefix: 'a/z', archivedAt: 't', clearedAt: '2026-01-01T00:00:00Z' }],
     });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const r = await reconcileRepos(env, repos);
+    const r = await reconcileRepos(env, registry);
     expect(unblockRepo).not.toHaveBeenCalled();
-    expect(repos.unblock).not.toHaveBeenCalled();
+    expect(registry.unblock).not.toHaveBeenCalled();
     expect(r.repos.clearedReappeared).toBe(1);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('reappeared'));
     warn.mockRestore();
   });
 
   test('auto-unblock (clearedAt null) does not emit the cleared alert', async () => {
-    const repos = fakeRepos(['a']);
+    const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
-    repos.setRecordResult({
-      missing: [],
-      reappeared: [],
-      blockedPresent: [{ owner: 'a', repo: 'x', name: 'a/x', clearedAt: null }],
+    registry.setStorageResult({
+      becameUnused: [],
+      becameUsed: [],
+      blockedReused: [{ prefix: 'a/x', archivedAt: 't', clearedAt: null }],
     });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await reconcileRepos(env, repos);
+    await reconcileRepos(env, registry);
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('manual restore'));
     warn.mockRestore();
   });
 
-  test('auto-unblock: RPC failure leaves the block (no repos.unblock)', async () => {
-    const repos = fakeRepos(['a']);
+  test('auto-unblock: RPC failure leaves the block (no registry.unblock)', async () => {
+    const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
-    repos.setRecordResult({
-      missing: [],
-      reappeared: [],
-      blockedPresent: [{ owner: 'a', repo: 'x', name: 'a/x', clearedAt: null }],
+    registry.setStorageResult({
+      becameUnused: [],
+      becameUsed: [],
+      blockedReused: [{ prefix: 'a/x', archivedAt: 't', clearedAt: null }],
     });
     unblockRepo.mockRejectedValueOnce(new Error('rpc down'));
-    const r = await reconcileRepos(env, repos);
-    expect(repos.unblock).not.toHaveBeenCalled();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await reconcileRepos(env, registry);
+    expect(registry.unblock).not.toHaveBeenCalled();
     expect(r.repos.unblocked).toBe(0);
+    err.mockRestore();
   });
 
   test('listing errors classified by code, no throw out of reconcileRepos', async () => {
-    const repos = fakeRepos(['b', 'c', 'd']);
+    const registry = fakeRegistry(['b', 'c', 'd']);
     probeOrg
       .mockRejectedValueOnce(new GithubError('forbidden', '403'))
       .mockRejectedValueOnce(new GithubError('missing', '404'))
       .mockRejectedValueOnce(new GithubError('transient', '5xx'));
-    const r = await reconcileRepos(env, repos);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = await reconcileRepos(env, registry);
     expect(r.orgs.forbidden).toEqual(['b']);
     expect(r.orgs.missing).toEqual(['c']);
     expect(r.orgs.transient_error).toEqual(['d']);
-    expect(repos.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
+    expect(registry.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
+    warn.mockRestore();
   });
 
   test('acquisition no_installation classified, probeOrg not called for that org', async () => {
-    const repos = fakeRepos(['ghost', 'alice']);
+    const registry = fakeRegistry(['ghost', 'alice']);
     orgApiMock
       .mockRejectedValueOnce(new GithubError('no_installation', 'no install for ghost'))
       .mockResolvedValueOnce({});
     probeOrg.mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['alice/x']) });
-    const r = await reconcileRepos(env, repos);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = await reconcileRepos(env, registry);
     expect(r.orgs.no_installation).toEqual(['ghost']);
     expect(r.orgs.active).toEqual(['alice']);
     expect(probeOrg).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   test('unauthorized → transient_error', async () => {
-    const repos = fakeRepos(['a']);
+    const registry = fakeRegistry(['a']);
     orgApiMock.mockRejectedValueOnce(new GithubError('unauthorized', '401'));
-    const r = await reconcileRepos(env, repos);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = await reconcileRepos(env, registry);
     expect(r.orgs.transient_error).toEqual(['a']);
+    warn.mockRestore();
   });
 
   test('non-GithubError throw → transient_error with raw message', async () => {
-    const repos = fakeRepos(['a']);
+    const registry = fakeRegistry(['a']);
     orgApiMock.mockRejectedValueOnce(new Error('boom'));
-    await reconcileRepos(env, repos);
-    expect(repos.orgStatuses).toEqual([{ org: 'a', status: 'transient_error', error: 'boom' }]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await reconcileRepos(env, registry);
+    expect(registry.orgStatuses).toEqual([{ org: 'a', status: 'transient_error', error: 'boom' }]);
+    warn.mockRestore();
   });
 });
 
 describe('reconcileRepoEvent', () => {
-  function eventRepos(applyResult: unknown) {
+  function eventRegistry(opts: {
+    applyResult: unknown;
+    store?: unknown;
+    blockedReused?: unknown[];
+  }) {
     return {
-      applyRepoEvent: vi.fn(async () => applyResult),
-      unblock: vi.fn(async (owner: string, repo: string) => ({ owner, repo })),
+      applyRepoEvent: vi.fn(async () => opts.applyResult),
+      storageForRepo: vi.fn(async () => opts.store ?? null),
+      reconcileStoragePrefix: vi.fn(async () => ({
+        becameUnused: [],
+        becameUsed: [],
+        blockedReused: opts.blockedReused ?? [],
+      })),
+      unblock: vi.fn(async (prefix: string) => ({ prefix })),
     } as any;
   }
 
-  test('presence flip with no block → no unblock', async () => {
-    const repos = eventRepos({ row: { archivedAt: null }, reappeared: false });
-    await reconcileRepoEvent(env, repos, 'a', 'x', false);
-    expect(repos.applyRepoEvent).toHaveBeenCalledWith('a', 'x', false);
-    expect(unblockRepo).not.toHaveBeenCalled();
-  });
-
-  test('untracked repo (null) → no unblock', async () => {
-    const repos = eventRepos(null);
-    await reconcileRepoEvent(env, repos, 'a', 'x', true);
-    expect(unblockRepo).not.toHaveBeenCalled();
-    expect(repos.unblock).not.toHaveBeenCalled();
-  });
-
-  test('present + blocked + clearedAt null → unblockRepo + repos.unblock', async () => {
-    const repos = eventRepos({
-      row: { owner: 'a', repo: 'x', name: 'a/x', archivedAt: 't', clearedAt: null },
-      reappeared: true,
+  test('presence flip with no storage row → no unblock', async () => {
+    const registry = eventRegistry({
+      applyResult: { row: { owner: 'a', repo: 'x' }, reappeared: false },
+      store: null,
     });
-    await reconcileRepoEvent(env, repos, 'a', 'x', true);
+    await reconcileRepoEvent(env, registry, 'a', 'x', false);
+    expect(registry.applyRepoEvent).toHaveBeenCalledWith('a', 'x', false);
+    expect(registry.storageForRepo).toHaveBeenCalledWith('a', 'x');
+    expect(unblockRepo).not.toHaveBeenCalled();
+  });
+
+  test('untracked repo (null) → no storage lookup, no unblock', async () => {
+    const registry = eventRegistry({ applyResult: null });
+    await reconcileRepoEvent(env, registry, 'a', 'x', true);
+    expect(registry.storageForRepo).not.toHaveBeenCalled();
+    expect(unblockRepo).not.toHaveBeenCalled();
+    expect(registry.unblock).not.toHaveBeenCalled();
+  });
+
+  test('present + blocked + clearedAt null → unblockRepo + registry.unblock', async () => {
+    const registry = eventRegistry({
+      applyResult: { row: { owner: 'a', repo: 'x' }, reappeared: true },
+      store: { prefix: 'a/x' },
+      blockedReused: [{ prefix: 'a/x', archivedAt: 't', clearedAt: null }],
+    });
+    await reconcileRepoEvent(env, registry, 'a', 'x', true);
+    expect(registry.reconcileStoragePrefix).toHaveBeenCalledWith('a/x');
     expect(unblockRepo).toHaveBeenCalledWith('a', 'x');
-    expect(repos.unblock).toHaveBeenCalledWith('a', 'x');
+    expect(registry.unblock).toHaveBeenCalledWith('a/x');
   });
 
   test('present + blocked + clearedAt set → notify-only warn, no unblock', async () => {
-    const repos = eventRepos({
-      row: { owner: 'a', repo: 'z', name: 'a/z', archivedAt: 't', clearedAt: 'c' },
-      reappeared: true,
+    const registry = eventRegistry({
+      applyResult: { row: { owner: 'a', repo: 'z' }, reappeared: true },
+      store: { prefix: 'a/z' },
+      blockedReused: [{ prefix: 'a/z', archivedAt: 't', clearedAt: 'c' }],
     });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await reconcileRepoEvent(env, repos, 'a', 'z', true);
+    await reconcileRepoEvent(env, registry, 'a', 'z', true);
     expect(unblockRepo).not.toHaveBeenCalled();
-    expect(repos.unblock).not.toHaveBeenCalled();
+    expect(registry.unblock).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('manual restore'));
     warn.mockRestore();
   });
 
-  test('unblock RPC failure leaves the block (no repos.unblock)', async () => {
-    const repos = eventRepos({
-      row: { owner: 'a', repo: 'x', name: 'a/x', archivedAt: 't', clearedAt: null },
-      reappeared: true,
+  test('unblock RPC failure leaves the block (no registry.unblock)', async () => {
+    const registry = eventRegistry({
+      applyResult: { row: { owner: 'a', repo: 'x' }, reappeared: true },
+      store: { prefix: 'a/x' },
+      blockedReused: [{ prefix: 'a/x', archivedAt: 't', clearedAt: null }],
     });
     unblockRepo.mockRejectedValueOnce(new Error('rpc down'));
-    await reconcileRepoEvent(env, repos, 'a', 'x', true);
-    expect(repos.unblock).not.toHaveBeenCalled();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await reconcileRepoEvent(env, registry, 'a', 'x', true);
+    expect(registry.unblock).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 });

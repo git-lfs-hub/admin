@@ -7,13 +7,15 @@ import type { RepoRow } from '@/composables/useRepos';
 import ReposPage from '@/pages/ReposPage.vue';
 
 const repo: RepoRow = {
+  prefix: 'org/my-repo',
   owner: 'org',
   repo: 'my-repo',
-  status: 'active',
+  status: 'used',
   name: 'org/my-repo',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
-  missingAt: null,
+  lastChangeAt: null,
+  unusedAt: null,
   archivedAt: null,
   backedUpAt: null,
   backupComplete: false,
@@ -109,7 +111,7 @@ describe('ReposPage', () => {
     const wrapper = mountPage();
     await flushPromises();
     expect(wrapper.text()).toContain('org/my-repo');
-    expect(wrapper.text()).toContain('active');
+    expect(wrapper.text()).toContain('used');
   });
 
   it('has Repositories heading', async () => {

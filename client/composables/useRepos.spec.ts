@@ -7,13 +7,15 @@ import { useRepos, type RepoRow } from '@/composables/useRepos';
 
 const mockRepos: RepoRow[] = [
   {
+    prefix: 'org/test-repo',
     owner: 'org',
     repo: 'test-repo',
-    status: 'active',
+    status: 'used',
     name: 'org/test-repo',
     firstSeen: '2026-01-01T00:00:00Z',
     updatedAt: '2026-05-01T00:00:00Z',
-    missingAt: null,
+    lastChangeAt: null,
+    unusedAt: null,
     archivedAt: null,
     backedUpAt: null,
     backupComplete: false,

@@ -1,6 +1,15 @@
+import { fileURLToPath } from 'node:url';
+
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 import vue from '@vitejs/plugin-vue';
 import { defineConfig, defineProject } from 'vitest/config';
+
+// `Registry.global` / `Storage.byPrefix` make worker modules value-import the DO classes,
+// which pull in `cloudflare:workers`. The node `unit` project has no workers runtime — alias
+// the base class to a stub (unit specs never construct a DO).
+const cloudflareWorkersStub = fileURLToPath(
+  new URL('./test/stubs/cloudflare-workers.ts', import.meta.url),
+);
 
 export default defineConfig({
   // Tests keep the dev fixture reconcile: node/happy-dom projects set __DEV__ via their
@@ -9,7 +18,10 @@ export default defineConfig({
     projects: [
       defineProject({
         define: { __DEV__: 'true' },
-        resolve: { tsconfigPaths: true },
+        resolve: {
+          tsconfigPaths: true,
+          alias: { 'cloudflare:workers': cloudflareWorkersStub },
+        },
         test: {
           name: 'unit',
           include: ['worker/**/*.spec.ts', 'dev/**/*.spec.ts'],

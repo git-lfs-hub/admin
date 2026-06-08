@@ -74,7 +74,7 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size;
           <template v-else>—</template>
         </TableCell>
         <TableCell class="text-right">
-          <AlertDialog v-if="r.status === 'missing' && !r.archivedAt">
+          <AlertDialog v-if="r.status === 'unused' && !r.archivedAt">
             <AlertDialogTrigger as-child>
               <Button size="xs" variant="destructive" :disabled="archive.isPending.value"
                 >Archive</Button
@@ -85,8 +85,8 @@ const storedSize = (r: RepoRow) => r.usage.present.size + r.usage.pending.size;
                 <AlertDialogTitle>Archive {{ r.owner }}/{{ r.repo }}?</AlertDialogTitle>
                 <AlertDialogDescription>
                   Blocks LFS access — uploads and downloads return 404. Live storage is retained,
-                  the status stays <code>missing</code>, and the block is lifted automatically if
-                  the repo reappears on GitHub.
+                  the status stays <code>unused</code>, and the block is lifted automatically if the
+                  repo reappears on GitHub.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

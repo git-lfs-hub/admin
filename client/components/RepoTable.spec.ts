@@ -22,13 +22,15 @@ const zeroUsage = {
 };
 
 const repo: RepoRow = {
+  prefix: 'org/my-repo',
   owner: 'org',
   repo: 'my-repo',
-  status: 'active',
+  status: 'used',
   name: 'org/my-repo',
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
-  missingAt: null,
+  lastChangeAt: '2026-05-24T12:00:00Z',
+  unusedAt: null,
   archivedAt: null,
   backedUpAt: null,
   backupComplete: false,
@@ -45,7 +47,7 @@ describe('RepoTable', () => {
   it('renders repo rows', () => {
     const wrapper = mountTable([repo]);
     expect(wrapper.text()).toContain('org/my-repo');
-    expect(wrapper.text()).toContain('active');
+    expect(wrapper.text()).toContain('used');
   });
 
   it('renders size and object count', () => {
@@ -63,13 +65,13 @@ describe('RepoTable', () => {
   });
 
   it('renders willArchiveAt as a date with full timestamp on hover', () => {
-    const missing = {
+    const unused = {
       ...repo,
-      status: 'missing' as const,
-      missingAt: '2026-05-20T00:00:00Z',
+      status: 'unused' as const,
+      unusedAt: '2026-05-20T00:00:00Z',
       willArchiveAt: '2026-05-27T00:00:00Z',
     };
-    const span = mountTable([missing]).find('td:nth-child(6) span');
+    const span = mountTable([unused]).find('td:nth-child(6) span');
     expect(span.text()).toBe(new Date('2026-05-27T00:00:00Z').toLocaleDateString());
     expect(span.attributes('title')).toBe(new Date('2026-05-27T00:00:00Z').toLocaleString());
   });
@@ -99,26 +101,26 @@ describe('RepoTable', () => {
       .findAll('button')
       .map((b) => b.text());
 
-  it('shows Archive for missing, not-yet-blocked repos only', () => {
-    expect(actionLabels([{ ...repo, status: 'missing' }])).toContain('Archive');
-    expect(actionLabels([repo])).not.toContain('Archive'); // active
+  it('shows Archive for unused, not-yet-blocked repos only', () => {
+    expect(actionLabels([{ ...repo, status: 'unused' }])).toContain('Archive');
+    expect(actionLabels([repo])).not.toContain('Archive'); // used
     // already blocked → Restore, not Archive
     expect(
-      actionLabels([{ ...repo, status: 'missing', archivedAt: '2026-05-25T00:00:00Z' }]),
+      actionLabels([{ ...repo, status: 'unused', archivedAt: '2026-05-25T00:00:00Z' }]),
     ).not.toContain('Archive');
   });
 
   it('shows Restore whenever the repo is blocked (archivedAt set), regardless of status', () => {
     expect(
-      actionLabels([{ ...repo, status: 'missing', archivedAt: '2026-05-25T00:00:00Z' }]),
+      actionLabels([{ ...repo, status: 'unused', archivedAt: '2026-05-25T00:00:00Z' }]),
     ).toContain('Restore');
-    expect(actionLabels([{ ...repo, status: 'missing' }])).not.toContain('Restore');
-    expect(actionLabels([repo])).not.toContain('Restore'); // active, unblocked
+    expect(actionLabels([{ ...repo, status: 'unused' }])).not.toContain('Restore');
+    expect(actionLabels([repo])).not.toContain('Restore'); // used, unblocked
   });
 
   it('renders an Archived badge when blocked', () => {
     expect(
-      mountTable([{ ...repo, status: 'missing', archivedAt: '2026-05-25T00:00:00Z' }]).text(),
+      mountTable([{ ...repo, status: 'unused', archivedAt: '2026-05-25T00:00:00Z' }]).text(),
     ).toContain('archived');
     expect(mountTable([repo]).text()).not.toContain('archived');
   });

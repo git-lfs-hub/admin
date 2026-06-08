@@ -8,8 +8,8 @@ vi.mock('@/reconcile/index', () => ({ reconcileAll: (...a: unknown[]) => reconci
 vi.mock('@/server/object-events', () => ({
   handleObjectEvents: (...a: unknown[]) => handleObjectEvents(...a),
 }));
-vi.mock('@/db/repos', () => ({ Repos: class {} }));
-vi.mock('@/db/repo', () => ({ Repo: class {} }));
+vi.mock('@/db/registry', () => ({ Registry: class {} }));
+vi.mock('@/db/storage', () => ({ Storage: class {} }));
 // Route/middleware modules pull heavy deps; stub them — index wiring is what we test.
 vi.mock('@/middleware/auth', () => ({
   default: async (_c: unknown, next: () => Promise<void>) => next(),
@@ -21,11 +21,11 @@ vi.mock('@/webhooks/index', () => ({ default: new Hono() }));
 
 import worker from '@/index';
 
-const reposStub = { id: 'repos' };
+const registryStub = { id: 'registry' };
 
 function makeEnv() {
   return {
-    REPOS: { getByName: vi.fn(() => reposStub) },
+    REGISTRY: { getByName: vi.fn(() => registryStub) },
     LFS_BUCKET: { bucket: true },
     ASSETS: { fetch: vi.fn(async () => new Response('asset')) },
   } as any;

@@ -1,14 +1,15 @@
-import type { Repos } from '@/db/repos';
+import type { Registry } from '@/db/registry';
 
 /**
- * Scan R2 for `owner/repo/` prefixes and upsert each into the REPOS DO.
- * Idempotent: existing repos get `updated_at` bumped via upsert.
+ * Scan R2 for `Owner/Repo/` prefixes and upsert each into the REGISTRY `storage` table.
+ * Idempotent: existing prefixes get `updated_at` bumped via upsert. The prefix keeps R2's
+ * canonical casing (the per-prefix STORAGE DO name); GitHub presence is a separate identity.
  */
 export async function discoverRepos(
   bucket: R2Bucket,
-  repos: DurableObjectStub<Repos>,
-): Promise<{ owner: string; repo: string }[]> {
-  const found: { owner: string; repo: string }[] = [];
+  registry: DurableObjectStub<Registry>,
+): Promise<string[]> {
+  const found: string[] = [];
 
   for await (const ownerPrefix of listPrefixes(bucket, '')) {
     const owner = ownerPrefix.slice(0, -1);
@@ -24,8 +25,9 @@ export async function discoverRepos(
         console.warn(`[discovery] skipping empty repo prefix: ${repoPrefix}`);
         continue;
       }
-      await repos.upsert(owner, repo);
-      found.push({ owner, repo });
+      const prefix = `${owner}/${repo}`;
+      await registry.upsertStorage(prefix);
+      found.push(prefix);
     }
   }
 

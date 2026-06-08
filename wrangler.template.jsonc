@@ -17,23 +17,19 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "REPOS",
-        "class_name": "Repos",
+        "name": "REGISTRY",
+        "class_name": "Registry",
       },
       {
-        "name": "REPO",
-        "class_name": "Repo",
+        "name": "STORAGE",
+        "class_name": "Storage",
       },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Repos"],
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["Repo"],
+      "new_sqlite_classes": ["Registry", "Storage"],
     },
   ],
   "r2_buckets": [

@@ -27,10 +27,10 @@ describe('R2 binding (LFS_BUCKET)', () => {
   });
 });
 
-describe('Durable Object binding (REPOS)', () => {
-  test('REPOS namespace exists and can create stub', () => {
-    const id = env.REPOS.idFromName('global');
-    const stub = env.REPOS.get(id);
+describe('Durable Object binding (REGISTRY)', () => {
+  test('REGISTRY namespace exists and can create stub', () => {
+    const id = env.REGISTRY.idFromName('global');
+    const stub = env.REGISTRY.get(id);
     expect(stub).toBeDefined();
   });
 });

@@ -8,12 +8,14 @@ afterEach(async () => {
   await reset();
 });
 
+const reg = () => env.REGISTRY.getByName('global');
+
 async function seedR2(entries: [string, number][]) {
   for (const [k, size] of entries) await env.LFS_BUCKET.put(k, 'x'.repeat(size));
 }
 
 describe('reconcileAll', () => {
-  test('populates the object index for every discovered repo', async () => {
+  test('creates a storage row and populates the object index for every discovered prefix', async () => {
     await seedR2([
       ['acme/a/o1', 1],
       ['acme/a/o2', 2],
@@ -25,12 +27,15 @@ describe('reconcileAll', () => {
 
     await reconcileAll(env, true);
 
-    for (const [name, count] of [
+    const rows = await reg().listStorage();
+    expect(rows.map((r) => r.prefix).sort()).toEqual(['acme/a', 'acme/b', 'acme/c']);
+
+    for (const [prefix, count] of [
       ['acme/a', 2],
       ['acme/b', 3],
       ['acme/c', 1],
     ] as const) {
-      const usage = await env.REPO.getByName(name).usage();
+      const usage = await env.STORAGE.getByName(prefix).usage();
       expect(usage.present.count).toBe(count);
     }
   });
