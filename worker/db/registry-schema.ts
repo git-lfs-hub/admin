@@ -67,3 +67,11 @@ export const orgs = sqliteTable('orgs', {
 });
 
 export type OrgStatus = 'active' | 'missing' | 'no_installation' | 'forbidden' | 'transient_error';
+
+// Singleton bookkeeping (id = 1). `lastFullScanAt` is the cold-start anchor: archive/purge
+// stay disabled until a trustworthy full reconcile pass is recorded, so an empty/failed
+// GitHub probe can't mark every prefix `unused` and auto-Archive live repos.
+export const meta = sqliteTable('meta', {
+  id: integer('id').primaryKey(),
+  lastFullScanAt: text('last_full_scan_at'),
+});

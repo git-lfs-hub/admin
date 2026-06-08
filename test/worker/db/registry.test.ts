@@ -374,6 +374,22 @@ describe('upsertOrgStatus / listOrgs', () => {
   });
 });
 
+describe('cold-start guard', () => {
+  test('getLastFullScanAt is null until markFullScan', async () => {
+    expect(await reg().getLastFullScanAt()).toBeNull();
+    await reg().markFullScan();
+    expect(await reg().getLastFullScanAt()).toMatch(ISO_RE);
+  });
+
+  test('markFullScan is idempotent (single row, refreshed)', async () => {
+    await reg().markFullScan();
+    const first = await reg().getLastFullScanAt();
+    await new Promise((r) => setTimeout(r, 1100));
+    await reg().markFullScan();
+    expect(await reg().getLastFullScanAt()).not.toBe(first);
+  });
+});
+
 describe('isolation', () => {
   test('different idFromName → separate state', async () => {
     const a = env.REGISTRY.get(env.REGISTRY.idFromName('a'));

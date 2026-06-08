@@ -65,6 +65,11 @@ export async function reconcileRepos(
   );
   warnAnomalies(orgs, cleared);
 
+  // Cold-start guard: a `transient_error` org means its repos couldn't be listed, so the
+  // link state is unreliable — don't certify the pass. Definitive non-active answers
+  // (missing/forbidden/no_installation) are real and don't block certification.
+  if (orgs.transient_error.length === 0) await registry.markFullScan();
+
   return {
     orgs,
     repos: {

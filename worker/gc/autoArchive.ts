@@ -9,6 +9,9 @@ export async function autoArchive(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
 ): Promise<StorageRow[]> {
+  // Cold-start guard: until one trustworthy full pass certifies the link state, a stale/failed
+  // probe could read every prefix as `unused` and archive live repos.
+  if (!(await registry.getLastFullScanAt())) return [];
   const now = Date.now();
   const archived: StorageRow[] = [];
   for (const r of await registry.listStorageByStatus('unused')) {

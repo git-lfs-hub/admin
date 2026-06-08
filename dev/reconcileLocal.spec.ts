@@ -18,6 +18,7 @@ function fakeRegistry(owners: string[]) {
       becameUsed: [],
       blockedReused: [],
     })),
+    markFullScan: vi.fn(async () => {}),
   } as any;
 }
 
@@ -32,6 +33,7 @@ describe('reconcileLocal', () => {
       activeRepos: new Set(['acme/keep', 'globex/site']),
     });
     expect(registry.reconcileStorage).toHaveBeenCalledOnce();
+    expect(registry.markFullScan).toHaveBeenCalledOnce(); // fixture certifies the pass
   });
 
   test('empty present list → every discovered repo evaluated as gone', async () => {

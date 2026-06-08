@@ -13,4 +13,7 @@ export async function reconcileLocal(
   const activeOrgs = new Set(await registry.listOwners());
   const activeRepos = new Set(present.map((r) => r.toLowerCase()));
   await applyReconciliation(env, registry, activeOrgs, activeRepos);
+  // The fixture is authoritative (every owner reachable), so certify the pass — else the
+  // cold-start guard would permanently disable auto-Archive in dev.
+  await registry.markFullScan();
 }
