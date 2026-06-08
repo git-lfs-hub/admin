@@ -293,7 +293,7 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
               <span class="inline-flex">
                 <Popover>
                   <PopoverTrigger as-child>
-                    <Button size="xs" variant="destructive">Purge</Button>
+                    <Button size="xs" variant="ghost">Purge</Button>
                   </PopoverTrigger>
                   <PopoverContent
                     side="bottom"
