@@ -10,10 +10,20 @@ function mkOrgApi(org = 'alice') {
 function repoResponse(rows: { owner: string; name: string }[], link?: string) {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (link) headers.link = link;
-  return new Response(
-    JSON.stringify(rows.map((r) => ({ name: r.name, owner: { login: r.owner } }))),
+  // GET /installation/repositories shape: octokit paginate extracts `.repositories`.
+  const res = new Response(
+    JSON.stringify({
+      total_count: rows.length,
+      repositories: rows.map((r) => ({ name: r.name, owner: { login: r.owner } })),
+    }),
     { status: 200, headers },
   );
+  // octokit's paginator reads `response.url` for namespaced (repositories) responses; the
+  // Response default is '' which would throw `new URL('')`. Real fetch always sets it.
+  Object.defineProperty(res, 'url', {
+    value: 'https://api.github.com/installation/repositories?per_page=100',
+  });
+  return res;
 }
 
 beforeEach(() => {

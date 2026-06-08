@@ -4,10 +4,9 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 const unblockRepo = vi.fn(async () => {});
 const env = { LFS_SERVER: { unblockRepo } } as any;
 
-function fakeRegistry(owners: string[]) {
+function fakeRegistry() {
   return {
     lastInput: null as { activeOrgs: Set<string>; activeRepos: Set<string> } | null,
-    listOwners: vi.fn(async () => owners),
     unblock: vi.fn(async (prefix: string) => ({ prefix })),
     recordReconciliation: vi.fn(async function (this: any, input: any) {
       this.lastInput = input;
@@ -25,8 +24,8 @@ function fakeRegistry(owners: string[]) {
 beforeEach(() => unblockRepo.mockReset());
 
 describe('reconcileLocal', () => {
-  test('present list → activeRepos; discovered owners → activeOrgs (lowercased)', async () => {
-    const registry = fakeRegistry(['acme', 'globex']);
+  test('present list → activeRepos; their owners → activeOrgs (lowercased)', async () => {
+    const registry = fakeRegistry();
     await reconcileLocal(env, registry, ['ACME/Keep', 'globex/site']);
     expect(registry.lastInput).toEqual({
       activeOrgs: new Set(['acme', 'globex']),
@@ -37,7 +36,7 @@ describe('reconcileLocal', () => {
   });
 
   test('empty present list → every discovered repo evaluated as gone', async () => {
-    const registry = fakeRegistry(['acme']);
+    const registry = fakeRegistry();
     await reconcileLocal(env, registry, []);
     expect(registry.lastInput?.activeRepos).toEqual(new Set());
     expect(registry.recordReconciliation).toHaveBeenCalledOnce();

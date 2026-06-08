@@ -1,8 +1,9 @@
 import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
 
 // repos — GitHub presence (git identity). Keyed lc(owner/repo); populated by reconciliation
-// (org listing) + `repository` webhooks. Presence only — purge is a storage op, never a repo
-// one. The git↔storage edge is not stored: `lc(storage.prefix)` matches `lc(owner/repo)` 1:1.
+// (listing repos under each App installation) + `repository` webhooks. Presence only — purge is
+// a storage op, never a repo one. The git↔storage edge is not stored: `lc(storage.prefix)`
+// matches `lc(owner/repo)` 1:1.
 export const repos = sqliteTable(
   'repos',
   {

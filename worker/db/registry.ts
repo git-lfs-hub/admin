@@ -405,20 +405,6 @@ export class Registry extends DurableObject<CloudflareBindings> {
 
   // --- orgs ---
 
-  /** Owners to probe — derived from discovered storage prefixes (not configured). */
-  async listOwners(): Promise<string[]> {
-    const rows = await this.db
-      .selectDistinct({
-        owner:
-          sql<string>`lower(substr(${storage.prefix}, 1, instr(${storage.prefix}, '/') - 1))`.as(
-            'owner',
-          ),
-      })
-      .from(storage)
-      .where(ne(storage.status, 'purged'));
-    return rows.map((r) => r.owner).filter(Boolean);
-  }
-
   async upsertOrgStatus(
     org: string,
     status: OrgStatus,

@@ -7,8 +7,8 @@ export type OrgProbeResult =
   | { status: Exclude<OrgStatus, 'active'>; activeRepos?: undefined; error?: string };
 
 /**
- * Probe an org via an installation-authenticated GithubOrgApi: paginate
- * `GET /orgs/{org}/repos` into a set of lowercased `{owner}/{repo}` keys.
+ * Probe an installation via an installation-authenticated GithubOrgApi: paginate
+ * `GET /installation/repositories` into a set of lowercased `{owner}/{repo}` keys.
  * Throws on listing failure — the caller maps the error to an OrgStatus.
  */
 export async function probeOrg(api: GithubOrgApi): Promise<OrgProbeResult> {

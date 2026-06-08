@@ -7,6 +7,8 @@ vi.mock('@/github/probeOrg', () => ({
 }));
 
 const orgApiMock = vi.fn();
+// Accounts the App is installed on — what `installedOrgs` returns. Set per test via fakeRegistry.
+let installations: { login: string; id: number }[] = [];
 vi.mock('@git-lfs-hub/lib/github', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@git-lfs-hub/lib/github')>();
   return {
@@ -15,8 +17,11 @@ vi.mock('@git-lfs-hub/lib/github', async (importOriginal) => {
       static async forApp(_appId: string, _appPrivateKey: string) {
         return new this();
       }
-      async orgApi(org: string) {
-        return orgApiMock(org);
+      async installedOrgs() {
+        return installations;
+      }
+      async orgApi(org: { login: string; id: number }) {
+        return orgApiMock(org.login);
       }
     },
   };
@@ -38,7 +43,13 @@ type StorageReconResult = {
   blockedReused: unknown[];
 };
 
-function fakeRegistry(owners: string[]) {
+/** `installed` = accounts the App is on (the install list); `tracked` = existing `orgs` rows
+ *  the uninstall sweep scans. */
+function fakeRegistry(
+  installed: string[],
+  tracked: { org: string; status: string }[] = [],
+) {
+  installations = installed.map((login, i) => ({ login, id: i + 1 }));
   const orgStatuses: { org: string; status: string; error?: string | null }[] = [];
   let lastReconcileInput: { activeOrgs: Set<string>; activeRepos: Set<string> } | null = null;
   let gitResult = {
@@ -61,7 +72,7 @@ function fakeRegistry(owners: string[]) {
     getLastReconcileInput() {
       return lastReconcileInput;
     },
-    listOwners: vi.fn(async () => owners),
+    listOrgs: vi.fn(async () => tracked),
     unblock: vi.fn(async (prefix: string) => ({ prefix })),
     upsertOrgStatus: vi.fn(async (org: string, status: string, error?: string | null) => {
       orgStatuses.push({ org, status, error });
@@ -88,7 +99,7 @@ beforeEach(() => {
 });
 
 describe('reconcileRepos', () => {
-  test('empty owners → no-op, no probe, no record', async () => {
+  test('no installations → no-op, no probe, no record', async () => {
     const registry = fakeRegistry([]);
     const summary = await reconcileRepos(env, registry);
     expect(probeOrg).not.toHaveBeenCalled();
@@ -109,6 +120,39 @@ describe('reconcileRepos', () => {
       activeOrgs: new Set(['alice']),
       activeRepos: new Set(['alice/foo']),
     });
+  });
+
+  test('installed org with no prior storage is still probed (onboarding gap closed)', async () => {
+    // No storage rows anywhere — reconcile is driven purely by the install list now.
+    const registry = fakeRegistry(['newbie']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['newbie/repo']) });
+    await reconcileRepos(env, registry);
+    expect(probeOrg).toHaveBeenCalledOnce();
+    expect(registry.getLastReconcileInput()).toEqual({
+      activeOrgs: new Set(['newbie']),
+      activeRepos: new Set(['newbie/repo']),
+    });
+  });
+
+  test('uninstall sweep: tracked org absent from install list → no_installation, repos untouched', async () => {
+    // 'a' is installed; 'gone' is a tracked org row no longer in the install list.
+    const registry = fakeRegistry(['a'], [
+      { org: 'a', status: 'active' },
+      { org: 'gone', status: 'active' },
+    ]);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    const r = await reconcileRepos(env, registry);
+    expect(registry.upsertOrgStatus).toHaveBeenCalledWith('gone', 'no_installation');
+    expect(r.orgs.no_installation).toContain('gone');
+    // status-only: 'gone' never enters activeOrgs, so no repo/storage cascade.
+    expect(registry.getLastReconcileInput()?.activeOrgs).toEqual(new Set(['a']));
+  });
+
+  test('uninstall sweep: org already no_installation is not re-marked', async () => {
+    const registry = fakeRegistry(['a'], [{ org: 'gone', status: 'no_installation' }]);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    await reconcileRepos(env, registry);
+    expect(registry.upsertOrgStatus).not.toHaveBeenCalledWith('gone', 'no_installation');
   });
 
   test('non-active org not in activeOrgs; status recorded with error', async () => {

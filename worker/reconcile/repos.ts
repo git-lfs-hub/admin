@@ -29,10 +29,10 @@ export async function reconcileRepos(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
 ): Promise<ReconcileSummary> {
-  const owners = await registry.listOwners();
-  if (owners.length === 0) return emptySummary();
-
   const app = await GithubApi.forApp(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+
+  const accounts = await app.installedOrgs();
+  if (accounts.length === 0) return emptySummary();
 
   const activeRepos = new Set<string>();
   const orgs: OrgsByStatus = {
@@ -43,10 +43,11 @@ export async function reconcileRepos(
     transient_error: [],
   };
 
-  for (const org of owners) {
+  for (const account of accounts) {
+    const org = account.login.toLowerCase();
     let probe: OrgProbeResult;
     try {
-      probe = await probeOrg(await app.orgApi(org));
+      probe = await probeOrg(await app.orgApi(account));
     } catch (e) {
       probe = classifyError(e);
     }
@@ -55,6 +56,16 @@ export async function reconcileRepos(
     if (probe.status === 'active') {
       for (const k of probe.activeRepos) activeRepos.add(k);
     }
+  }
+
+  // Uninstall sweep: owners we still track that no longer appear in the install list →
+  // `no_installation` (status only — repos stay `active`, storage stays `used`; an admin
+  // archives/purges their storage). Skip orgs already marked so the cron doesn't re-warn.
+  const installed = new Set(accounts.map((a) => a.login.toLowerCase()));
+  for (const row of await registry.listOrgs()) {
+    if (installed.has(row.org) || row.status === 'no_installation') continue;
+    await registry.upsertOrgStatus(row.org, 'no_installation');
+    orgs.no_installation.push(row.org);
   }
 
   const { git, unblocked, cleared } = await applyReconciliation(

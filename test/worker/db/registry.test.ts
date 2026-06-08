@@ -304,23 +304,6 @@ describe('same-key edge + purge gate', () => {
   });
 });
 
-describe('listOwners (from storage prefixes)', () => {
-  test('distinct lowercased owners, excludes purged', async () => {
-    await reg().upsertStorage('Alice/a');
-    await reg().upsertStorage('alice/b');
-    await reg().upsertStorage('Bob/c');
-    await reg().upsertStorage('Carol/d');
-    await reg().markUnused('Carol/d');
-    await reg().block('Carol/d');
-    await reg().markPurged('Carol/d');
-    expect((await reg().listOwners()).sort()).toEqual(['alice', 'bob']);
-  });
-
-  test('empty → []', async () => {
-    expect(await reg().listOwners()).toEqual([]);
-  });
-});
-
 describe('activeOp denormalization + upload tracking', () => {
   test('setActiveOp / endStorageOp round-trip', async () => {
     await reg().upsertStorage('alice/a');
