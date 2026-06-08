@@ -38,7 +38,8 @@ const triggerOverlay =
   'absolute inset-y-0 right-0 hidden min-w-full items-center justify-center bg-background group-hover:inline-flex data-[state=open]:inline-flex';
 // Confirm popover: box is centered over the trigger (align="center"), matching the hover-card. The
 // buttons row (top) is right-padded by half the box minus half the trigger width, so Cancel's right
-// edge lands on the trigger's right edge; -24 side-offset overlays the buttons onto the trigger.
+// edge lands on the trigger's right edge. -32 side-offset lifts the box top to the table row's top
+// (24px trigger + 8px cell padding); the row's `pt-2` then drops the buttons back onto the trigger.
 const POPOVER = 'w-72 overflow-hidden p-0';
 
 const confirm = (mutation: typeof archive, r: StorageRow) =>
@@ -149,11 +150,11 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
                   <PopoverContent
                     side="bottom"
                     align="center"
-                    :side-offset="-24"
+                    :side-offset="-32"
                     :avoid-collisions="false"
                     :class="POPOVER"
                   >
-                    <div class="flex justify-end gap-2 pr-[calc(50%-34px)]">
+                    <div class="flex justify-end gap-2 pt-2 pr-[calc(50%-34px)]">
                       <PopoverClose as-child>
                         <Button
                           size="xs"
@@ -206,11 +207,11 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
                   <PopoverContent
                     side="bottom"
                     align="center"
-                    :side-offset="-24"
+                    :side-offset="-32"
                     :avoid-collisions="false"
                     :class="POPOVER"
                   >
-                    <div class="flex justify-end gap-2 pr-[calc(50%-33px)]">
+                    <div class="flex justify-end gap-2 pt-2 pr-[calc(50%-33px)]">
                       <PopoverClose as-child>
                         <Button
                           size="xs"
@@ -297,11 +298,11 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
                   <PopoverContent
                     side="bottom"
                     align="center"
-                    :side-offset="-24"
+                    :side-offset="-32"
                     :avoid-collisions="false"
                     :class="POPOVER"
                   >
-                    <div class="flex justify-end gap-2 pr-[calc(50%-26px)]">
+                    <div class="flex justify-end gap-2 pt-2 pr-[calc(50%-26px)]">
                       <Button size="xs" variant="destructive" disabled>Purge</Button>
                       <PopoverClose as-child
                         ><Button size="xs" variant="ghost">Cancel</Button></PopoverClose
