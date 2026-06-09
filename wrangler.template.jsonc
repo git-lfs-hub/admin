@@ -24,12 +24,16 @@
         "name": "STORAGE",
         "class_name": "Storage",
       },
+      {
+        "name": "ALERTS",
+        "class_name": "Alerts",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Registry", "Storage"],
+      "new_sqlite_classes": ["Registry", "Storage", "Alerts"],
     },
   ],
   "r2_buckets": [
@@ -73,6 +77,15 @@
       "coldStorageRetentionDays": {{gc.coldStorageRetentionDays}},
       "coldStorage": "{{gc.coldStorage}}",
     },
+    // Admin-side notification config (non-secret). `slack.channel` empty → Slack delivery
+    // no-ops; `url` is the admin base for deep links in alerts. The Slack bot token is a
+    // secret (SLACK_BOT_TOKEN).
+    "ADMIN": {
+      "slack": {
+        "channel": "{{admin.slack.channel}}",
+      },
+      "url": "{{github.adminHome}}",
+    },
     "ENV": "{{env}}",
   },
   "secrets": {
@@ -83,6 +96,7 @@
       "GITHUB_APP_ID",
       "GITHUB_APP_PRIVATE_KEY",
       "GITHUB_WEBHOOK_SECRET",
+      "SLACK_BOT_TOKEN",
     ],
   },
 }

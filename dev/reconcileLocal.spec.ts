@@ -17,6 +17,7 @@ function fakeRegistry() {
       becameUsed: [],
       blockedReused: [],
     })),
+    listStorage: vi.fn(async () => []),
     markFullScan: vi.fn(async () => {}),
   } as any;
 }

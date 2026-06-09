@@ -36,20 +36,22 @@ describe('handleRepository', () => {
     expect(reconcileRepoEvent).not.toHaveBeenCalled();
   });
 
-  test('renamed → old name (same owner) goes missing', async () => {
+  test('renamed → old name missing + new name present (same owner)', async () => {
     await handleRepository(
       env,
       repoEvent('renamed', { changes: { repository: { name: { from: 'old' } } } }),
     );
     expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'old', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'foo', true);
   });
 
-  test('renamed without changes → no-op', async () => {
+  test('renamed without a known old name → still marks the new name present', async () => {
     await handleRepository(env, repoEvent('renamed'));
-    expect(reconcileRepoEvent).not.toHaveBeenCalled();
+    expect(reconcileRepoEvent).toHaveBeenCalledTimes(1);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'foo', true);
   });
 
-  test('transferred (from org) → old owner, same repo, missing', async () => {
+  test('transferred (from org) → old owner missing + new owner/repo present', async () => {
     await handleRepository(
       env,
       repoEvent('transferred', {
@@ -57,9 +59,10 @@ describe('handleRepository', () => {
       }),
     );
     expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'oldorg', 'foo', false);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'foo', true);
   });
 
-  test('transferred (from user) → old user owner', async () => {
+  test('transferred (from user) → old user owner missing', async () => {
     await handleRepository(
       env,
       repoEvent('transferred', {
@@ -69,8 +72,9 @@ describe('handleRepository', () => {
     expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'olduser', 'foo', false);
   });
 
-  test('transferred without changes → no-op', async () => {
+  test('transferred without a known old owner → still marks the new location present', async () => {
     await handleRepository(env, repoEvent('transferred'));
-    expect(reconcileRepoEvent).not.toHaveBeenCalled();
+    expect(reconcileRepoEvent).toHaveBeenCalledTimes(1);
+    expect(reconcileRepoEvent).toHaveBeenCalledWith(env, registryStub, 'acme', 'foo', true);
   });
 });

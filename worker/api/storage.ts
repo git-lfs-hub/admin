@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 
 import type { AppEnv } from '@/_env';
+import { notify } from '@/alerts/lifecycle';
 import { Registry, type StorageRow } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { isoAddDays } from '@/lib/time';
@@ -69,6 +70,7 @@ const app = new Hono<AppEnv>()
     }
     const row = await Registry.global(c.env).block(cur.prefix);
     if (!row) return c.json({ error: 'invalid_state' }, 409);
+    await notify(c.env, c.req.param('owner'), c.req.param('repo'), 'archived');
     return c.json({ storage: row });
   })
 
@@ -87,6 +89,7 @@ const app = new Hono<AppEnv>()
     }
     const row = await Registry.global(c.env).unblock(cur.prefix);
     if (!row) return c.json({ error: 'invalid_state' }, 409);
+    await notify(c.env, c.req.param('owner'), c.req.param('repo'), 'restored');
     return c.json({ storage: row });
   })
 

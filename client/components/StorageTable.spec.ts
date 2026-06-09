@@ -16,13 +16,13 @@ function makeRouter() {
   });
 }
 
-async function mountTable(storage: StorageRow[]) {
+async function mountTable(storage: StorageRow[], highlight?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = makeRouter();
   router.push('/storage');
   await router.isReady();
   return mount(StorageTable, {
-    props: { storage },
+    props: { storage, highlight },
     global: { plugins: [router, [VueQueryPlugin, { queryClient }]] },
   });
 }
@@ -261,5 +261,15 @@ describe('StorageTable', () => {
   it('renders an Archived badge when archived', async () => {
     expect((await mountTable([archived])).text()).toContain('archived');
     expect((await mountTable([row])).text()).not.toContain('archived');
+  });
+
+  it('fades a highlight over the row matching the highlight deep link (case-insensitive)', async () => {
+    const wrapper = await mountTable([row], row.prefix.toUpperCase());
+    expect(wrapper.find('tbody tr').classes()).toContain('animate-highlight');
+  });
+
+  it('does not tint any row without a highlight', async () => {
+    const wrapper = await mountTable([row]);
+    expect(wrapper.find('tbody tr').classes()).not.toContain('animate-highlight');
   });
 });

@@ -12,10 +12,10 @@ const props = defineProps<{
 
 const variant = {
   // git presence (`repos`)
-  active: 'default',
+  active: 'outline',
   missing: 'secondary',
   // storage lifecycle (`storage`)
-  used: 'default',
+  used: 'outline',
   unused: 'secondary',
   purged: 'outline',
 } as const satisfies Record<RepoStatus | StorageStatus, string>;

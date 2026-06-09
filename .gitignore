@@ -46,4 +46,5 @@ vars.json
 wrangler.jsonc
 worker-configuration.d.ts
 github-app.md
+slack-app.md
 test/worker/wrangler.jsonc

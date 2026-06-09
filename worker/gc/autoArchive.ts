@@ -1,3 +1,4 @@
+import { notify } from '@/alerts/lifecycle';
 import type { Registry, StorageRow } from '@/db/registry';
 import { isoAddDays } from '@/lib/time';
 import { blockPrefix } from '@/server/lfs-server';
@@ -20,7 +21,11 @@ export async function autoArchive(
     try {
       await blockPrefix(env, r.prefix);
       const row = await registry.block(r.prefix);
-      if (row) archived.push(row);
+      if (row) {
+        archived.push(row);
+        const [owner, repo] = r.prefix.split('/');
+        await notify(env, owner, repo, 'archived');
+      }
     } catch (e) {
       console.error(`[auto-archive] failed for ${r.prefix}:`, e);
     }

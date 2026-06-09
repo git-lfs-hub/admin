@@ -27,10 +27,13 @@ export async function handleRepository(env: CloudflareBindings, payload: Reposit
   const owner = repository.owner.login;
   const repo = repository.name;
 
-  // rename/transfer: source location goes missing; the new name is left to R2 discovery.
+  // rename/transfer: source location goes missing, destination goes present (the new name is
+  // in the payload, so detect it now instead of waiting for the cron / R2 discovery — a repo
+  // renamed back into a previously-missing name reappears immediately).
   if (action === 'renamed' || action === 'transferred') {
     const old = oldLocation(payload, owner, repo);
     if (old) await reconcileRepoEvent(env, registry, old.owner, old.repo, false);
+    await reconcileRepoEvent(env, registry, owner, repo, true);
     return;
   }
   if (PRESENT.has(action)) {

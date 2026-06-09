@@ -1,5 +1,6 @@
 import { GithubApi, GithubError } from '@git-lfs-hub/lib/github';
 
+import { notify } from '@/alerts/lifecycle';
 import type {
   Registry,
   StorageRow,
@@ -74,7 +75,7 @@ export async function reconcileRepos(
     new Set(orgs.active),
     activeRepos,
   );
-  warnAnomalies(orgs, cleared);
+  warnAnomalies(orgs);
 
   // Cold-start guard: a `transient_error` org means its repos couldn't be listed, so the
   // link state is unreliable — don't certify the pass. Definitive non-active answers
@@ -109,6 +110,21 @@ export async function applyReconciliation(
   const git = await registry.recordReconciliation({ activeOrgs, activeRepos });
   const storage = await registry.reconcileStorage();
   const { unblocked, cleared } = await autoUnblock(env, registry, storage.blockedReused);
+  // Alerts track STORAGE state, not git presence (a prefix is `unused` whether its repo was
+  // deleted or never tracked). Level-triggered over every non-purged prefix, so anything in an
+  // attention state — including before the notifier shipped — is surfaced; ALERTS dedups.
+  // Reuse/restore clear via becameUsed/autoUnblock; archived also fires at its action sites.
+  for (const r of await registry.listStorage()) {
+    if (r.status === 'purged') continue;
+    const { owner, repo } = splitPrefix(r.prefix);
+    if (r.archivedAt) await notify(env, owner, repo, 'archived');
+    else if (r.status === 'unused') await notify(env, owner, repo, 'missing');
+  }
+  for (const r of storage.becameUsed) {
+    const { owner, repo } = splitPrefix(r.prefix);
+    await notify(env, owner, repo, 'reappeared');
+  }
+  for (const r of cleared) await notifyClearedReappeared(env, r);
   return { git, storage, unblocked, cleared };
 }
 
@@ -127,7 +143,17 @@ export async function reconcileRepoEvent(
   if (!store) return;
   const storage = await registry.reconcileStoragePrefix(store.prefix);
   const { cleared } = await autoUnblock(env, registry, storage.blockedReused);
-  for (const r of cleared) warnClearedReappeared(r);
+  // Storage-centric notifications (same as the cron path), keyed on the prefix's flip — not
+  // bare repo presence — so we never alert a prefix that didn't change.
+  for (const r of storage.becameUnused) {
+    const { owner: o, repo: p } = splitPrefix(r.prefix);
+    await notify(env, o, p, 'missing');
+  }
+  for (const r of storage.becameUsed) {
+    const { owner: o, repo: p } = splitPrefix(r.prefix);
+    await notify(env, o, p, 'reappeared');
+  }
+  for (const r of cleared) await notifyClearedReappeared(env, r);
 }
 
 /**
@@ -152,6 +178,8 @@ export async function autoUnblock(
       await unblockPrefix(env, r.prefix);
       await registry.unblock(r.prefix);
       unblocked++;
+      const { owner, repo } = splitPrefix(r.prefix);
+      await notify(env, owner, repo, 'restored');
     } catch (e) {
       console.error(`[reconcile] auto-unblock failed for ${r.prefix}:`, e);
     }
@@ -159,21 +187,24 @@ export async function autoUnblock(
   return { unblocked, cleared };
 }
 
-/** Log reconciliation anomalies: cleared-then-reappeared prefixes and non-active orgs. */
-function warnAnomalies(orgs: OrgsByStatus, clearedReappeared: StorageRow[]): void {
-  for (const r of clearedReappeared) warnClearedReappeared(r);
+/** Present + blocked + cleared (live gone): notify-only — admin must restore via Glacier. */
+async function notifyClearedReappeared(env: CloudflareBindings, r: StorageRow): Promise<void> {
+  const { owner, repo } = splitPrefix(r.prefix);
+  await notify(env, owner, repo, 'reappeared');
+}
+
+function splitPrefix(prefix: string): { owner: string; repo: string } {
+  const [owner, repo] = prefix.split('/');
+  return { owner, repo };
+}
+
+/** Log non-active org anomalies (org-level, not per-repo — repo changes notify via alerts). */
+function warnAnomalies(orgs: OrgsByStatus): void {
   for (const status of ['missing', 'no_installation', 'forbidden'] as const) {
     for (const org of orgs[status]) {
       console.warn(`[reconcile] org=${org} status=${status}`);
     }
   }
-}
-
-/** Present + blocked + cleared (live gone): notify-only, admin must restore via Glacier. */
-export function warnClearedReappeared(r: StorageRow): void {
-  console.warn(
-    `[reconcile] blocked+cleared prefix reappeared (manual restore needed): ${r.prefix}`,
-  );
 }
 
 /** Map a thrown probe error (acquisition or listing) to a non-active OrgProbeResult. */

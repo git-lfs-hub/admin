@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 
 import type { AppEnv } from '@/_env';
+import alertsApi from '@/api/alerts';
 import me from '@/api/me';
 import reposApi from '@/api/repos';
 import storageApi from '@/api/storage';
@@ -13,6 +14,7 @@ import webhooks from '@/webhooks/index';
 
 export { Registry } from '@/db/registry';
 export { Storage } from '@/db/storage';
+export { Alerts } from '@/db/alerts';
 
 let devReconcileFired = false;
 
@@ -32,6 +34,13 @@ const app = new Hono<AppEnv>()
   .route('/api/me', me)
   .route('/api/repos', reposApi)
   .route('/api/storage', storageApi)
+  .route('/api/alerts', alertsApi)
+  // Manually kick the cron pass (discovery + reconcile) so a fresh deploy / wiped DO doesn't
+  // wait up to an hour for the next cron. Runs in the background; the UI refetches after.
+  .post('/api/reconcile', (c) => {
+    c.executionCtx.waitUntil(reconcileAll(c.env));
+    return c.json({ status: 'reconciling' }, 202);
+  })
   .get('*', auth, (c) => c.env.ASSETS.fetch(c.req.raw));
 
 export type AppType = typeof app;

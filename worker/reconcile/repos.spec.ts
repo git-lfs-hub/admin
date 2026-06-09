@@ -31,10 +31,14 @@ import type { OrgProbeResult } from '@/github/probeOrg';
 import { reconcileRepos, reconcileRepoEvent } from '@/reconcile/repos';
 
 const unblockRepo = vi.fn(async () => {});
+// Notify-only alerts (Group D): per-scope ALERTS DO stub shared across tests.
+const sendNotification = vi.fn(async () => ({}));
+const clearAlert = vi.fn(async () => {});
 const env = {
   GITHUB_APP_ID: '1',
   GITHUB_APP_PRIVATE_KEY: 'k',
   LFS_SERVER: { unblockRepo },
+  ALERTS: { getByName: () => ({ sendNotification, clearAlert }) },
 } as any;
 
 type StorageReconResult = {
@@ -53,6 +57,9 @@ function fakeRegistry(installed: string[], tracked: { org: string; status: strin
     missing: [] as unknown[],
     reappeared: [] as unknown[],
   };
+  // All storage rows — the level-triggered notification source (`listStorage`), independent
+  // of this run's flips.
+  let storageRows: { prefix: string; status: string; archivedAt?: string | null }[] = [];
   let storageResult: StorageReconResult = {
     becameUnused: [],
     becameUsed: [],
@@ -63,9 +70,13 @@ function fakeRegistry(installed: string[], tracked: { org: string; status: strin
     setGitResult(r: typeof gitResult) {
       gitResult = r;
     },
+    setStorageRows(r: { prefix: string; status: string; archivedAt?: string | null }[]) {
+      storageRows = r;
+    },
     setStorageResult(r: StorageReconResult) {
       storageResult = r;
     },
+    listStorage: vi.fn(async () => storageRows),
     getLastReconcileInput() {
       return lastReconcileInput;
     },
@@ -91,6 +102,8 @@ beforeEach(() => {
   orgApiMock.mockReset();
   unblockRepo.mockReset();
   unblockRepo.mockResolvedValue(undefined);
+  sendNotification.mockClear();
+  clearAlert.mockClear();
   // default: orgApi returns a fake GithubOrgApi-shaped stub
   orgApiMock.mockResolvedValue({});
 });
@@ -231,6 +244,37 @@ describe('reconcileRepos', () => {
     warn.mockRestore();
   });
 
+  test('alerts are storage-state level-triggered: unused → missing, archived → archived', async () => {
+    const registry = fakeRegistry(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    registry.setStorageRows([
+      { prefix: 'a/orphan', status: 'unused', archivedAt: null }, // never tracked → missing
+      { prefix: 'a/gone', status: 'unused', archivedAt: null }, // repo deleted → missing
+      { prefix: 'a/blocked', status: 'unused', archivedAt: 't' }, // archived → archived (not missing)
+      { prefix: 'a/live', status: 'used', archivedAt: null }, // in use → no alert
+      { prefix: 'a/dead', status: 'purged', archivedAt: 't' }, // purged → skipped
+    ]);
+    await reconcileRepos(env, registry);
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'missing', scope: 'storage:a/orphan' });
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'missing', scope: 'storage:a/gone' });
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'archived', scope: 'storage:a/blocked' });
+    expect(sendNotification).not.toHaveBeenCalledWith({ kind: 'missing', scope: 'storage:a/live' });
+    expect(sendNotification).not.toHaveBeenCalledWith({ kind: 'missing', scope: 'storage:a/dead' });
+  });
+
+  test('reappearance (storage became used) → reappeared, clears missing', async () => {
+    const registry = fakeRegistry(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    registry.setStorageResult({
+      becameUnused: [],
+      becameUsed: [{ prefix: 'a/back', archivedAt: null, clearedAt: null }],
+      blockedReused: [],
+    });
+    await reconcileRepos(env, registry);
+    expect(clearAlert).toHaveBeenCalledWith('storage:a/back', 'missing');
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'reappeared', scope: 'storage:a/back' });
+  });
+
   test('auto-unblock: present+blocked (clearedAt null) → unblockRepo + registry.unblock', async () => {
     const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
@@ -244,7 +288,7 @@ describe('reconcileRepos', () => {
     expect(registry.unblock).toHaveBeenCalledWith('a/x');
   });
 
-  test('present+blocked + clearedAt set → no unblock, notify-only warn', async () => {
+  test('present+blocked + clearedAt set → no unblock, notify-only reappeared alert', async () => {
     const registry = fakeRegistry(['a']);
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/z']) });
     registry.setStorageResult({
@@ -252,13 +296,11 @@ describe('reconcileRepos', () => {
       becameUsed: [],
       blockedReused: [{ prefix: 'a/z', archivedAt: 't', clearedAt: '2026-01-01T00:00:00Z' }],
     });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await reconcileRepos(env, registry);
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(registry.unblock).not.toHaveBeenCalled();
     expect(r.repos.clearedReappeared).toBe(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reappeared'));
-    warn.mockRestore();
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'reappeared', scope: 'storage:a/z' });
   });
 
   test('auto-unblock (clearedAt null) does not emit the cleared alert', async () => {
@@ -343,14 +385,16 @@ describe('reconcileRepoEvent', () => {
   function eventRegistry(opts: {
     applyResult: unknown;
     store?: unknown;
+    becameUnused?: unknown[];
+    becameUsed?: unknown[];
     blockedReused?: unknown[];
   }) {
     return {
       applyRepoEvent: vi.fn(async () => opts.applyResult),
       storageForRepo: vi.fn(async () => opts.store ?? null),
       reconcileStoragePrefix: vi.fn(async () => ({
-        becameUnused: [],
-        becameUsed: [],
+        becameUnused: opts.becameUnused ?? [],
+        becameUsed: opts.becameUsed ?? [],
         blockedReused: opts.blockedReused ?? [],
       })),
       unblock: vi.fn(async (prefix: string) => ({ prefix })),
@@ -376,6 +420,26 @@ describe('reconcileRepoEvent', () => {
     expect(registry.unblock).not.toHaveBeenCalled();
   });
 
+  test('storage became unused (repo gone) → missing alert for the prefix', async () => {
+    const registry = eventRegistry({
+      applyResult: { row: { owner: 'a', repo: 'x' }, reappeared: false },
+      store: { prefix: 'a/x' },
+      becameUnused: [{ prefix: 'a/x' }],
+    });
+    await reconcileRepoEvent(env, registry, 'a', 'x', false);
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'missing', scope: 'storage:a/x' });
+  });
+
+  test('storage became used (repo back) → reappeared alert for the prefix', async () => {
+    const registry = eventRegistry({
+      applyResult: { row: { owner: 'a', repo: 'x' }, reappeared: true },
+      store: { prefix: 'a/x' },
+      becameUsed: [{ prefix: 'a/x', archivedAt: null }],
+    });
+    await reconcileRepoEvent(env, registry, 'a', 'x', true);
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'reappeared', scope: 'storage:a/x' });
+  });
+
   test('present + blocked + clearedAt null → unblockRepo + registry.unblock', async () => {
     const registry = eventRegistry({
       applyResult: { row: { owner: 'a', repo: 'x' }, reappeared: true },
@@ -388,18 +452,16 @@ describe('reconcileRepoEvent', () => {
     expect(registry.unblock).toHaveBeenCalledWith('a/x');
   });
 
-  test('present + blocked + clearedAt set → notify-only warn, no unblock', async () => {
+  test('present + blocked + clearedAt set → notify-only reappeared alert, no unblock', async () => {
     const registry = eventRegistry({
       applyResult: { row: { owner: 'a', repo: 'z' }, reappeared: true },
       store: { prefix: 'a/z' },
       blockedReused: [{ prefix: 'a/z', archivedAt: 't', clearedAt: 'c' }],
     });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await reconcileRepoEvent(env, registry, 'a', 'z', true);
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(registry.unblock).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('manual restore'));
-    warn.mockRestore();
+    expect(sendNotification).toHaveBeenCalledWith({ kind: 'reappeared', scope: 'storage:a/z' });
   });
 
   test('unblock RPC failure leaves the block (no registry.unblock)', async () => {

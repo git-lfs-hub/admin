@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -18,9 +19,20 @@ import type { StorageRow } from '@/composables/useStorage';
 import { useStorageMutations } from '@/composables/useStorageMutations';
 import { formatSize, formatTime, formatDate, formatRelative } from '@/lib/format';
 
-defineProps<{ storage: StorageRow[] }>();
+const props = defineProps<{ storage: StorageRow[]; highlight?: string }>();
 
 const { archive, restore } = useStorageMutations();
+
+// Deep-link target from a notification (`?highlight=lc(owner/repo)`): ring the matching row
+// and scroll it into view. The prefix may be cased; match case-insensitively.
+const highlightKey = computed(() => props.highlight?.toLowerCase() ?? null);
+const isHighlighted = (r: StorageRow) =>
+  highlightKey.value !== null && r.prefix.toLowerCase() === highlightKey.value;
+let highlightedRow: HTMLElement | null = null;
+const captureHighlight = (r: StorageRow) => (el: unknown) => {
+  if (el && isHighlighted(r)) highlightedRow = (el as { $el: HTMLElement }).$el;
+};
+onMounted(() => highlightedRow?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 
 // "Stored" = objects present in storage plus pending writes; excludes missing/deleted/purged.
 const storedCount = (r: StorageRow) => r.usage.present.count + r.usage.pending.count;
@@ -59,7 +71,12 @@ const confirm = (mutation: typeof archive, r: StorageRow) =>
       </TableRow>
     </TableHeader>
     <TableBody>
-      <TableRow v-for="r in storage" :key="r.prefix">
+      <TableRow
+        v-for="r in storage"
+        :key="r.prefix"
+        :ref="captureHighlight(r)"
+        :class="isHighlighted(r) ? 'animate-highlight' : ''"
+      >
         <TableCell class="font-mono whitespace-normal break-all">{{ r.prefix }}</TableCell>
 
         <!-- Repo identity + the repo's GitHub presence. `active` is the norm (plain link); only the

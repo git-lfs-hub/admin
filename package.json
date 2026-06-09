@@ -39,6 +39,7 @@
     "drizzle-orm": "^0.45.2",
     "filesize": "^11.0.17",
     "hono": "^4.12.23",
+    "slack-web-api-client": "^1.1.12",
     "vue": "^3.5.35",
     "vue-router": "^5.0.7"
   },

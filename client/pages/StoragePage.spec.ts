@@ -113,4 +113,21 @@ describe('StoragePage', () => {
     await flushPromises();
     expect(wrapper.find('h2').text()).toBe('Storage');
   });
+
+  it('Reconcile now button POSTs /api/reconcile', async () => {
+    vi.useFakeTimers(); // useReconcile schedules a delayed refetch; don't let it dangle
+    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ storage: [] })));
+    const wrapper = mountPage();
+    await flushPromises();
+
+    fetchMock.mockClear().mockResolvedValue(okResponse({ status: 'reconciling' }));
+    await wrapper.find('header button').trigger('click');
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/reconcile',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    vi.useRealTimers();
+  });
 });

@@ -26,6 +26,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-highlight: var(--highlight);
 }
 
 :root {
@@ -47,6 +48,7 @@
   --border: oklch(0.88 0 0);
   --input: oklch(0.88 0 0);
   --ring: oklch(0.65 0 0);
+  --highlight: oklch(0.95 0.06 95); /* soft amber — notification deep-link row cue */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -69,6 +71,24 @@
     --border: oklch(1 0 0 / 14%);
     --input: oklch(1 0 0 / 18%);
     --ring: oklch(0.556 0 0);
+    --highlight: oklch(0.42 0.05 95); /* muted dark amber */
+  }
+}
+
+/* One-shot fade for a deep-linked (`?highlight=`) row: flash the highlight, then fade out. */
+@theme {
+  --animate-highlight: highlight-fade 2.5s ease-out;
+}
+
+@keyframes highlight-fade {
+  0% {
+    background-color: transparent;
+  }
+  10% {
+    background-color: var(--highlight); /* quick flash-in */
+  }
+  100% {
+    background-color: transparent; /* slow fade-out */
   }
 }
 

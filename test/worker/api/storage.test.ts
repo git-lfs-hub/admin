@@ -24,6 +24,9 @@ function appEnv(lfs: Partial<Record<'blockRepo' | 'unblockRepo' | 'purgeRepo', u
     env: {
       REGISTRY: env.REGISTRY,
       STORAGE: env.STORAGE,
+      ALERTS: env.ALERTS,
+      ADMIN: env.ADMIN,
+      SLACK_BOT_TOKEN: env.SLACK_BOT_TOKEN,
       GC: env.GC,
       LFS_SERVER,
     } as unknown as CloudflareBindings,
@@ -183,6 +186,13 @@ describe('POST /api/storage/:owner/:repo/archive', () => {
     const row = await reg().getStorage('alice/gone');
     expect(row?.status).toBe('unused');
     expect(row?.archivedAt).toBeTruthy();
+    // emits an `archived` notification for the scope
+    expect(
+      await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'archived'),
+    ).toMatchObject({
+      kind: 'archived',
+      scope: 'storage:alice/gone',
+    });
   });
 
   test('used prefix → 409, no block', async () => {
@@ -248,6 +258,15 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     const row = await reg().getStorage('alice/gone');
     expect(row?.status).toBe('unused');
     expect(row?.archivedAt).toBeNull();
+    // emits a `restored` notification (and clears any prior `archived` one)
+    expect(
+      await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'restored'),
+    ).toMatchObject({
+      kind: 'restored',
+    });
+    expect(
+      await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'archived'),
+    ).toBeNull();
   });
 
   test('not-blocked prefix → 409, no unblock', async () => {

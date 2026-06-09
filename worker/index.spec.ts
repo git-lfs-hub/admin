@@ -72,3 +72,19 @@ describe('dev reconcile middleware', () => {
     expect(reconcileAll).toHaveBeenCalledWith(env, true);
   });
 });
+
+describe('POST /api/reconcile', () => {
+  const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as any;
+
+  test('kicks reconcileAll in the background and returns 202', async () => {
+    const env = makeEnv();
+    const res = await worker.fetch!(
+      new Request('https://example.com/api/reconcile', { method: 'POST' }),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(202);
+    expect(ctx.waitUntil).toHaveBeenCalled();
+    expect(reconcileAll).toHaveBeenCalledWith(env);
+  });
+});
