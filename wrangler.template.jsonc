@@ -12,7 +12,11 @@
     "binding": "ASSETS",
     "directory": "./dist/client",
     "not_found_handling": "single-page-application",
-    "run_worker_first": true,
+    // Only the session-bearing paths run the Worker (and its `auth`) first. Static assets
+    // (HTML shell + hashed JS bundle) are public and served directly, so a stale access
+    // token never 302s the bundle to login (blank page) — the SPA's authFetch drives the
+    // OAuth redirect off a /api/* 401 instead.
+    "run_worker_first": ["/api/*", "/login/*", "/webhooks/*"],
   },
   "durable_objects": {
     "bindings": [
