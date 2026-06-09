@@ -74,20 +74,12 @@
   },
   "vars": {
     "GITHUB_ORG": "{{github.org}}",
-    "GC": {
-      "autoArchiveDays": {{gc.autoArchiveDays}},
-      "autoClearDays": {{gc.autoClearDays}},
-      "liveStorageRetentionDays": {{gc.liveStorageRetentionDays}},
-      "coldStorageRetentionDays": {{gc.coldStorageRetentionDays}},
-      "coldStorage": "{{gc.coldStorage}}",
-    },
+    "GC": {{{json gc}}},
     // Admin-side notification config (non-secret). `slack.channel` empty → Slack delivery
     // no-ops; `url` is the admin base for deep links in alerts. The Slack bot token is a
     // secret (SLACK_BOT_TOKEN).
     "ADMIN": {
-      "slack": {
-        "channel": "{{admin.slack.channel}}",
-      },
+      "slack": {{{json admin.slack}}},
       "url": "{{github.adminHome}}",
     },
     "ENV": "{{env}}",
