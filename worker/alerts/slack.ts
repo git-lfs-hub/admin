@@ -1,7 +1,8 @@
+import { hexToBytes } from '@git-lfs-hub/lib/auth';
 import { SlackAPIClient } from 'slack-web-api-client';
 
-import { adminLink, alertCopy } from '@/alerts/message';
-import { alerts, type AlertKind } from '@/db/alerts-schema';
+import { adminLink, alertCopy, encodeAction } from '@/alerts/message';
+import { alerts, isConfirmKind, type AlertKind } from '@/db/alerts-schema';
 import { isoNow } from '@/lib/time';
 
 type AlertRow = typeof alerts.$inferSelect;
@@ -59,7 +60,7 @@ export async function deliverSlack(
   const client: SlackPoster = poster ?? new SlackAPIClient(env.SLACK_BOT_TOKEN);
   const copy = alertCopy(alert.kind as AlertKind, alert.scope);
   const text = `${copy.emoji} ${copy.text}`;
-  const blocks = notificationBlocks(env, alert);
+  const blocks = blocksFor(env, alert);
   try {
     let ts: string;
     let msgChannel: string;
@@ -88,22 +89,113 @@ export async function deliverSlack(
   }
 }
 
+// Confirm kinds get Confirm/Cancel buttons; notify kinds get the plain Open-in-admin block.
+function blocksFor(env: CloudflareBindings, alert: AlertRow): unknown[] {
+  return isConfirmKind(alert.kind)
+    ? confirmationBlocks(env, alert)
+    : notificationBlocks(env, alert);
+}
+
+const openButton = (env: CloudflareBindings, alert: AlertRow) => ({
+  type: 'button',
+  text: { type: 'plain_text', text: 'Open in admin' },
+  url: adminLink(env.ADMIN.url, alert.scope),
+});
+
 export function notificationBlocks(env: CloudflareBindings, alert: AlertRow): unknown[] {
   const copy = alertCopy(alert.kind as AlertKind, alert.scope);
   return [
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: `${copy.emoji} ${copy.text}` },
-    },
+    { type: 'section', text: { type: 'mrkdwn', text: `${copy.emoji} ${copy.text}` } },
+    { type: 'actions', elements: [openButton(env, alert)] },
+  ];
+}
+
+// Pending → Confirm/Cancel buttons; decided → a status line (buttons drop).
+export function confirmationBlocks(env: CloudflareBindings, alert: AlertRow): unknown[] {
+  const copy = alertCopy(alert.kind as AlertKind, alert.scope);
+  const section = { type: 'section', text: { type: 'mrkdwn', text: `${copy.emoji} ${copy.text}` } };
+
+  if (alert.decision === 'approve')
+    return [section, context(`✅ Confirmed by ${alert.decidedBy ?? 'admin'}`)];
+  if (alert.decision === 'cancel')
+    return [section, context(`⏸️ Cancelled by ${alert.decidedBy ?? 'admin'} — resume in admin`)];
+
+  const value = encodeAction(alert.scope, alert.kind);
+  return [
+    section,
     {
       type: 'actions',
       elements: [
         {
           type: 'button',
-          text: { type: 'plain_text', text: 'Open in admin' },
-          url: adminLink(env.ADMIN.url, alert.scope),
+          style: 'danger',
+          text: { type: 'plain_text', text: `Confirm ${alert.kind}` },
+          action_id: 'approve',
+          value,
         },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Cancel' },
+          action_id: 'cancel',
+          value,
+        },
+        openButton(env, alert),
       ],
     },
   ];
+}
+
+const context = (text: string) => ({
+  type: 'context',
+  elements: [{ type: 'mrkdwn', text }],
+});
+
+// Force a chat.update after approve/cancel: the shown `kind` is unchanged, so `deliverSlack`'s
+// same-kind skip would no-op. No-op when Slack is off or no message exists for the scope.
+export async function refreshConfirmation(
+  env: CloudflareBindings,
+  store: SlackStore,
+  alert: AlertRow,
+  poster?: SlackPoster,
+): Promise<void> {
+  if (!env.SLACK_BOT_TOKEN) return;
+  const existing = await store.getSlackDelivery(alert.scope);
+  if (!existing) return;
+  const copy = alertCopy(alert.kind as AlertKind, alert.scope);
+  const client: SlackPoster = poster ?? new SlackAPIClient(env.SLACK_BOT_TOKEN);
+  try {
+    await client.chat.update({
+      channel: existing.channel,
+      ts: existing.ts,
+      text: `${copy.emoji} ${copy.text}`,
+      blocks: confirmationBlocks(env, alert),
+    });
+    await store.clearSlackError();
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`[alerts] Slack refresh failed (${alert.scope}/${alert.kind}): ${error}`);
+    await store.recordSlackError(error);
+  }
+}
+
+// Verify an inbound Slack request: `v0=HMAC_SHA256(secret, "v0:{ts}:{body}")`, hex. Reject stale
+// timestamps (>5 min) for replay; fail closed on malformed input. `crypto.subtle.verify` is
+// constant-time. https://api.slack.com/authentication/verifying-requests-from-slack
+export async function verifySlackRequest(
+  secret: string,
+  timestamp: string | undefined,
+  signature: string | undefined,
+  body: string,
+  nowSec: number,
+): Promise<boolean> {
+  if (!secret || !timestamp || !signature?.startsWith('v0=')) return false;
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(nowSec - ts) > 300) return false;
+  const provided = hexToBytes(signature.slice('v0='.length));
+  if (!provided) return false;
+
+  const encoder = new TextEncoder();
+  const algo = { name: 'HMAC', hash: 'SHA-256' };
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), algo, false, ['verify']);
+  return crypto.subtle.verify('HMAC', key, provided, encoder.encode(`v0:${timestamp}:${body}`));
 }

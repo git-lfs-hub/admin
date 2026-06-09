@@ -15,21 +15,13 @@ describe('scopeFor / scopeLabel', () => {
 });
 
 describe('alertCopy', () => {
-  test('every kind has copy with severity + the bare id embedded (no namespace)', () => {
+  test('every kind has copy with the bare id embedded (no namespace)', () => {
     for (const kind of alertKinds) {
       const copy = alertCopy(kind, 'storage:alice/repo');
       expect(copy.emoji).toBeTruthy();
-      expect(['info', 'warning']).toContain(copy.severity);
       expect(copy.text).toContain('alice/repo');
       expect(copy.text).not.toContain('storage:');
     }
-  });
-
-  test('unused storage warns; recovery + serve-block states are info', () => {
-    expect(alertCopy('missing', 's').severity).toBe('warning');
-    expect(alertCopy('reappeared', 's').severity).toBe('info');
-    expect(alertCopy('archived', 's').severity).toBe('info');
-    expect(alertCopy('restored', 's').severity).toBe('info');
   });
 });
 

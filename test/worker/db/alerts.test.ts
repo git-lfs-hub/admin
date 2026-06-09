@@ -106,6 +106,58 @@ describe('Slack delivery (one message per scope, edited in place)', () => {
   });
 });
 
+describe('sendConfirmation / decide', () => {
+  const scope = 'storage:alice/repo';
+
+  test('fresh raise inserts a pending purge row', async () => {
+    const row = await a().sendConfirmation({ kind: 'purge', scope });
+    expect(row).toMatchObject({ kind: 'purge', scope, decision: null });
+  });
+
+  test('re-raise preserves an existing decision (no stale-approval reset)', async () => {
+    await a().sendConfirmation({ kind: 'purge', scope });
+    await a().decide(scope, 'purge', 'approve', 'slack:u1');
+    const again = await a().sendConfirmation({ kind: 'purge', scope });
+    expect(again.decision).toBe('approve');
+    expect(again.decidedBy).toBe('slack:u1');
+  });
+
+  test('approve records actor; duplicate → already', async () => {
+    await a().sendConfirmation({ kind: 'purge', scope });
+    const first = await a().decide(scope, 'purge', 'approve', 'slack:u1');
+    expect(first).toMatchObject({ ok: true });
+    expect((await a().getAlert(scope, 'purge'))?.decidedBy).toBe('slack:u1');
+    expect(await a().decide(scope, 'purge', 'approve', 'slack:u2')).toEqual({
+      ok: false,
+      reason: 'already',
+    });
+  });
+
+  test('cancel sets the hold; duplicate → already', async () => {
+    await a().sendConfirmation({ kind: 'purge', scope });
+    expect(await a().decide(scope, 'purge', 'cancel', 'slack:u1')).toMatchObject({ ok: true });
+    expect((await a().getAlert(scope, 'purge'))?.decision).toBe('cancel');
+    expect(await a().decide(scope, 'purge', 'cancel', 'slack:u1')).toEqual({
+      ok: false,
+      reason: 'already',
+    });
+  });
+
+  test('opposite decision overwrites (latest wins)', async () => {
+    await a().sendConfirmation({ kind: 'purge', scope });
+    await a().decide(scope, 'purge', 'approve', 'slack:u1');
+    expect(await a().decide(scope, 'purge', 'cancel', 'slack:u2')).toMatchObject({ ok: true });
+    expect((await a().getAlert(scope, 'purge'))?.decision).toBe('cancel');
+  });
+
+  test('decide on an absent alert → not_found', async () => {
+    expect(await a().decide(scope, 'purge', 'approve', 'slack:u1')).toEqual({
+      ok: false,
+      reason: 'not_found',
+    });
+  });
+});
+
 describe('Slack delivery health (system:slack row)', () => {
   test('record / get / clear roundtrip', async () => {
     expect(await a().getSlackError()).toBeNull();

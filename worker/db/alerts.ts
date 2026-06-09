@@ -2,10 +2,20 @@ import { DurableObject } from 'cloudflare:workers';
 import { and, eq } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
-import { alertCopy, type AlertSeverity } from '@/alerts/message';
-import { deliverSlack, type SlackDelivery } from '@/alerts/slack';
-import { alerts, slack, SYSTEM_SLACK_SCOPE, type AlertKind } from '@/db/alerts-schema';
+import { deliverSlack, refreshConfirmation, type SlackDelivery } from '@/alerts/slack';
+import {
+  alerts,
+  alertSeverity,
+  slack,
+  SYSTEM_SLACK_SCOPE,
+  type AlertKind,
+  type AlertSeverity,
+  type ConfirmKind,
+  type Decision,
+} from '@/db/alerts-schema';
 import { isoNow } from '@/lib/time';
+
+export { decisions, isDecision, type Decision } from '@/db/alerts-schema';
 
 export type AlertRow = typeof alerts.$inferSelect;
 export type SlackError = { message: string; at: string };
@@ -15,6 +25,17 @@ export type NotifyInput = {
   scope: string;
   severity?: AlertSeverity;
 };
+
+export type ConfirmInput = {
+  kind: ConfirmKind;
+  scope: string;
+  severity?: AlertSeverity;
+};
+
+// `decide` outcomes — the caller (Slack endpoint / SPA api) maps these to HTTP status.
+export type ActionResult =
+  | { ok: true; row: AlertRow }
+  | { ok: false; reason: 'not_found' | 'already' };
 
 /**
  * Singleton alerts DO (`getByName("global")`). Every alert lives in one `alerts` table keyed
@@ -34,12 +55,15 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     ctx.blockConcurrencyWhile(async () => {
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS alerts (
-          scope      TEXT NOT NULL,
-          kind       TEXT NOT NULL,
-          severity   TEXT NOT NULL,
-          detail     TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
+          scope        TEXT NOT NULL,
+          kind         TEXT NOT NULL,
+          severity     TEXT NOT NULL,
+          detail       TEXT,
+          created_at   TEXT NOT NULL,
+          updated_at   TEXT NOT NULL,
+          decision     TEXT,
+          decided_at   TEXT,
+          decided_by   TEXT,
           PRIMARY KEY (scope, kind)
         )
       `);
@@ -67,13 +91,53 @@ export class Alerts extends DurableObject<CloudflareBindings> {
       return existing;
     }
     const now = isoNow();
-    const severity = input.severity ?? alertCopy(input.kind, input.scope).severity;
+    const severity = input.severity ?? alertSeverity[input.kind];
     const [row] = await this.db
       .insert(alerts)
       .values({ scope: input.scope, kind: input.kind, severity, createdAt: now, updatedAt: now })
       .returning();
     await deliverSlack(this.env, this, row);
     return row;
+  }
+
+  // Raise (or re-deliver) a confirmation alert. Idempotent on the `(scope, kind)` PK: an existing
+  // row keeps its `decision` and just re-delivers, so cron repair / a restarted workflow never
+  // resets a prior approve. `clearAlert` drops the row between cycles.
+  async sendConfirmation(input: ConfirmInput): Promise<AlertRow> {
+    const existing = await this.getAlert(input.scope, input.kind);
+    if (existing) {
+      await deliverSlack(this.env, this, existing);
+      return existing;
+    }
+    const now = isoNow();
+    const severity = input.severity ?? alertSeverity[input.kind];
+    const [row] = await this.db
+      .insert(alerts)
+      .values({ scope: input.scope, kind: input.kind, severity, createdAt: now, updatedAt: now })
+      .returning();
+    await deliverSlack(this.env, this, row);
+    return row;
+  }
+
+  // Record an approve / cancel (= the hold) decision + refresh Slack. Duplicate → `already`.
+  // Workflow wake (`sendEvent`) is wired in E4.
+  async decide(
+    scope: string,
+    kind: ConfirmKind,
+    decision: Decision,
+    by: string,
+  ): Promise<ActionResult> {
+    const row = await this.getAlert(scope, kind);
+    if (!row) return { ok: false, reason: 'not_found' };
+    if (row.decision === decision) return { ok: false, reason: 'already' };
+    const now = isoNow();
+    const [updated] = await this.db
+      .update(alerts)
+      .set({ decision, decidedAt: now, decidedBy: by, updatedAt: now })
+      .where(keyWhere(scope, kind))
+      .returning();
+    await refreshConfirmation(this.env, this, updated);
+    return { ok: true, row: updated };
   }
 
   async getAlert(scope: string, kind: string): Promise<AlertRow | null> {

@@ -1,11 +1,12 @@
 import { scopeFor } from '@/alerts/message';
 import { Alerts } from '@/db/alerts';
-import type { AlertKind } from '@/db/alerts-schema';
+import type { AlertKind, NotifyKind } from '@/db/alerts-schema';
 
-// A prefix has at most one standing alert (its current attention state). Raising a kind
+// A prefix has at most one standing notify alert (its current attention state). Raising a kind
 // clears the others it supersedes — e.g. archiving an unused prefix clears its `missing`,
-// reuse clears `missing`, restore clears `archived`.
-const CLEARS: Record<AlertKind, AlertKind[]> = {
+// reuse clears `missing`, restore clears `archived`. Confirmation kinds (`purge`) are not
+// notify-superseded — their lifecycle is owned by the workflow + `clearAlert`.
+const CLEARS: Record<NotifyKind, AlertKind[]> = {
   missing: ['reappeared', 'restored'],
   archived: ['missing', 'restored'],
   reappeared: ['missing'],
@@ -18,7 +19,7 @@ export async function notify(
   env: CloudflareBindings,
   owner: string,
   repo: string,
-  kind: AlertKind,
+  kind: NotifyKind,
 ): Promise<void> {
   const scope = scopeFor(owner, repo);
   try {

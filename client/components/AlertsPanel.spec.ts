@@ -12,6 +12,9 @@ const alerts: Alert[] = [
     detail: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    decision: null,
+    decidedAt: null,
+    decidedBy: null,
   },
   {
     kind: 'archived',
@@ -20,6 +23,9 @@ const alerts: Alert[] = [
     detail: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    decision: null,
+    decidedAt: null,
+    decidedBy: null,
   },
 ];
 

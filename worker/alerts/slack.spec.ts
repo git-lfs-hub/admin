@@ -1,6 +1,13 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { deliverSlack, notificationBlocks, type SlackStore } from '@/alerts/slack';
+import {
+  confirmationBlocks,
+  deliverSlack,
+  notificationBlocks,
+  refreshConfirmation,
+  verifySlackRequest,
+  type SlackStore,
+} from '@/alerts/slack';
 
 type AlertRow = Parameters<typeof notificationBlocks>[1];
 
@@ -11,6 +18,9 @@ const alert: AlertRow = {
   detail: null,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
+  decision: null,
+  decidedAt: null,
+  decidedBy: null,
 };
 
 type Existing = { kind: string; channel: string; ts: string } | null;
@@ -131,5 +141,99 @@ describe('notificationBlocks', () => {
     const button = blocks[1].elements[0];
     expect(button.type).toBe('button');
     expect(button.url).toContain('/storage?highlight=alice%2Frepo');
+  });
+});
+
+const purge: AlertRow = { ...alert, kind: 'purge', scope: 'storage:alice/repo' };
+
+describe('confirmationBlocks', () => {
+  test('pending → Confirm/Cancel buttons carrying scope#kind', () => {
+    const [, actions] = confirmationBlocks(envWith('xoxb', 'C1'), purge) as any[];
+    const ids = actions.elements.map((e: any) => e.action_id);
+    expect(ids).toEqual(['approve', 'cancel', undefined]); // third is the url button
+    expect(actions.elements[0].value).toBe('storage:alice/repo#purge');
+  });
+
+  test('decided → status line, no buttons', () => {
+    const approved = confirmationBlocks(envWith('xoxb', 'C1'), {
+      ...purge,
+      decision: 'approve',
+      decidedBy: 'slack:u',
+    }) as any[];
+    expect(approved).toHaveLength(2);
+    expect(approved[1].type).toBe('context');
+    expect(approved[1].elements[0].text).toContain('slack:u');
+
+    const cancelled = confirmationBlocks(envWith('xoxb', 'C1'), {
+      ...purge,
+      decision: 'cancel',
+      decidedBy: 'slack:u',
+    }) as any[];
+    expect(cancelled[1].elements[0].text).toContain('Cancelled');
+  });
+});
+
+describe('refreshConfirmation', () => {
+  test('chat.updates the existing message in place', async () => {
+    const store = fakeStore({ kind: 'purge', channel: 'C7', ts: '5.0' });
+    const poster = fakePoster();
+    await refreshConfirmation(
+      envWith('xoxb', 'C1'),
+      store,
+      { ...purge, decision: 'approve' },
+      poster,
+    );
+    expect(poster.chat.update).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C7', ts: '5.0' }),
+    );
+  });
+
+  test('no-op when no message was ever posted for the scope', async () => {
+    const store = fakeStore(null);
+    const poster = fakePoster();
+    await refreshConfirmation(envWith('xoxb', 'C1'), store, purge, poster);
+    expect(poster.chat.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('verifySlackRequest', () => {
+  const secret = 'shhh';
+  const body = 'payload=%7B%7D';
+
+  async function sign(ts: string, b: string): Promise<string> {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`v0:${ts}:${b}`));
+    const hex = [...new Uint8Array(sig)].map((x) => x.toString(16).padStart(2, '0')).join('');
+    return `v0=${hex}`;
+  }
+
+  test('valid signature within the freshness window → true', async () => {
+    const ts = '1000';
+    expect(await verifySlackRequest(secret, ts, await sign(ts, body), body, 1010)).toBe(true);
+  });
+
+  test('tampered body → false', async () => {
+    const ts = '1000';
+    const good = await sign(ts, body);
+    expect(await verifySlackRequest(secret, ts, good, 'payload=%7B%22x%22%3A1%7D', 1010)).toBe(
+      false,
+    );
+  });
+
+  test('stale timestamp (>5 min) → false', async () => {
+    const ts = '1000';
+    expect(await verifySlackRequest(secret, ts, await sign(ts, body), body, 2000)).toBe(false);
+  });
+
+  test('missing secret / bad signature shape → false', async () => {
+    expect(await verifySlackRequest('', '1000', 'v0=ab', body, 1000)).toBe(false);
+    expect(await verifySlackRequest(secret, '1000', 'nope', body, 1000)).toBe(false);
+    expect(await verifySlackRequest(secret, undefined, 'v0=ab', body, 1000)).toBe(false);
   });
 });
