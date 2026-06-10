@@ -2,16 +2,38 @@ import { Hono, type Context } from 'hono';
 
 import type { AppEnv } from '@/_env';
 import { notify } from '@/alerts/lifecycle';
+import { scopeFor } from '@/alerts/message';
 import { Registry, type StorageRow } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { isoAddDays } from '@/lib/time';
 import { blockPrefix, unblockPrefix } from '@/server/lfs-server';
+import { startPurge } from '@/workflows/purge';
 
 /** Resolve the storage row for the prefix's URL-path segments (same-key match), or a 404. */
 async function resolveStorage(c: Context<AppEnv>): Promise<StorageRow | Response> {
   const { owner, repo } = c.req.param();
   const cur = await Registry.global(c.env).storageForRepo(owner, repo);
   return cur ?? c.json({ error: 'not_found' }, 404);
+}
+
+// State-bound preview token: stale once the row changes (`updatedAt` bumps), so a Purge POST
+// can't act on an impact preview that no longer reflects the storage. Not an auth boundary.
+async function confirmToken(prefix: string, updatedAt: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${prefix}\n${updatedAt}`),
+  );
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Shared Purge precondition (preview + POST): blocked, not yet purged, and no live git repo
+// still using the prefix. Returns an error Response, or null when purgeable.
+async function purgeGate(c: Context<AppEnv>, cur: StorageRow): Promise<Response | null> {
+  if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
+  if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
+  if (await Registry.global(c.env).storageInUse(cur.prefix))
+    return c.json({ error: 'in_use' }, 409);
+  return null;
 }
 
 const app = new Hono<AppEnv>()
@@ -76,7 +98,7 @@ const app = new Hono<AppEnv>()
 
   // Unblock (undo Block) = clear the serve-block. Status untouched — never forces
   // `used` (link state is reconcile's call). RPC before the DB write. Cold restore
-  // (clearedAt set → Glacier) is Group D3.
+  // (clearedAt set → Glacier) is not yet wired.
   .post('/:owner/:repo/restore', async (c) => {
     const cur = await resolveStorage(c);
     if (cur instanceof Response) return cur;
@@ -93,10 +115,49 @@ const app = new Hono<AppEnv>()
     return c.json({ storage: row });
   })
 
-  // Destructive / cold-storage ops land in Groups D and E.
+  // Cold-storage ops are not yet implemented.
   .post('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .delete('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .post('/:owner/:repo/clear', (c) => c.json({ error: 'not_implemented' }, 501))
-  .post('/:owner/:repo/purge', (c) => c.json({ error: 'not_implemented' }, 501));
+
+  // Purge (no-cold path) — preview the impact + a state-bound token, then POST to start the
+  // gated PurgeWorkflow. Cold-storage purge (delete S3 too) is not yet implemented → 501 when on.
+  .post('/:owner/:repo/purge/preview', async (c) => {
+    if (c.env.GC.coldStorage) return c.json({ error: 'not_implemented' }, 501);
+    const cur = await resolveStorage(c);
+    if (cur instanceof Response) return cur;
+    const gate = await purgeGate(c, cur);
+    if (gate) return gate;
+    const present = (await Storage.byPrefix(c.env, cur.prefix).usage()).present;
+    return c.json({
+      confirmToken: await confirmToken(cur.prefix, cur.updatedAt),
+      impact: { objects: present.count, bytes: present.size },
+    });
+  })
+
+  .post('/:owner/:repo/purge', async (c) => {
+    if (c.env.GC.coldStorage) return c.json({ error: 'not_implemented' }, 501);
+    const cur = await resolveStorage(c);
+    if (cur instanceof Response) return cur;
+    const gate = await purgeGate(c, cur);
+    if (gate) return gate;
+    const body = await c.req
+      .json<{ confirmToken?: string }>()
+      .catch(() => ({}) as { confirmToken?: string });
+    if (body.confirmToken !== (await confirmToken(cur.prefix, cur.updatedAt)))
+      return c.json({ error: 'stale_token' }, 409);
+    const { owner, repo } = c.req.param();
+    try {
+      const id = await startPurge(c.env, {
+        prefix: cur.prefix,
+        scope: scopeFor(owner, repo),
+        triggeredBy: 'admin',
+      });
+      return c.json({ status: 'purging', workflow: id }, 202);
+    } catch {
+      // beginOp / create conflict — an op is already in flight for this prefix.
+      return c.json({ error: 'busy' }, 409);
+    }
+  });
 
 export default app;

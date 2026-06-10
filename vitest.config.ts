@@ -10,6 +10,9 @@ import { defineConfig, defineProject } from 'vitest/config';
 const cloudflareWorkersStub = fileURLToPath(
   new URL('./test/stubs/cloudflare-workers.ts', import.meta.url),
 );
+const cloudflareWorkflowsStub = fileURLToPath(
+  new URL('./test/stubs/cloudflare-workflows.ts', import.meta.url),
+);
 
 export default defineConfig({
   // Tests keep the dev fixture reconcile: node/happy-dom projects set __DEV__ via their
@@ -20,7 +23,10 @@ export default defineConfig({
         define: { __DEV__: 'true' },
         resolve: {
           tsconfigPaths: true,
-          alias: { 'cloudflare:workers': cloudflareWorkersStub },
+          alias: {
+            'cloudflare:workers': cloudflareWorkersStub,
+            'cloudflare:workflows': cloudflareWorkflowsStub,
+          },
         },
         test: {
           name: 'unit',

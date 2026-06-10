@@ -13,13 +13,19 @@ const reg = () => env.REGISTRY.getByName('global');
 // The LFS_SERVER service binding is stripped from the test wrangler (services: null),
 // so drive the sub-app directly with a fabricated env: the real REGISTRY/STORAGE/GC
 // bindings plus a stub lfs-server we can assert on / make fail.
-function appEnv(lfs: Partial<Record<'blockRepo' | 'unblockRepo' | 'purgeRepo', unknown>> = {}) {
+function appEnv(
+  lfs: Partial<Record<'blockRepo' | 'unblockRepo' | 'purgeRepo', unknown>> = {},
+  gc: Record<string, unknown> = {},
+) {
   const LFS_SERVER = {
     blockRepo: vi.fn(async () => {}),
     unblockRepo: vi.fn(async () => {}),
     purgeRepo: vi.fn(async () => {}),
     ...lfs,
   };
+  // PURGE_WORKFLOW is omitted from the test wrangler (no workflow runtime in the pool); stub
+  // create()/get() so the trigger path (beginOp on the real STORAGE DO + create) is exercisable.
+  const PURGE_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   return {
     env: {
       REGISTRY: env.REGISTRY,
@@ -27,11 +33,14 @@ function appEnv(lfs: Partial<Record<'blockRepo' | 'unblockRepo' | 'purgeRepo', u
       ALERTS: env.ALERTS,
       ADMIN: env.ADMIN,
       SLACK_BOT_TOKEN: env.SLACK_BOT_TOKEN,
-      GC: env.GC,
+      GC: { ...env.GC, ...gc },
       LFS_SERVER,
-    } as unknown as CloudflareBindings,
+      PURGE_WORKFLOW,
+    } as unknown as CloudflareBindings & { PURGE_WORKFLOW: typeof PURGE_WORKFLOW },
     blockRepo: LFS_SERVER.blockRepo,
     unblockRepo: LFS_SERVER.unblockRepo,
+    purgeRepo: LFS_SERVER.purgeRepo,
+    PURGE_WORKFLOW,
   };
 }
 const post = (path: string, e: CloudflareBindings) =>
@@ -299,15 +308,91 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
   });
 });
 
-describe('not-yet-implemented mutations → 501', () => {
+describe('cold-storage ops → 501 (not yet implemented)', () => {
   test.each([
     ['POST', '/alice/r/backup'],
     ['DELETE', '/alice/r/backup'],
     ['POST', '/alice/r/clear'],
-    ['POST', '/alice/r/purge'],
   ])('%s %s', async (method, path) => {
     const { env: e } = appEnv();
     const res = await storageApp.request(path, { method }, e);
     expect(res.status).toBe(501);
+  });
+});
+
+// Seed an archived (blocked), unused prefix — the purgeable resting state.
+async function seedArchived(prefix: string) {
+  await seedUnused(prefix);
+  await reg().block(prefix);
+}
+
+const purge = (path: string, e: CloudflareBindings, body?: unknown) =>
+  storageApp.request(
+    path,
+    {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+      headers: { 'content-type': 'application/json' },
+    },
+    e,
+  );
+
+describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
+  test('preview on an archived prefix returns impact + a confirm token', async () => {
+    await seedArchived('alice/r');
+    await env.STORAGE.getByName('alice/r').recordObject('oid1', 10, 'verify');
+    const { env: e } = appEnv();
+    const res = await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { confirmToken: string; impact: { objects: number } };
+    expect(body.confirmToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.impact.objects).toBe(1);
+  });
+
+  test('preview/POST 409 when the prefix is not blocked', async () => {
+    await seedUnused('alice/r');
+    const { env: e } = appEnv();
+    expect((await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)).status).toBe(
+      409,
+    );
+    expect((await purge('/alice/r/purge', e, { confirmToken: 'x' })).status).toBe(409);
+  });
+
+  test('409 in_use when a matching git repo is active', async () => {
+    await seedArchived('alice/r');
+    await reg().upsertRepo('alice', 'r'); // active git repo → prefix in use
+    const { env: e } = appEnv();
+    const res = await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e);
+    expect(await res.json()).toMatchObject({ error: 'in_use' });
+    expect(res.status).toBe(409);
+  });
+
+  test('stale/missing token → 409', async () => {
+    await seedArchived('alice/r');
+    const { env: e } = appEnv();
+    expect((await purge('/alice/r/purge', e, { confirmToken: 'nope' })).status).toBe(409);
+  });
+
+  test('valid token → starts the workflow (beginOp reserved + create called) → 202', async () => {
+    await seedArchived('alice/r');
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    const prev = (await (
+      await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
+    ).json()) as { confirmToken: string };
+    const res = await purge('/alice/r/purge', e, { confirmToken: prev.confirmToken });
+    expect(res.status).toBe(202);
+    expect(PURGE_WORKFLOW.create).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'purge:alice/r' }),
+    );
+    expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('purge');
+  });
+
+  test('501 while cold storage is enabled (not yet implemented)', async () => {
+    await seedArchived('alice/r');
+    const { env: e } = appEnv({}, { coldStorage: 's3.backup' });
+    expect((await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)).status).toBe(
+      501,
+    );
+    expect((await purge('/alice/r/purge', e, {})).status).toBe(501);
   });
 });

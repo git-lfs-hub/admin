@@ -1,7 +1,7 @@
 import { sqliteTable, text, primaryKey } from 'drizzle-orm/sqlite-core';
 
 // Alert kinds → mode (single source of truth). `notify` raises with no decision; `confirm`
-// (Group F adds `clear`) carries approve/cancel.
+// (`purge` now; `clear` later) carries approve/cancel.
 export const alertModes = {
   missing: 'notify',
   reappeared: 'notify',

@@ -3,7 +3,7 @@ import type { AlertKind } from '@/db/alerts-schema';
 export type { AlertKind };
 
 // Alert scopes are namespaced `<namespace>:<id>` so future entities (e.g. `repo:`) coexist
-// with storage and system rows. Group D raises `storage:` (prefix lifecycle) + `system:`.
+// with storage and system rows. Storage lifecycle raises `storage:`; global health `system:`.
 export const STORAGE_SCOPE_PREFIX = 'storage:';
 
 /** Storage-prefix alert scope: `storage:lc(owner/repo)`. */

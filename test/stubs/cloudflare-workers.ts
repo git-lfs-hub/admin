@@ -9,4 +9,12 @@ export class DurableObject<Env = unknown> {
   ) {}
 }
 
+// `PurgeWorkflow` value-imports this (reached via `worker/index` in unit specs); never run here.
+export class WorkflowEntrypoint<Env = unknown, _T = unknown> {
+  constructor(
+    protected ctx: unknown,
+    protected env: Env,
+  ) {}
+}
+
 export const env = {};

@@ -15,6 +15,7 @@ import webhooks from '@/webhooks/index';
 export { Registry } from '@/db/registry';
 export { Storage } from '@/db/storage';
 export { Alerts } from '@/db/alerts';
+export { PurgeWorkflow } from '@/workflows/purge';
 
 let devReconcileFired = false;
 

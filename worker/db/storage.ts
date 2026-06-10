@@ -198,7 +198,7 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return out;
   }
 
-  // --- workflows: one-active-op guard for the GC lifecycle (Group D wires the executors) ---
+  // --- workflows: one-active-op guard for the GC lifecycle (executors live in worker/workflows) ---
 
   async listWorkflows(): Promise<WorkflowRow[]> {
     return await this.db.select().from(workflows);

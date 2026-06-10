@@ -40,7 +40,7 @@ export type ActionResult =
 /**
  * Singleton alerts DO (`getByName("global")`). Every alert lives in one `alerts` table keyed
  * `(scope, kind)` — storage alerts (scope `lc(owner/repo)`) and global health (scope
- * `system:*`) alike. Group D is notify-only; approve/cancel + confirmation kinds are Group E.
+ * `system:*`) alike. Notify-only kinds raise + supersede; confirmation kinds carry decisions.
  */
 export class Alerts extends DurableObject<CloudflareBindings> {
   private db: DrizzleSqliteDODatabase;
@@ -120,7 +120,7 @@ export class Alerts extends DurableObject<CloudflareBindings> {
   }
 
   // Record an approve / cancel (= the hold) decision + refresh Slack. Duplicate → `already`.
-  // Workflow wake (`sendEvent`) is wired in E4.
+  // The workflow wake (`sendEvent`) is handled by the caller.
   async decide(
     scope: string,
     kind: ConfirmKind,

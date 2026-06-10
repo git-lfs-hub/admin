@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const decide = vi.fn(async () => ({ ok: true }));
+const { decide, wakePurge } = vi.hoisted(() => ({
+  decide: vi.fn(async () => ({ ok: true })),
+  wakePurge: vi.fn(async () => {}),
+}));
 vi.mock('@/db/alerts', () => ({
   Alerts: { global: () => ({ decide }) },
   isDecision: (s: string) => s === 'approve' || s === 'cancel',
 }));
+vi.mock('@/workflows/purge', () => ({ wakePurge }));
 
 import app from '@/webhooks/index';
 
@@ -43,13 +47,22 @@ async function post(body: string, opts: { ts?: string; sig?: string } = {}) {
   );
 }
 
-beforeEach(() => decide.mockClear());
+beforeEach(() => {
+  decide.mockClear();
+  wakePurge.mockClear();
+});
 
 describe('POST /webhooks/slack/interactions', () => {
-  test('valid Confirm → decide(scope, kind, approve, slack:user)', async () => {
+  test('valid Confirm → decide + wakes the workflow', async () => {
     const res = await post(payload('approve', 'storage:alice/repo#purge'));
     expect(res.status).toBe(200);
     expect(decide).toHaveBeenCalledWith('storage:alice/repo', 'purge', 'approve', 'slack:dana');
+    expect(wakePurge).toHaveBeenCalledWith(
+      expect.anything(),
+      'storage:alice/repo',
+      'approve',
+      'slack:dana',
+    );
   });
 
   test('valid Cancel → decide(..., cancel, ...)', async () => {

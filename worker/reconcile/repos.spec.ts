@@ -31,7 +31,7 @@ import type { OrgProbeResult } from '@/github/probeOrg';
 import { reconcileRepos, reconcileRepoEvent } from '@/reconcile/repos';
 
 const unblockRepo = vi.fn(async () => {});
-// Notify-only alerts (Group D): per-scope ALERTS DO stub shared across tests.
+// Notify-only alerts: per-scope ALERTS DO stub shared across tests.
 const sendNotification = vi.fn(async () => ({}));
 const clearAlert = vi.fn(async () => {});
 const env = {

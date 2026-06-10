@@ -46,6 +46,13 @@
       "bucket_name": "{{s3.bucket}}",
     },
   ],
+  "workflows": [
+    {
+      "binding": "PURGE_WORKFLOW",
+      "name": "lfs-admin-purge",
+      "class_name": "PurgeWorkflow",
+    },
+  ],
   // RPC into lfs-server (block/unblock/purge). In prod this targets the
   // lfs-server worker; in dev the same-named auxiliary worker (vite.config.ts).
   "services": [

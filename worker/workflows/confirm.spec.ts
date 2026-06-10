@@ -1,3 +1,4 @@
+import type { WorkflowStep } from 'cloudflare:workers';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -5,8 +6,15 @@ import {
   readConfirmGate,
   runConfirmation,
   type ConfirmCtx,
-  type ConfirmStep,
-} from '@/alerts/confirm';
+} from '@/workflows/confirm';
+
+// waitForEvent resolves when an event fires, rejects (TimeoutError) when the deadline elapses.
+const fire = async () => {};
+const deadline = async () => {
+  const e = new Error('event timed out');
+  e.name = 'TimeoutError';
+  throw e;
+};
 
 function envWith(alert: unknown, storage: unknown) {
   return {
@@ -57,7 +65,7 @@ describe('readConfirmGate', () => {
 });
 
 describe('runConfirmation', () => {
-  function fakeStep(gateOutcomes: string[], waits: { timedOut: boolean }[]) {
+  function fakeStep(gateOutcomes: string[], waits: Array<() => Promise<void>>) {
     let gi = 0;
     let wi = 0;
     const sendConfirmation = vi.fn(async () => ({}));
@@ -66,34 +74,46 @@ describe('runConfirmation', () => {
       step: {
         do: async (name: string, cb: () => Promise<unknown>) =>
           name.endsWith(':gate') ? gateOutcomes[gi++] : cb(),
-        waitForEvent: async () => waits[wi++],
-      } as ConfirmStep,
+        waitForEvent: async () => waits[wi++](),
+      } as unknown as WorkflowStep,
       env: { ALERTS: { getByName: () => ({ sendConfirmation }) } } as unknown as CloudflareBindings,
     };
   }
 
   test('delivers once, then proceeds on approve', async () => {
-    const { step, env, sendConfirmation } = fakeStep(['proceed'], [{ timedOut: false }]);
+    const { step, env, sendConfirmation } = fakeStep(['proceed'], [fire]);
     await runConfirmation(step, ctx(env));
     expect(sendConfirmation).toHaveBeenCalledWith({ kind: 'purge', scope: 'storage:a/r' });
   });
 
   test('terminate → throws ConfirmAborted', async () => {
-    const { step, env } = fakeStep(['terminate'], [{ timedOut: false }]);
+    const { step, env } = fakeStep(['terminate'], [fire]);
     await expect(runConfirmation(step, ctx(env))).rejects.toBeInstanceOf(ConfirmAborted);
   });
 
   test('admin path: undecided at deadline → proceeds (timeout)', async () => {
-    const { step, env } = fakeStep(['wait'], [{ timedOut: true }]);
+    const { step, env } = fakeStep(['wait'], [deadline]);
     await expect(
       runConfirmation(step, ctx(env, { proceedOnTimeout: true })),
     ).resolves.toBeUndefined();
   });
 
   test('cron path: undecided at deadline → loops (never auto-proceeds), proceeds on later approve', async () => {
-    const { step, env } = fakeStep(['wait', 'proceed'], [{ timedOut: true }, { timedOut: false }]);
+    const { step, env } = fakeStep(['wait', 'proceed'], [deadline, fire]);
     await expect(
       runConfirmation(step, ctx(env, { proceedOnTimeout: false })),
     ).resolves.toBeUndefined();
+  });
+
+  test('a non-timeout waitForEvent error propagates', async () => {
+    const { step, env } = fakeStep(
+      ['proceed'],
+      [
+        async () => {
+          throw new Error('boom');
+        },
+      ],
+    );
+    await expect(runConfirmation(step, ctx(env))).rejects.toThrow('boom');
   });
 });
