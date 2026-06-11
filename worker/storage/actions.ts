@@ -70,7 +70,7 @@ export const STORAGE_ACTIONS = {
   purge: {
     label: 'Purge',
     consequence:
-      "Permanently deletes every file in this storage. Any repo using it loses those files — including repos that still exist on GitHub. This can't be undone.",
+      "Permanently deletes every file in this storage. Any repo using it loses those files —\nincluding repos that still exist on GitHub. This can't be undone.",
   },
 } as const satisfies Record<StorageAction, { label: string; consequence: string }>;
 
