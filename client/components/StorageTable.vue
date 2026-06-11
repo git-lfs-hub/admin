@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import {
+  STORAGE_ACTIONS,
+  STORAGE_STATES,
+  canPurge,
+  purgeRequires,
+  type LifecycleState,
+  type StorageAction,
+} from '@worker/storage/actions';
 import { MoreHorizontal } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -43,11 +51,23 @@ const OBJECT_STATUSES = ['present', 'pending', 'missing', 'deleted', 'purged'] a
 const objectBreakdown = (r: StorageRow) =>
   OBJECT_STATUSES.map((s) => ({ status: s, ...r.usage[s] })).filter((o) => o.count > 0);
 
+// Reduce a row to its lifecycle state so selection (default action) and the purge precondition
+// come from the shared catalog (worker/storage/actions.ts) — same rules the Slack alerts use.
+const stateOf = (r: StorageRow): LifecycleState =>
+  r.activeOp === 'purge'
+    ? 'purging'
+    : r.status === 'purged'
+      ? 'purged'
+      : r.archivedAt
+        ? 'archived'
+        : r.status === 'unused'
+          ? 'unused'
+          : 'used';
+
 // Inline confirm: clicking Archive/Restore/Purge swaps the action buttons in place for a
 // {confirm} | Cancel pair with the action's description right underneath. One row confirms at a time.
-type ConfirmAction = 'archive' | 'restore' | 'purge';
-const confirmFor = ref<{ prefix: string; action: ConfirmAction } | null>(null);
-const startConfirm = (r: StorageRow, action: ConfirmAction) =>
+const confirmFor = ref<{ prefix: string; action: StorageAction } | null>(null);
+const startConfirm = (r: StorageRow, action: StorageAction) =>
   (confirmFor.value = { prefix: r.prefix, action });
 
 const confirm = (
@@ -104,9 +124,9 @@ const runConfirm = (r: StorageRow) => {
                   <p class="font-medium">
                     Purged <template v-if="r.purgedAt">{{ formatRelative(r.purgedAt) }}</template>
                   </p>
-                  <p class="text-muted-foreground">
-                    <template v-if="r.purgedAt">{{ formatTime(r.purgedAt) }} — </template>every file
-                    in this storage was permanently deleted.
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    <template v-if="r.purgedAt">{{ formatTime(r.purgedAt) }} — </template
+                    >{{ STORAGE_STATES.purged.description }}
                   </p>
                 </HoverCardContent>
               </HoverCard>
@@ -117,9 +137,8 @@ const runConfirm = (r: StorageRow) => {
                 </HoverCardTrigger>
                 <HoverCardContent side="left" class="w-auto">
                   <p class="font-medium">Archived {{ formatRelative(r.archivedAt) }}</p>
-                  <p class="text-muted-foreground">
-                    {{ formatTime(r.archivedAt) }} — this storage no longer serves Git LFS.<br />
-                    Files are kept; nothing is deleted.
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    {{ formatTime(r.archivedAt) }} — {{ STORAGE_STATES.archived.description }}
                   </p>
                 </HoverCardContent>
               </HoverCard>
@@ -130,9 +149,8 @@ const runConfirm = (r: StorageRow) => {
                 </HoverCardTrigger>
                 <HoverCardContent side="left" class="w-auto">
                   <p class="font-medium">Unused</p>
-                  <p class="text-muted-foreground">
-                    No longer serving Git LFS — the repo is missing.<br />
-                    Files are kept and the storage will be archived automatically.
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    {{ STORAGE_STATES.unused.description }}
                   </p>
                 </HoverCardContent>
               </HoverCard>
@@ -272,11 +290,11 @@ const runConfirm = (r: StorageRow) => {
                   <div data-slot="confirm" class="flex items-center gap-2">
                     <!-- Purge needs an archived prefix; otherwise the confirm is blocked (Archive first). -->
                     <Button
-                      v-if="confirmFor.action === 'purge' && !r.archivedAt"
+                      v-if="confirmFor.action === 'purge' && !canPurge(stateOf(r))"
                       size="xs"
                       variant="destructive"
                       disabled
-                      >Purge</Button
+                      >{{ STORAGE_ACTIONS.purge.label }}</Button
                     >
                     <Button
                       v-else
@@ -286,13 +304,7 @@ const runConfirm = (r: StorageRow) => {
                         archive.isPending.value || restore.isPending.value || purge.isPending.value
                       "
                       @click="runConfirm(r)"
-                      >{{
-                        confirmFor.action === 'restore'
-                          ? 'Restore'
-                          : confirmFor.action === 'purge'
-                            ? 'Purge'
-                            : 'Archive now'
-                      }}</Button
+                      >{{ STORAGE_ACTIONS[confirmFor.action].label }}</Button
                     >
                     <Button size="xs" variant="ghost" @click="confirmFor = null">Cancel</Button>
                   </div>
@@ -304,8 +316,8 @@ const runConfirm = (r: StorageRow) => {
                   <Button
                     size="xs"
                     variant="outline"
-                    @click="startConfirm(r, r.archivedAt ? 'restore' : 'archive')"
-                    >{{ r.archivedAt ? 'Restore' : 'Archive now' }}</Button
+                    @click="startConfirm(r, STORAGE_STATES[stateOf(r)].action!)"
+                    >{{ STORAGE_ACTIONS[STORAGE_STATES[stateOf(r)].action!].label }}</Button
                   >
                   <!-- "…" overflow: Purge. -->
                   <DropdownMenu>
@@ -316,7 +328,7 @@ const runConfirm = (r: StorageRow) => {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem variant="destructive" @select="startConfirm(r, 'purge')">
-                        Purge…
+                        {{ STORAGE_ACTIONS.purge.label }}…
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -331,23 +343,11 @@ const runConfirm = (r: StorageRow) => {
           <p
             v-if="confirmFor && confirmFor.prefix === r.prefix"
             data-slot="confirm-description"
-            class="-mx-4 -mb-4 mt-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm text-muted-foreground"
+            class="-mx-4 -mb-4 mt-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm whitespace-pre-line text-muted-foreground"
           >
-            <template v-if="confirmFor.action === 'restore'"
-              >Unarchives this storage so it serves Git LFS again.</template
-            >
-            <template v-else-if="confirmFor.action === 'purge'"
-              >Permanently deletes every file in this storage. Any repo using it loses those files —
-              including repos that still exist on GitHub. This can't be undone.<template
-                v-if="!r.archivedAt"
-              >
-                Archive this storage first.</template
-              ></template
-            >
-            <template v-else
-              >Stops this storage from serving Git LFS immediately.<br />
-              Files are kept; serving resumes automatically if the repo reappears on
-              GitHub.</template
+            {{ STORAGE_ACTIONS[confirmFor.action].consequence
+            }}<template v-if="confirmFor.action === 'purge' && !r.archivedAt">
+              Archive this storage first.</template
             >
           </p>
         </ItemContent>

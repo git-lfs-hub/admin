@@ -160,9 +160,9 @@ describe('StorageTable', () => {
     (await mountTable(storage)).findAll('button').map((b) => b.text());
 
   it('shows Archive for unused, not-yet-archived prefixes only', async () => {
-    expect(await actionLabels([unused])).toContain('Archive now');
-    expect(await actionLabels([row])).not.toContain('Archive now'); // used
-    expect(await actionLabels([archived])).not.toContain('Archive now'); // already archived
+    expect(await actionLabels([unused])).toContain('Archive');
+    expect(await actionLabels([row])).not.toContain('Archive'); // used
+    expect(await actionLabels([archived])).not.toContain('Archive'); // already archived
   });
 
   it('shows Restore for archived prefixes, but not once purged', async () => {
@@ -181,7 +181,7 @@ describe('StorageTable', () => {
     expect(wrapper.find('[data-slot="metrics"]').text()).toContain('Archiving in');
     const cell = wrapper.find('[data-slot="lifecycle"]');
     // Archive is a plain button in a ButtonGroup — not the old absolute hover-reveal overlay.
-    const archiveBtn = cell.findAll('button').find((b) => b.text() === 'Archive now');
+    const archiveBtn = cell.findAll('button').find((b) => b.text() === 'Archive');
     expect(archiveBtn).toBeTruthy();
     expect(archiveBtn!.classes()).not.toContain('absolute');
     expect(archiveBtn!.classes()).not.toContain('hidden');
@@ -231,12 +231,12 @@ describe('StorageTable', () => {
     const cell = wrapper.find('[data-slot="lifecycle"]');
     await cell
       .findAll('button')
-      .find((b) => b.text() === 'Archive now')!
+      .find((b) => b.text() === 'Archive')!
       .trigger('click');
     const box = confirmBox(cell);
     expect(box.exists()).toBe(true);
     expect(box.findAll('button').map((b) => b.text())).toEqual(
-      expect.arrayContaining(['Archive now', 'Cancel']),
+      expect.arrayContaining(['Archive', 'Cancel']),
     );
     // The description is a full-width row below the buttons (not inside the lifecycle cell).
     expect(wrapper.find('[data-slot="confirm-description"]').text()).toContain(
@@ -250,7 +250,7 @@ describe('StorageTable', () => {
     const cell = wrapper.find('[data-slot="lifecycle"]');
     await cell
       .findAll('button')
-      .find((b) => b.text() === 'Archive now')!
+      .find((b) => b.text() === 'Archive')!
       .trigger('click');
     expect(confirmBox(cell).exists()).toBe(true);
     await confirmBox(cell)

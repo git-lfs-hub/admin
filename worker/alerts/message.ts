@@ -1,4 +1,10 @@
 import type { AlertKind } from '@/db/alerts-schema';
+import {
+  STORAGE_ACTIONS,
+  STORAGE_STATES,
+  type LifecycleState,
+  type StorageAction,
+} from '@/storage/actions';
 
 export type { AlertKind };
 
@@ -18,23 +24,20 @@ export function scopeLabel(scope: string): string {
 
 export type AlertCopy = { emoji: string; text: string };
 
+// Each Slack event reduces to a lifecycle state; emoji + one-liner come from the shared catalog,
+// so the UI's state copy and the Slack line never drift. `reappeared`/`restored` both mean the
+// storage serves again (`used`).
+const stateOfKind: Record<AlertKind, LifecycleState> = {
+  missing: 'unused',
+  reappeared: 'used',
+  archived: 'archived',
+  restored: 'used',
+  purge: 'purging',
+};
+
 export function alertCopy(kind: AlertKind, scope: string): AlertCopy {
-  const id = scopeLabel(scope);
-  switch (kind) {
-    case 'missing':
-      return { emoji: '⚠️', text: `${id} storage unused — no live repository` };
-    case 'reappeared':
-      return { emoji: '🔄', text: `${id} storage back in use` };
-    case 'archived':
-      return { emoji: '📦', text: `${id} storage archived — serving blocked` };
-    case 'restored':
-      return { emoji: '♻️', text: `${id} storage restored — serving resumed` };
-    case 'purge':
-      return {
-        emoji: '🔥',
-        text: `${id} storage pending purge — confirm to delete now, or it proceeds at the deadline`,
-      };
-  }
+  const { emoji, line } = STORAGE_STATES[stateOfKind[kind]];
+  return { emoji, text: `${scopeLabel(scope)} ${line}` };
 }
 
 export function adminLink(baseUrl: string, scope: string): string {
@@ -42,21 +45,25 @@ export function adminLink(baseUrl: string, scope: string): string {
 }
 
 // One-click default action on a non-confirmation alert: the `verb` is the Slack button
-// `action_id`, dispatched to the matching storage op by the webhook. Recovery states
-// (reappeared/restored) carry none.
-export type NotifyActionDef = { verb: 'archive' | 'restore'; label: string };
-export type NotifyAction = NotifyActionDef['verb'];
+// `action_id`, dispatched to the matching storage op by the webhook. The event's lifecycle state
+// picks the verb (unused → Archive, archived → Restore); recovery/terminal states carry none.
+// Label + consequence come from the shared catalog.
+export type NotifyAction = Extract<StorageAction, 'archive' | 'restore'>;
 
-const notifyActions: Partial<Record<AlertKind, NotifyActionDef>> = {
-  missing: { verb: 'archive', label: 'Archive' },
-  archived: { verb: 'restore', label: 'Restore' },
-};
-
-export function notifyActionFor(kind: string): NotifyActionDef | null {
-  return notifyActions[kind as AlertKind] ?? null;
+export function notifyActionFor(
+  kind: string,
+): ({ verb: NotifyAction } & (typeof STORAGE_ACTIONS)[NotifyAction]) | null {
+  const state = stateOfKind[kind as AlertKind];
+  const verb = state && STORAGE_STATES[state].action;
+  if (verb !== 'archive' && verb !== 'restore') return null;
+  return { verb, ...STORAGE_ACTIONS[verb] };
 }
 
-const notifyActionVerbs = new Set(Object.values(notifyActions).map((a) => a.verb));
+const notifyActionVerbs = new Set(
+  Object.values(STORAGE_STATES)
+    .map((s) => s.action)
+    .filter((a): a is NotifyAction => a !== undefined),
+);
 export function isNotifyAction(verb: string): verb is NotifyAction {
   return notifyActionVerbs.has(verb as NotifyAction);
 }

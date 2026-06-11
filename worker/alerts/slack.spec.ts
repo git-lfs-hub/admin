@@ -135,23 +135,26 @@ describe('deliverSlack', () => {
 });
 
 describe('notificationBlocks', () => {
-  test('actionable kind → default-action button (scope#kind) + Open-in-admin', () => {
-    const blocks = notificationBlocks(envWith('xoxb', 'C1'), {
+  test('actionable kind → consequence copy + default-action button (scope#kind) + Open-in-admin', () => {
+    const [section, consequence, actions] = notificationBlocks(envWith('xoxb', 'C1'), {
       ...alert,
       scope: 'storage:alice/repo',
     }) as any[];
-    expect(blocks[0].text.text).toContain('alice/repo');
-    const [act, open] = blocks[1].elements;
+    expect(section.text.text).toContain('alice/repo');
+    expect(consequence.type).toBe('context');
+    expect(consequence.elements[0].text).toContain('Stops this storage'); // archive consequence
+    const [act, open] = actions.elements;
     expect(act.action_id).toBe('archive'); // missing → Archive
     expect(act.value).toBe('storage:alice/repo#missing');
     expect(open.url).toContain('/storage?highlight=alice%2Frepo');
   });
 
-  test('recovery kind → only Open-in-admin, no action button', () => {
+  test('recovery kind → only Open-in-admin, no consequence or action button', () => {
     const blocks = notificationBlocks(envWith('xoxb', 'C1'), {
       ...alert,
       kind: 'restored',
     }) as any[];
+    expect(blocks).toHaveLength(2); // section + actions, no context
     expect(blocks[1].elements).toHaveLength(1);
     expect(blocks[1].elements[0].url).toContain('/storage?highlight=');
   });

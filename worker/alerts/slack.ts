@@ -102,12 +102,19 @@ const openButton = (env: CloudflareBindings, alert: AlertRow) => ({
   url: adminLink(env.ADMIN.url, alert.scope),
 });
 
-// Plus the kind's one-click default action (missing → Archive, archived → Restore), if any.
+// State line, then — for a kind with a default action (missing → Archive, archived → Restore) —
+// the action's consequence copy + its button. Recovery kinds show only Open-in-admin.
 export function notificationBlocks(env: CloudflareBindings, alert: AlertRow): unknown[] {
   const copy = alertCopy(alert.kind as AlertKind, alert.scope);
   const action = notifyActionFor(alert.kind);
-  const elements = action
-    ? [
+  const section = { type: 'section', text: { type: 'mrkdwn', text: `${copy.emoji} ${copy.text}` } };
+  if (!action) return [section, { type: 'actions', elements: [openButton(env, alert)] }];
+  return [
+    section,
+    context(action.consequence),
+    {
+      type: 'actions',
+      elements: [
         {
           type: 'button',
           text: { type: 'plain_text', text: action.label },
@@ -115,11 +122,8 @@ export function notificationBlocks(env: CloudflareBindings, alert: AlertRow): un
           value: encodeAction(alert.scope, alert.kind),
         },
         openButton(env, alert),
-      ]
-    : [openButton(env, alert)];
-  return [
-    { type: 'section', text: { type: 'mrkdwn', text: `${copy.emoji} ${copy.text}` } },
-    { type: 'actions', elements },
+      ],
+    },
   ];
 }
 

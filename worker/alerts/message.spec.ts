@@ -34,8 +34,9 @@ describe('alertCopy', () => {
 
 describe('notify actions', () => {
   test('missing → archive, archived → restore; recovery kinds have none', () => {
-    expect(notifyActionFor('missing')).toEqual({ verb: 'archive', label: 'Archive' });
-    expect(notifyActionFor('archived')).toEqual({ verb: 'restore', label: 'Restore' });
+    expect(notifyActionFor('missing')).toMatchObject({ verb: 'archive', label: 'Archive' });
+    expect(notifyActionFor('archived')).toMatchObject({ verb: 'restore', label: 'Restore' });
+    expect(notifyActionFor('missing')?.consequence).toBeTruthy();
     expect(notifyActionFor('reappeared')).toBeNull();
     expect(notifyActionFor('restored')).toBeNull();
     expect(notifyActionFor('purge')).toBeNull();

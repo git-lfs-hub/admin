@@ -93,7 +93,11 @@ describe('POST /webhooks/slack/interactions', () => {
   });
 
   test('Archive on a missing alert → archives the prefix', async () => {
-    storageForRepo.mockResolvedValueOnce({ prefix: 'alice/repo', status: 'unused', archivedAt: null });
+    storageForRepo.mockResolvedValueOnce({
+      prefix: 'alice/repo',
+      status: 'unused',
+      archivedAt: null,
+    });
     const res = await post(payload('archive', 'storage:alice/repo#missing'));
     expect(res.status).toBe(200);
     expect(storageForRepo).toHaveBeenCalledWith('alice', 'repo');
@@ -110,7 +114,11 @@ describe('POST /webhooks/slack/interactions', () => {
   });
 
   test('stale Archive button on a now-live prefix → no-op (guarded)', async () => {
-    storageForRepo.mockResolvedValueOnce({ prefix: 'alice/repo', status: 'used', archivedAt: null });
+    storageForRepo.mockResolvedValueOnce({
+      prefix: 'alice/repo',
+      status: 'used',
+      archivedAt: null,
+    });
     const res = await post(payload('archive', 'storage:alice/repo#missing'));
     expect(res.status).toBe(200);
     expect(archive).not.toHaveBeenCalled();
