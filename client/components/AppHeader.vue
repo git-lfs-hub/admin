@@ -69,7 +69,7 @@ const hasAny = computed(() => list.value.length > 0 || slackError.value !== null
               />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" class="w-[32rem] max-w-[calc(100vw-2rem)] p-0">
+          <DropdownMenuContent align="end" class="w-lg max-w-[calc(100vw-2rem)] p-0">
             <div class="flex items-center justify-between border-b px-3 py-2">
               <p class="text-sm font-medium">Notifications</p>
               <span class="text-xs text-muted-foreground">{{ list.length }}</span>
