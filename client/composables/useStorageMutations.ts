@@ -11,7 +11,12 @@ type PrefixRef = { owner: string; repo: string };
 // which rejects non-2xx with the server's `error` message.
 export function useStorageMutations() {
   const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['storage'] });
+  // Lifecycle changes shift both the storage rows and the alerts derived from them.
+  const invalidate = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ['storage'] }),
+      qc.invalidateQueries({ queryKey: ['alerts'] }),
+    ]);
 
   const archive = useMutation({
     mutationFn: ({ owner, repo }: PrefixRef) =>

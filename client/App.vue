@@ -8,5 +8,5 @@ import { Toaster } from '@/components/ui/sonner';
   <main class="container mx-auto p-4">
     <RouterView />
   </main>
-  <Toaster />
+  <Toaster position="top-right" :offset="{ top: '4.5rem', right: '1rem' }" />
 </template>

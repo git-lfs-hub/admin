@@ -35,7 +35,7 @@ describe('useStorageMutations', () => {
     toast.error.mockReset();
   });
 
-  it('archive POSTs, toasts success, invalidates the storage query', async () => {
+  it('archive POSTs, toasts success, invalidates the storage and alerts queries', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -56,6 +56,7 @@ describe('useStorageMutations', () => {
     );
     expect(toast.success).toHaveBeenCalledWith('Archived alice/gone');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['alerts'] });
     wrapper.unmount();
   });
 

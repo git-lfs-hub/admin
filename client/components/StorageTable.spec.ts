@@ -276,8 +276,10 @@ describe('StorageTable', () => {
     wrapper.unmount();
   });
 
-  it('renders an Archived badge when archived', async () => {
-    expect((await mountTable([archived])).text()).toContain('archived');
+  it('replaces the unused status badge with an Archived one when archived', async () => {
+    const status = (await mountTable([archived])).find('[data-slot="status"]');
+    expect(status.text()).toContain('archived');
+    expect(status.text()).not.toContain('unused');
     expect((await mountTable([row])).text()).not.toContain('archived');
   });
 

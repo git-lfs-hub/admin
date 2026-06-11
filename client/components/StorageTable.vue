@@ -111,6 +111,19 @@ const runConfirm = (r: StorageRow) => {
                 </HoverCardContent>
               </HoverCard>
 
+              <HoverCard v-else-if="r.archivedAt">
+                <HoverCardTrigger as-child>
+                  <Badge variant="secondary" class="h-6">archived</Badge>
+                </HoverCardTrigger>
+                <HoverCardContent side="left" class="w-auto">
+                  <p class="font-medium">Archived {{ formatRelative(r.archivedAt) }}</p>
+                  <p class="text-muted-foreground">
+                    {{ formatTime(r.archivedAt) }} — this storage no longer serves Git LFS.<br />
+                    Files are kept; nothing is deleted.
+                  </p>
+                </HoverCardContent>
+              </HoverCard>
+
               <HoverCard v-else>
                 <HoverCardTrigger as-child>
                   <StatusBadge status="unused" class="h-6" />
@@ -285,44 +298,29 @@ const runConfirm = (r: StorageRow) => {
                   </div>
                 </template>
 
-                <!-- Default: "archived" badge (when archived) + the action ButtonGroup. -->
-                <div v-else class="flex items-center gap-2">
-                  <HoverCard v-if="r.archivedAt">
-                    <HoverCardTrigger as-child>
-                      <Badge variant="secondary" class="h-6">archived</Badge>
-                    </HoverCardTrigger>
-                    <HoverCardContent side="top">
-                      <p class="font-medium">Archived {{ formatRelative(r.archivedAt) }}</p>
-                      <p class="text-muted-foreground">
-                        {{ formatTime(r.archivedAt) }} — this storage no longer serves Git LFS.<br />
-                        Files are kept; nothing is deleted.
-                      </p>
-                    </HoverCardContent>
-                  </HoverCard>
-
-                  <ButtonGroup>
-                    <!-- Primary: Restore (archived) or Archive (not yet). -->
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      @click="startConfirm(r, r.archivedAt ? 'restore' : 'archive')"
-                      >{{ r.archivedAt ? 'Restore' : 'Archive now' }}</Button
-                    >
-                    <!-- "…" overflow: Purge. -->
-                    <DropdownMenu>
-                      <DropdownMenuTrigger as-child>
-                        <Button size="icon-xs" variant="outline" aria-label="More actions">
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem variant="destructive" @select="startConfirm(r, 'purge')">
-                          Purge…
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </ButtonGroup>
-                </div>
+                <!-- Default: the action ButtonGroup (archived state shows in the row-1 status badge). -->
+                <ButtonGroup v-else>
+                  <!-- Primary: Restore (archived) or Archive (not yet). -->
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    @click="startConfirm(r, r.archivedAt ? 'restore' : 'archive')"
+                    >{{ r.archivedAt ? 'Restore' : 'Archive now' }}</Button
+                  >
+                  <!-- "…" overflow: Purge. -->
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button size="icon-xs" variant="outline" aria-label="More actions">
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem variant="destructive" @select="startConfirm(r, 'purge')">
+                        Purge…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </ButtonGroup>
               </div>
             </div>
           </div>
