@@ -268,7 +268,7 @@ const runConfirm = (r: StorageRow) => {
                 class="flex flex-col items-end gap-2"
               >
                 <!-- Confirming: inline confirm replaces the action buttons. -->
-                <template v-if="confirmFor?.prefix === r.prefix">
+                <template v-if="confirmFor && confirmFor.prefix === r.prefix">
                   <div data-slot="confirm" class="flex items-center gap-2">
                     <!-- Purge needs an archived prefix; otherwise the confirm is blocked (Archive first). -->
                     <Button
@@ -329,7 +329,7 @@ const runConfirm = (r: StorageRow) => {
                item by background (negative margins reach the item's padded edges, top border +
                muted fill, bottom corners rounded to match). Never squeezes the metrics row. -->
           <p
-            v-if="confirmFor?.prefix === r.prefix"
+            v-if="confirmFor && confirmFor.prefix === r.prefix"
             data-slot="confirm-description"
             class="-mx-4 -mb-4 mt-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm text-muted-foreground"
           >
