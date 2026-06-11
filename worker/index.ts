@@ -5,6 +5,7 @@ import alertsApi from '@/api/alerts';
 import me from '@/api/me';
 import reposApi from '@/api/repos';
 import storageApi from '@/api/storage';
+import { Registry } from '@/db/registry';
 import { isLocal } from '@/lib/host';
 import loginOauth from '@/login/oauth';
 import auth from '@/middleware/auth';
@@ -42,6 +43,9 @@ const app = new Hono<AppEnv>()
     c.executionCtx.waitUntil(reconcileAll(c.env));
     return c.json({ status: 'reconciling' }, 202);
   })
+  // Live storage updates: a WebSocket the SPA holds open; the REGISTRY DO pushes a tick on every
+  // storage write so the table refetches without polling. Behind `auth` like the rest of /api.
+  .get('/api/live', (c) => Registry.global(c.env).fetch(c.req.raw))
   .get('*', auth, (c) => c.env.ASSETS.fetch(c.req.raw));
 
 export type AppType = typeof app;

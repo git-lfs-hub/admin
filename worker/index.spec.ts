@@ -8,7 +8,12 @@ vi.mock('@/reconcile/index', () => ({ reconcileAll: (...a: unknown[]) => reconci
 vi.mock('@/server/object-events', () => ({
   handleObjectEvents: (...a: unknown[]) => handleObjectEvents(...a),
 }));
-vi.mock('@/db/registry', () => ({ Registry: class {} }));
+const registryFetch = vi.fn(async () => new Response('live'));
+vi.mock('@/db/registry', () => ({
+  Registry: class {
+    static global = () => ({ fetch: (...a: unknown[]) => registryFetch(...(a as [])) });
+  },
+}));
 vi.mock('@/db/storage', () => ({ Storage: class {} }));
 // Route/middleware modules pull heavy deps; stub them — index wiring is what we test.
 vi.mock('@/middleware/auth', () => ({
@@ -70,6 +75,21 @@ describe('dev reconcile middleware', () => {
     await worker.fetch!(new Request('http://localhost/api/me'), env, ctx);
     expect(reconcileAll).toHaveBeenCalledTimes(1);
     expect(reconcileAll).toHaveBeenCalledWith(env, true);
+  });
+});
+
+describe('GET /api/live', () => {
+  const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as any;
+
+  test('forwards the WebSocket upgrade to the REGISTRY DO', async () => {
+    registryFetch.mockClear();
+    const env = makeEnv();
+    const req = new Request('https://example.com/api/live', {
+      headers: { Upgrade: 'websocket' },
+    });
+    const res = await worker.fetch!(req, env, ctx);
+    expect(await res.text()).toBe('live');
+    expect(registryFetch).toHaveBeenCalledWith(req);
   });
 });
 

@@ -373,6 +373,82 @@ describe('cold-start guard', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// live updates — WebSocket push on every storage write
+// ---------------------------------------------------------------------------
+
+describe('live updates (/api/live WebSocket)', () => {
+  async function openLive() {
+    const res = await reg().fetch(
+      new Request('https://x/api/live', { headers: { Upgrade: 'websocket' } }),
+    );
+    expect(res.status).toBe(101);
+    const ws = res.webSocket!;
+    ws.accept();
+    return ws;
+  }
+
+  const nextTick = (ws: WebSocket) =>
+    new Promise<string>((resolve) =>
+      ws.addEventListener('message', (e) => resolve(e.data as string), { once: true }),
+    );
+
+  test('non-upgrade request → 426', async () => {
+    const res = await reg().fetch(new Request('https://x/api/live'));
+    expect(res.status).toBe(426);
+  });
+
+  test('a storage write pushes a "storage" tick to a connected client', async () => {
+    const ws = await openLive();
+    const tick = nextTick(ws);
+    await reg().upsertStorage('alice/a'); // new prefix → broadcast
+    expect(await tick).toBe('storage');
+  });
+
+  test('a repo write pushes a "repos" tick', async () => {
+    const ws = await openLive();
+    const tick = nextTick(ws);
+    await reg().upsertRepo('alice', 'a'); // new repo → broadcast
+    expect(await tick).toBe('repos');
+  });
+
+  test('a repo status change pushes a "repos" tick', async () => {
+    await reg().upsertRepo('alice', 'a');
+    const ws = await openLive();
+    const tick = nextTick(ws);
+    await reg().markMissing('alice', 'a'); // updateRepo row changed → broadcast
+    expect(await tick).toBe('repos');
+  });
+
+  test('a no-op repo re-upsert does not push', async () => {
+    await reg().upsertRepo('alice', 'a'); // first insert
+    const ws = await openLive();
+    let pushed = false;
+    ws.addEventListener('message', () => (pushed = true));
+    await reg().upsertRepo('alice', 'a'); // conflict → only bumps updatedAt, no broadcast
+    await new Promise((r) => setTimeout(r, 200));
+    expect(pushed).toBe(false);
+  });
+
+  test('a lifecycle change pushes a tick', async () => {
+    await reg().upsertStorage('alice/a');
+    const ws = await openLive();
+    const tick = nextTick(ws);
+    await reg().markUnused('alice/a'); // updateStorage row changed → broadcast
+    expect(await tick).toBe('storage');
+  });
+
+  test('a no-op write (re-upsert) does not push', async () => {
+    await reg().upsertStorage('alice/a'); // first insert
+    const ws = await openLive();
+    let pushed = false;
+    ws.addEventListener('message', () => (pushed = true));
+    await reg().upsertStorage('alice/a'); // conflict → only bumps updatedAt, no broadcast
+    await new Promise((r) => setTimeout(r, 200));
+    expect(pushed).toBe(false);
+  });
+});
+
 describe('isolation', () => {
   test('different idFromName → separate state', async () => {
     const a = env.REGISTRY.get(env.REGISTRY.idFromName('a'));

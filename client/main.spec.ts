@@ -14,6 +14,14 @@ describe('main entrypoint', () => {
         json: () => Promise.resolve({ repos: [] }),
       }),
     );
+    // The mounted app opens a live-updates WebSocket; stub it so happy-dom doesn't attempt a real
+    // connection (and a forever reconnect loop) against a dead URL in this never-unmounted app.
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        close() {}
+      },
+    );
 
     await import('@/main');
     expect(root.innerHTML.length).toBeGreaterThan(0);

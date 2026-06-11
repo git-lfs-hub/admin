@@ -97,6 +97,25 @@ export class Registry extends DurableObject<CloudflareBindings> {
     });
   }
 
+  // --- live updates: push a tick to every connected admin SPA on each storage write ---
+
+  // Hibernatable WebSocket: the SPA opens `/api/live` (proxied to this DO). Push-only — we never
+  // read from the socket, so no message/close handlers are needed (the runtime drops closed
+  // sockets from `getWebSockets()`), and it survives DO hibernation between writes.
+  override async fetch(req: Request): Promise<Response> {
+    if (req.headers.get('upgrade') !== 'websocket')
+      return new Response('expected websocket', { status: 426 });
+    const { 0: client, 1: server } = new WebSocketPair();
+    this.ctx.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // Wake every connected client to refetch the named topic ('storage' | 'repos'). Called after a
+  // row in that table actually changes; the SPA filters by topic (one socket sees both).
+  private broadcast(topic: 'storage' | 'repos'): void {
+    for (const ws of this.ctx.getWebSockets()) ws.send(topic);
+  }
+
   // --- repos: GitHub presence (git identity) ---
 
   async getRepo(owner: string, repo: string): Promise<RepoRow | null> {
@@ -110,6 +129,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
 
   async upsertRepo(owner: string, repo: string, name?: string): Promise<RepoRow> {
     const now = isoNow();
+    const existed = await this.getRepo(owner, repo);
     const [row] = await this.db
       .insert(repos)
       .values({
@@ -122,6 +142,8 @@ export class Registry extends DurableObject<CloudflareBindings> {
       })
       .onConflictDoUpdate({ target: [repos.owner, repos.repo], set: { updatedAt: now } })
       .returning();
+    // New repo discovered → tell clients; a re-upsert only bumps `updatedAt` (not shown), stay quiet.
+    if (!existed) this.broadcast('repos');
     return row;
   }
 
@@ -208,6 +230,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
       .set(set)
       .where(guard ? and(key, guard) : key)
       .returning();
+    if (rows[0]) this.broadcast('repos');
     return rows[0] ?? null;
   }
 
@@ -228,11 +251,15 @@ export class Registry extends DurableObject<CloudflareBindings> {
 
   async upsertStorage(prefix: string): Promise<StorageRow> {
     const now = isoNow();
+    const existed = await this.getStorage(prefix);
     const [row] = await this.db
       .insert(storage)
       .values({ prefix, firstSeen: now, updatedAt: now })
       .onConflictDoUpdate({ target: storage.prefix, set: { updatedAt: now } })
       .returning();
+    // New prefix discovered → tell clients; a re-upsert only bumps `updatedAt`, which the table
+    // doesn't show, so stay quiet to avoid churn each reconcile tick.
+    if (!existed) this.broadcast('storage');
     return row;
   }
 
@@ -287,6 +314,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
       .set(set)
       .where(guard ? and(key, guard) : key)
       .returning();
+    if (rows[0]) this.broadcast('storage');
     return rows[0] ?? null;
   }
 

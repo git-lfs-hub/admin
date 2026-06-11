@@ -56,6 +56,9 @@ export default defineConfig({
           name: 'client',
           include: ['client/**/*.spec.ts'],
           environment: 'happy-dom',
+          // The integration (workerd) pool + istanbul instrumentation starve these happy-dom
+          // tests under `--coverage`; a dynamic-import mount can blow the default 5s. Give headroom.
+          testTimeout: 30_000,
         },
       }),
     ],

@@ -2,9 +2,11 @@
 import RepoTable from '@/components/RepoTable.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import { useRepos } from '@/composables/useRepos';
 
 const { data: repos, isLoading, error } = useRepos();
+useLiveUpdates({ repos: [['repos']] });
 </script>
 
 <template>
