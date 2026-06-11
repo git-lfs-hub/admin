@@ -7,5 +7,5 @@
     "noEmit": true
   },
   "references": [{ "path": "../../worker" }],
-  "include": ["./**/*.ts", "../../worker-configuration.d.ts"]
+  "include": ["./**/*.ts", "../../worker-configuration.d.ts", "../../worker/globals.d.ts"]
 }

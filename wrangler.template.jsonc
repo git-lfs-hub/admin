@@ -99,8 +99,9 @@
       "GITHUB_APP_ID",
       "GITHUB_APP_PRIVATE_KEY",
       "GITHUB_WEBHOOK_SECRET",
-      "SLACK_BOT_TOKEN",
-      "SLACK_SIGNING_SECRET",
+      // SLACK_BOT_TOKEN + SLACK_SIGNING_SECRET are optional — Slack delivery and the
+      // interactions callback both no-op when unset (see worker/globals.d.ts). Left out of
+      // `required` so deploy/dev don't demand them; declared optional in globals.d.ts.
     ],
   },
 }

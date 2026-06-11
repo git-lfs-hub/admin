@@ -182,7 +182,7 @@ export async function refreshConfirmation(
 // timestamps (>5 min) for replay; fail closed on malformed input. `crypto.subtle.verify` is
 // constant-time. https://api.slack.com/authentication/verifying-requests-from-slack
 export async function verifySlackRequest(
-  secret: string,
+  secret: string | undefined,
   timestamp: string | undefined,
   signature: string | undefined,
   body: string,

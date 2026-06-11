@@ -1,14 +1,13 @@
 # Slack App (lfs-admin notifications)
 
 lfs-admin posts **notifications** to a Slack channel on major storage-lifecycle changes
-(repo missing / reappeared, storage archived / restored). Delivery is best-effort and
-**no-ops when unconfigured** — leave `admin.slack.channel` empty and the worker simply skips
-Slack. Wire it up by registering a Slack App bot, inviting it to a channel, and storing two
-values: the bot token (`SLACK_BOT_TOKEN` secret) and the channel id (`admin.slack.channel`).
-
-> Approve/Cancel **interactivity** (the `/webhooks/slack/interactions` endpoint + signing
-> secret) is **not** used yet — it lands with the confirmation gate in a later group. This
-> manifest covers outbound posting only (`chat:write`).
+(repo missing / reappeared, storage archived / restored), and confirmation alerts carry
+**Confirm/Cancel** buttons that call back into the worker. Outbound delivery is best-effort
+and **no-ops when unconfigured** — leave `admin.slack.channel` empty and the worker simply
+skips Slack. Wire it up by registering a Slack App bot, inviting it to a channel, and storing
+three values: the bot token (`SLACK_BOT_TOKEN` secret), the signing secret
+(`SLACK_SIGNING_SECRET` secret, used to verify the button callbacks), and the channel id
+(`admin.slack.channel`).
 
 ## Create the App from the manifest
 
@@ -29,6 +28,9 @@ oauth_config:
     bot:
       - chat:write
 settings:
+  interactivity:
+    is_enabled: true
+    request_url: {{github.adminHome}}/webhooks/slack/interactions
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
@@ -39,10 +41,13 @@ Review → **Create**.
 ## Install + collect the token
 
 **Install App → Install to Workspace** → Allow. Copy the **Bot User OAuth Token** (starts
-`xoxb-`) and store it (re-revealable on this page later):
+`xoxb-`) and store it (re-revealable on this page later). Then grab the **Signing Secret**
+from **Basic Information → App Credentials** — the worker uses it to verify the Confirm/Cancel
+button callbacks (without it, `/webhooks/slack/interactions` 401s). Store both:
 
 ```sh
-cd admin && wrangler secret put SLACK_BOT_TOKEN   # the xoxb- bot token
+cd admin && wrangler secret put SLACK_BOT_TOKEN        # the xoxb- bot token
+cd admin && wrangler secret put SLACK_SIGNING_SECRET   # Basic Information → Signing Secret
 ```
 
 ## Pick the channel
@@ -77,4 +82,6 @@ GitHub, detected by reconciliation and auto-Archived — a message appears in th
 
 The **Open in admin** button links to {{github.adminHome}}/storage. If nothing arrives,
 check that `SLACK_BOT_TOKEN` is set, the bot is a member of the channel, and
-`admin.slack.channel` holds the channel **id** (not its name).
+`admin.slack.channel` holds the channel **id** (not its name). If the **Confirm/Cancel**
+buttons error in Slack, check that `SLACK_SIGNING_SECRET` is set and that the manifest's
+interactivity **Request URL** points at `{{github.adminHome}}/webhooks/slack/interactions`.
