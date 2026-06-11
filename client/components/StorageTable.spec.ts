@@ -245,6 +245,32 @@ describe('StorageTable', () => {
     wrapper.unmount();
   });
 
+  it('freezes row order while a confirm is open, then resumes on cancel', async () => {
+    const a = { ...unused, prefix: 'org/a', repo: 'a' };
+    const b = { ...unused, prefix: 'org/b', repo: 'b' };
+    const prefixes = (w: ReturnType<typeof mount>) =>
+      w.findAll('[data-slot="storage-list"] [data-slot="item-title"]').map((t) => t.text());
+
+    const wrapper = await mountTable([a, b]);
+    // Open a confirm on org/a, then a background poll re-sorts to [b, a].
+    await wrapper
+      .find('[data-slot="lifecycle"]')
+      .findAll('button')
+      .find((btn) => btn.text() === 'Archive')!
+      .trigger('click');
+    await wrapper.setProps({ storage: [b, a] } as never);
+    expect(prefixes(wrapper)).toEqual(['org/a', 'org/b']); // pinned
+
+    // Cancel releases the freeze; the incoming order takes effect.
+    await wrapper
+      .find('[data-slot="confirm"]')
+      .findAll('button')
+      .find((btn) => btn.text() === 'Cancel')!
+      .trigger('click');
+    expect(prefixes(wrapper)).toEqual(['org/b', 'org/a']);
+    wrapper.unmount();
+  });
+
   it('Cancel dismisses the inline confirm', async () => {
     const wrapper = await mountTable([unused]);
     const cell = wrapper.find('[data-slot="lifecycle"]');

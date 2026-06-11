@@ -40,7 +40,7 @@ describe('useAlerts', () => {
       clone() {
         return this;
       },
-      json: () => Promise.resolve({ alerts: mockAlerts, slackError: null }),
+      json: () => Promise.resolve({ alerts: mockAlerts }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -51,7 +51,7 @@ describe('useAlerts', () => {
       '/api/alerts',
       expect.objectContaining({ credentials: 'same-origin' }),
     );
-    expect(toRaw(wrapper.vm.data)).toEqual({ alerts: mockAlerts, slackError: null });
+    expect(toRaw(wrapper.vm.data)).toEqual({ alerts: mockAlerts });
     wrapper.unmount();
   });
 });

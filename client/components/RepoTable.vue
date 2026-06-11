@@ -25,10 +25,12 @@ defineProps<{ repos: RepoRow[] }>();
               <HoverCard>
                 <HoverCardTrigger as-child>
                   <span class="inline-flex items-center gap-2">
-                    <StatusBadge :status="r.status" class="h-6" />
-                    <span v-if="r.status === 'missing' && r.missingAt" class="text-muted-foreground"
-                      >since {{ formatRelative(r.missingAt) }}</span
+                    <span
+                      v-if="r.status === 'missing' && r.missingAt"
+                      class="text-muted-foreground"
+                      >{{ formatRelative(r.missingAt) }}</span
                     >
+                    <StatusBadge :status="r.status" class="h-6" />
                   </span>
                 </HoverCardTrigger>
                 <HoverCardContent side="left" class="w-auto">
@@ -54,12 +56,12 @@ defineProps<{ repos: RepoRow[] }>();
 
           <!-- Row 2: the inferred storage prefix. `used`/`unused` are implied by the repo status, so
                only the notable storage states (`purged`, `archived`) are badged here. -->
-          <div class="flex items-start justify-between gap-4">
+          <div v-if="r.storage" class="flex items-start justify-between gap-4">
             <ItemDescription
               data-slot="storage"
               class="flex flex-wrap items-center gap-x-2 gap-y-1"
             >
-              <span v-if="r.storage" class="inline-flex items-baseline gap-2">
+              <span class="inline-flex items-baseline gap-2">
                 <span>Storage</span>
                 <RouterLink to="/storage" class="font-mono text-foreground">{{
                   r.storage.prefix
@@ -89,7 +91,6 @@ defineProps<{ repos: RepoRow[] }>();
                   </HoverCardContent>
                 </HoverCard>
               </span>
-              <span v-else>—</span>
             </ItemDescription>
           </div>
         </ItemContent>

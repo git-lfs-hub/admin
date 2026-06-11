@@ -45,7 +45,7 @@ export const isDecision = (s: string): s is Decision =>
 // plain text, not the storage enum.
 export const SYSTEM_SLACK_SCOPE = 'system:slack';
 
-// One singleton ALERTS DO holds every alert, keyed `(scope, kind)`. `scope` is `lc(owner/repo)`
+// One singleton ALERTS DO holds every alert, keyed `(scope, kind)`. `scope` is `storage:lc(owner/repo)`
 // for storage alerts or a `system:*` channel for global health. `detail` is free text (e.g. a
 // Slack error message); null for storage alerts.
 export const alerts = sqliteTable(

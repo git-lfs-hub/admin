@@ -39,7 +39,7 @@ export type ActionResult =
 
 /**
  * Singleton alerts DO (`getByName("global")`). Every alert lives in one `alerts` table keyed
- * `(scope, kind)` — storage alerts (scope `lc(owner/repo)`) and global health (scope
+ * `(scope, kind)` — storage alerts (scope `storage:lc(owner/repo)`) and global health (scope
  * `system:*`) alike. Notify-only kinds raise + supersede; confirmation kinds carry decisions.
  */
 export class Alerts extends DurableObject<CloudflareBindings> {

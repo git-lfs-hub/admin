@@ -75,10 +75,10 @@ describe('RepoTable', () => {
     expect(wrapper.find('[data-slot="storage"]').text()).toContain('archived');
   });
 
-  it('renders a dash when no storage prefix matches', async () => {
+  it('omits the storage row entirely when no storage prefix matches', async () => {
     const wrapper = await mountTable([{ ...repo, storage: null }]);
     expect(wrapper.find('a[href="/storage"]').exists()).toBe(false);
-    expect(wrapper.find('[data-slot="storage"]').text()).toBe('—');
+    expect(wrapper.find('[data-slot="storage"]').exists()).toBe(false);
   });
 
   it('merges status with "missing since" age, full timestamp + meaning on hover', async () => {
@@ -90,7 +90,8 @@ describe('RepoTable', () => {
     const wrapper = await mountTable([missing]);
     const status = wrapper.find('[data-slot="status"]');
     expect(status.text()).toContain('missing');
-    expect(status.text()).toContain('since 5 m ago');
+    expect(status.text()).toContain('5 m ago');
+    expect(status.text()).not.toContain('since');
     await openHoverCard(status.find('[data-slot="hover-card-trigger"]'));
     expect(document.body.textContent).toContain(new Date(missing.missingAt).toLocaleString());
     expect(document.body.textContent).toContain('No longer found on GitHub');

@@ -64,6 +64,38 @@ describe('useRepos', () => {
     wrapper.unmount();
   });
 
+  it('sorts missing-with-storage first, storage-less last, ties by owner/repo', async () => {
+    const row = (o: Partial<RepoRow>): RepoRow => ({ ...mockRepos[0], ...o });
+    const unsorted: RepoRow[] = [
+      row({ owner: 'org', repo: 'no-storage', status: 'active', storage: null }),
+      row({ owner: 'org', repo: 'b-active', status: 'active' }),
+      row({ owner: 'org', repo: 'missing', status: 'missing' }),
+      row({ owner: 'org', repo: 'missing-gone', status: 'missing', storage: null }),
+      row({ owner: 'org', repo: 'a-active', status: 'active' }),
+    ];
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      clone() {
+        return this;
+      },
+      json: () => Promise.resolve({ repos: unsorted }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mountWithQuery();
+    await flushPromises();
+
+    expect((wrapper.vm.data as RepoRow[]).map((r) => `${r.owner}/${r.repo}`)).toEqual([
+      'org/missing', // problem — repo gone, storage now unused
+      'org/a-active', // active w/ storage, ties broken alphabetically
+      'org/b-active',
+      'org/missing-gone', // missing but no storage — nothing to act on, sinks with the noise
+      'org/no-storage', // no storage — noise, last
+    ]);
+    wrapper.unmount();
+  });
+
   it('sets error on fetch failure', async () => {
     const errBody = { error: 'db down' };
     fetchMock.mockResolvedValueOnce({

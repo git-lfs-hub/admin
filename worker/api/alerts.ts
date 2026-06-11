@@ -1,20 +1,19 @@
 import { Hono } from 'hono';
 
 import type { AppEnv } from '@/_env';
-import { Alerts, type AlertRow } from '@/db/alerts';
-import { SYSTEM_SLACK_SCOPE } from '@/db/alerts-schema';
+import { Alerts } from '@/db/alerts';
 
+// Every alert row, newest first. Presentation splits them — `system:*` rows are global health
+// (e.g. `system:slack` delivery), resource rows (`storage:…`) are the actionable list — but that's
+// the view's call, so the API stays a flat feed.
 const app = new Hono<AppEnv>().get('/', async (c) => {
-  const rows = await Alerts.global(c.env).listAlerts();
-
-  const alerts = rows
-    .filter((r) => !r.scope.startsWith('system:'))
-    .sort((a: AlertRow, b: AlertRow) => b.updatedAt.localeCompare(a.updatedAt));
-
-  const sys = rows.find((r) => r.scope === SYSTEM_SLACK_SCOPE);
-  const slackError = sys?.detail ? { message: sys.detail, at: sys.updatedAt } : null;
-
-  return c.json({ alerts, slackError });
+  // Spread to a fresh array: `listAlerts()` is a DO RPC call whose array return carries an
+  // RPC-serialized type; sorting it in place would propagate that into the response type (and
+  // mutate the RPC result). `[...]` severs it to a clean `AlertRow[]`.
+  const alerts = [...(await Alerts.global(c.env).listAlerts())].sort((a, b) =>
+    b.updatedAt.localeCompare(a.updatedAt),
+  );
+  return c.json({ alerts });
 });
 
 export default app;

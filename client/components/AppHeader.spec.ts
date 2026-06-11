@@ -32,16 +32,21 @@ const alert: Alert = {
   decidedBy: null,
 };
 
+// The Slack-delivery-health row is just another alert (scope `system:slack`, `detail` = the error).
+const slackAlert: Alert = {
+  ...alert,
+  scope: 'system:slack',
+  kind: 'slack',
+  detail: 'not_in_channel',
+};
+
 // Route the two calls the header makes: /api/me (auth) and /api/alerts (notifications).
-function stubFetch({
-  alerts = [] as Alert[],
-  slackError = null as { message: string; at: string } | null,
-} = {}) {
+function stubFetch({ alerts = [] as Alert[] } = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: string | { url: string }) => {
       const url = typeof input === 'string' ? input : input.url;
-      const body = url.includes('/alerts') ? { alerts, slackError } : { admin: 'dev' };
+      const body = url.includes('/alerts') ? { alerts } : { admin: 'dev' };
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -85,7 +90,7 @@ describe('AppHeader', () => {
       clone() {
         return this;
       },
-      json: () => Promise.resolve({ admin: 'dev', alerts: [], slackError: null }),
+      json: () => Promise.resolve({ admin: 'dev', alerts: [] }),
     });
     vi.stubGlobal('fetch', fetchMock);
     const wrapper = mountHeader();
@@ -121,7 +126,7 @@ describe('AppHeader', () => {
     some.unmount();
 
     // A Slack-delivery failure alone still lights the dot.
-    stubFetch({ slackError: { message: 'not_in_channel', at: '2026-01-01T00:00:00Z' } });
+    stubFetch({ alerts: [slackAlert] });
     const slack = mountHeader();
     await flushPromises();
     expect(slack.find('[data-slot="notification-dot"]').exists()).toBe(true);
@@ -141,14 +146,43 @@ describe('AppHeader', () => {
     wrapper.unmount();
   });
 
-  it('shows the Slack-delivery-failing line in the popover even with zero alerts', async () => {
-    stubFetch({ slackError: { message: 'not_in_channel', at: '2026-01-01T00:00:00Z' } });
+  it('shows known system-health copy in the popover even with zero resource alerts', async () => {
+    stubFetch({ alerts: [slackAlert] });
     const wrapper = mountHeader();
     await flushPromises();
     await wrapper.find('button[aria-label="Notifications"]').trigger('click');
     await flushPromises();
-    expect(document.body.textContent).toContain('Slack delivery failing');
-    expect(document.body.textContent).toContain('not_in_channel');
+    expect(document.body.textContent).toContain('Slack delivery failing'); // per-kind title
+    expect(document.body.textContent).toContain('not_in_channel'); // the detail
+    expect(document.body.textContent).toContain('notifications are in-app only'); // the note
+    wrapper.unmount();
+  });
+
+  it('falls back to the scope label for an unknown system kind', async () => {
+    const unknown: Alert = {
+      ...slackAlert,
+      scope: 'system:db',
+      kind: 'lag',
+      detail: 'replica behind',
+    };
+    stubFetch({ alerts: [unknown] });
+    const wrapper = mountHeader();
+    await flushPromises();
+    await wrapper.find('button[aria-label="Notifications"]').trigger('click');
+    await flushPromises();
+    expect(document.body.textContent).toContain('db'); // bare scope label, no note
+    expect(document.body.textContent).toContain('replica behind');
+    wrapper.unmount();
+  });
+
+  it('counts every alert — resource and system — in the popover badge', async () => {
+    stubFetch({ alerts: [alert, slackAlert] });
+    const wrapper = mountHeader();
+    await flushPromises();
+    await wrapper.find('button[aria-label="Notifications"]').trigger('click');
+    await flushPromises();
+    const count = document.body.querySelector('.text-xs.text-muted-foreground');
+    expect(count?.textContent).toBe('2');
     wrapper.unmount();
   });
 });

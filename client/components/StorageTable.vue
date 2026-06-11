@@ -8,7 +8,7 @@ import {
   type StorageAction,
 } from '@worker/storage/actions';
 import { MoreHorizontal } from 'lucide-vue-next';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -57,6 +57,20 @@ const confirmFor = ref<{ prefix: string; action: StorageAction } | null>(null);
 const startConfirm = (r: StorageRow, action: StorageAction) =>
   (confirmFor.value = { prefix: r.prefix, action });
 
+// Freeze the row order while a confirm is open so a background poll's re-sort (e.g. another row's
+// purge advancing) can't shuffle rows out from under the confirm you're reading. Snapshot the
+// prefix order when the confirm opens; rows still update in place, only their order is pinned.
+const frozenOrder = ref<string[] | null>(null);
+watch(confirmFor, (c) => (frozenOrder.value = c ? props.storage.map((r) => r.prefix) : null));
+const rows = computed(() => {
+  if (!frozenOrder.value) return props.storage;
+  const order = new Map(frozenOrder.value.map((p, i) => [p, i]));
+  // New rows (absent from the snapshot) sink to the bottom in their incoming order.
+  return [...props.storage].sort(
+    (a, b) => (order.get(a.prefix) ?? Infinity) - (order.get(b.prefix) ?? Infinity),
+  );
+});
+
 const confirm = (
   mutation: { mutate: (v: { owner: string; repo: string }) => void },
   r: StorageRow,
@@ -71,7 +85,7 @@ const runConfirm = (r: StorageRow) => {
 
 <template>
   <ItemGroup data-slot="storage-list" class="gap-2">
-    <template v-for="r in storage" :key="r.prefix">
+    <template v-for="r in rows" :key="r.prefix">
       <Item
         variant="outline"
         class="items-start"

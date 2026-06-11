@@ -83,6 +83,40 @@ describe('useStorage', () => {
     wrapper.unmount();
   });
 
+  it('sorts actionable first, purged last, ties by prefix', async () => {
+    const row = (o: Partial<StorageRow>): StorageRow => ({ ...mockStorage[0], ...o });
+    const unsorted: StorageRow[] = [
+      row({ prefix: 'org/used', status: 'used' }),
+      row({ prefix: 'org/purged', status: 'purged' }),
+      row({ prefix: 'org/b-unused', status: 'unused' }),
+      row({ prefix: 'org/purging', status: 'unused', activeOp: 'purge' }),
+      row({ prefix: 'org/a-unused', status: 'unused' }),
+      row({ prefix: 'org/archived', status: 'used', archivedAt: '2026-05-01T00:00:00Z' }),
+    ];
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      clone() {
+        return this;
+      },
+      json: () => Promise.resolve({ storage: unsorted }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mountWithQuery();
+    await flushPromises();
+
+    expect((wrapper.vm.data as StorageRow[]).map((r) => r.prefix)).toEqual([
+      'org/purging', // in-flight purge — needs a decision
+      'org/a-unused', // unused, ties broken alphabetically
+      'org/b-unused',
+      'org/archived',
+      'org/used',
+      'org/purged', // terminal — last
+    ]);
+    wrapper.unmount();
+  });
+
   it('sets error on fetch failure', async () => {
     const errBody = { error: 'db down' };
     fetchMock.mockResolvedValueOnce({

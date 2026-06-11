@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isSystem, systemCopy } from '@worker/alerts/health';
 import { Bell, RefreshCw } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -26,10 +27,12 @@ const go = (value: string | number) => router.push(`/${value}`);
 const reconcile = useReconcile();
 
 const { data } = useAlerts();
-const list = computed(() => data.value?.alerts ?? []);
-const slackError = computed(() => data.value?.slackError ?? null);
+const all = computed(() => data.value?.alerts ?? []);
+const list = computed(() => all.value.filter((a) => !isSystem(a.scope)));
+// `system:*` scopes are global health (e.g. Slack delivery), rendered apart from the resource list.
+const systemAlerts = computed(() => all.value.filter((a) => isSystem(a.scope)));
 // The bell wears a dot whenever there's anything to show.
-const hasAny = computed(() => list.value.length > 0 || slackError.value !== null);
+const hasAny = computed(() => all.value.length > 0);
 </script>
 
 <template>
@@ -72,15 +75,21 @@ const hasAny = computed(() => list.value.length > 0 || slackError.value !== null
           <DropdownMenuContent align="end" class="w-lg max-w-[calc(100vw-2rem)] p-0">
             <div class="flex items-center justify-between border-b px-3 py-2">
               <p class="text-sm font-medium">Notifications</p>
-              <span class="text-xs text-muted-foreground">{{ list.length }}</span>
+              <span class="text-xs text-muted-foreground">{{ all.length }}</span>
             </div>
             <div class="space-y-2 p-3">
-              <p v-if="slackError" class="text-sm text-destructive">
-                ⚠ Slack delivery failing: {{ slackError.message }} — notifications are in-app only
-                until fixed.
+              <!-- Global health (`system:*`): each row's `detail` is the error; serving is degraded
+                   until fixed. Rendered above the resource list, distinct from it. -->
+              <p
+                v-for="s in systemAlerts"
+                :key="`${s.scope}:${s.kind}`"
+                class="text-sm text-destructive"
+              >
+                ⚠ {{ systemCopy(s).title }}: {{ s.detail
+                }}<template v-if="systemCopy(s).note"> — {{ systemCopy(s).note }}.</template>
               </p>
               <AlertsPanel v-if="list.length" :alerts="list" />
-              <p v-else-if="!slackError" class="text-sm text-muted-foreground">No notifications.</p>
+              <p v-if="!all.length" class="text-sm text-muted-foreground">No notifications.</p>
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
