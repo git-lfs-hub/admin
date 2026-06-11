@@ -267,7 +267,7 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     await reg().block(prefix);
   }
 
-  test('blocked prefix → unblockRepo + archivedAt cleared, status unchanged (unused)', async () => {
+  test('blocked prefix, repo still gone → unblockRepo + archivedAt cleared, status unused, emits missing', async () => {
     await seedBlocked('alice/gone');
     const { env: e, unblockRepo } = appEnv();
 
@@ -280,12 +280,16 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     const row = await reg().getStorage('alice/gone');
     expect(row?.status).toBe('unused');
     expect(row?.archivedAt).toBeNull();
-    // emits a `restored` notification (and clears any prior `archived` one)
+    // The repo is still gone, so unblocking lands back on `unused` → emits `missing`, not
+    // `restored` (serving didn't resume), and clears the prior `archived` alert.
+    expect(
+      await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'missing'),
+    ).toMatchObject({
+      kind: 'missing',
+    });
     expect(
       await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'restored'),
-    ).toMatchObject({
-      kind: 'restored',
-    });
+    ).toBeNull();
     expect(
       await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'archived'),
     ).toBeNull();

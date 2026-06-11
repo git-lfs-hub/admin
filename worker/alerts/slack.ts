@@ -111,7 +111,7 @@ export function notificationBlocks(env: CloudflareBindings, alert: AlertRow): un
   if (!action) return [section, { type: 'actions', elements: [openButton(env, alert)] }];
   return [
     section,
-    context(action.consequence),
+    context(`*${action.label}* — ${action.consequence}`),
     {
       type: 'actions',
       elements: [

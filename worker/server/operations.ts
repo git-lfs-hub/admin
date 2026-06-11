@@ -1,4 +1,4 @@
-import { notify } from '@/alerts/lifecycle';
+import { notify, restingAlert } from '@/alerts/lifecycle';
 import type { Registry, StorageRow } from '@/db/registry';
 import { lfsServer } from '@/server/lfs-server';
 
@@ -34,7 +34,9 @@ export async function restore(
   const [owner, repo] = splitPrefix(prefix);
   await lfsServer(env).unblockRepo(owner, repo);
   const row = await registry.unblock(prefix);
-  if (row) await notify(env, owner, repo, 'restored');
+  // Unblocking doesn't bring the repo back: if it's still gone the prefix's resting state is
+  // `missing` (serving hasn't resumed), so report that, not `restored`.
+  if (row) await notify(env, owner, repo, restingAlert(row) ?? 'restored');
   return row;
 }
 

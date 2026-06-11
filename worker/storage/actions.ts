@@ -4,27 +4,18 @@
 //   STORAGE_STATES  — per lifecycle state: emoji, Slack one-liner, UI description, default action.
 // Each consumer maps its own representation onto LifecycleState (Slack: AlertKind; UI: StorageRow)
 // and pulls selection + wording from here.
-//
-// `consequence`/`description` are plain text with `\n` line breaks: Slack mrkdwn renders them
-// directly; the UI renders them under `whitespace-pre-line`.
-export type StorageAction = 'archive' | 'restore' | 'purge';
 
-export const STORAGE_ACTIONS = {
-  archive: {
-    label: 'Archive',
-    consequence:
-      'Stops this storage from serving Git LFS immediately.\nFiles are kept; serving resumes automatically if the repo reappears on GitHub.',
-  },
-  restore: {
-    label: 'Restore',
-    consequence: 'Unarchives this storage so it serves Git LFS again.',
-  },
-  purge: {
-    label: 'Purge',
-    consequence:
-      "Permanently deletes every file in this storage. Any repo using it loses those files — including repos that still exist on GitHub. This can't be undone.",
-  },
-} as const satisfies Record<StorageAction, { label: string; consequence: string }>;
+// The single authority on a storage row's resting lifecycle state. Both surfaces derive from this
+// instead of re-checking `status`/`archivedAt` inline — the UI to render, the worker to pick the
+// standing alert kind. `purging` is an in-flight overlay (the active op), not a resting state, so
+// it's never returned here. Minimal row shape so worker registry rows and client API rows both fit.
+export type LifecycleRow = { status: 'used' | 'unused' | 'purged'; archivedAt: string | null };
+
+export function lifecycleState(row: LifecycleRow): LifecycleState {
+  if (row.status === 'purged') return 'purged';
+  if (row.archivedAt) return 'archived';
+  return row.status === 'unused' ? 'unused' : 'used';
+}
 
 // The lifecycle states a storage prefix moves through. Slack events (AlertKind) and the UI's row
 // status both reduce to one of these. `action` is the default one-click verb a non-terminal state
@@ -61,6 +52,27 @@ export const STORAGE_STATES: Record<LifecycleState, StateMeta> = {
     description: 'Every file in this storage was permanently deleted.',
   },
 };
+
+// `consequence`/`description` are plain text with `\n` line breaks: Slack mrkdwn renders them
+// directly; the UI renders them under `whitespace-pre-line`.
+export type StorageAction = 'archive' | 'restore' | 'purge';
+
+export const STORAGE_ACTIONS = {
+  archive: {
+    label: 'Archive',
+    consequence:
+      'Stops this storage from serving Git LFS immediately.\nFiles are kept; serving resumes automatically if the repo reappears on GitHub.',
+  },
+  restore: {
+    label: 'Restore',
+    consequence: 'Unarchives this storage so it serves Git LFS again.',
+  },
+  purge: {
+    label: 'Purge',
+    consequence:
+      "Permanently deletes every file in this storage. Any repo using it loses those files — including repos that still exist on GitHub. This can't be undone.",
+  },
+} as const satisfies Record<StorageAction, { label: string; consequence: string }>;
 
 // Purge is irreversible and only valid once archived — both surfaces gate it the same way: the
 // button is offered but disabled until the prefix is archived, with `hint` explaining why.

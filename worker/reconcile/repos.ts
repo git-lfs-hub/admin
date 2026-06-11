@@ -1,6 +1,6 @@
 import { GithubApi, GithubError } from '@git-lfs-hub/lib/github';
 
-import { notify } from '@/alerts/lifecycle';
+import { notify, restingAlert } from '@/alerts/lifecycle';
 import type {
   Registry,
   StorageRow,
@@ -115,10 +115,10 @@ export async function applyReconciliation(
   // attention state — including before the notifier shipped — is surfaced; ALERTS dedups.
   // Reuse/restore clear via becameUsed/autoUnblock; archived also fires at its action sites.
   for (const r of await registry.listStorage()) {
-    if (r.status === 'purged') continue;
+    const kind = restingAlert(r);
+    if (!kind) continue;
     const { owner, repo } = splitPrefix(r.prefix);
-    if (r.archivedAt) await notify(env, owner, repo, 'archived');
-    else if (r.status === 'unused') await notify(env, owner, repo, 'missing');
+    await notify(env, owner, repo, kind);
   }
   for (const r of storage.becameUsed) {
     const { owner, repo } = splitPrefix(r.prefix);

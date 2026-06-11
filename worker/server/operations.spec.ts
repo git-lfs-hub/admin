@@ -4,7 +4,11 @@ import { notify } from '@/alerts/lifecycle';
 import { archive, restore, purgeServer } from '@/server/operations';
 
 // notify hits ALERTS (a DO); stub it so these stay pure unit tests of the RPC + REGISTRY wiring.
-vi.mock('@/alerts/lifecycle', () => ({ notify: vi.fn(async () => {}) }));
+// `restingAlert` is pure (row → kind) — keep the real one so restore picks the right kind.
+vi.mock('@/alerts/lifecycle', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/alerts/lifecycle')>()),
+  notify: vi.fn(async () => {}),
+}));
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -50,14 +54,23 @@ describe('archive', () => {
 });
 
 describe('restore', () => {
-  test('unblocks server then registry, notifies, returns the row', async () => {
+  test('unblocks server then registry, notifies restored when back in use, returns the row', async () => {
     const env = lfsEnv();
-    const row = { prefix: 'a/r' };
+    const row = { prefix: 'a/r', status: 'used' };
     const registry = { unblock: vi.fn(async () => row) } as any;
     expect(await restore(env, registry, 'a/r')).toBe(row);
     expect(env.LFS_SERVER.unblockRepo).toHaveBeenCalledWith('a', 'r');
     expect(registry.unblock).toHaveBeenCalledWith('a/r');
     expect(notify).toHaveBeenCalledWith(env, 'a', 'r', 'restored');
+  });
+
+  // Unblocking a prefix whose repo is still gone leaves it `unused`, so report `missing`, not
+  // `restored` — serving hasn't actually resumed.
+  test('notifies missing when the repo is still gone (unused)', async () => {
+    const env = lfsEnv();
+    const registry = { unblock: vi.fn(async () => ({ prefix: 'a/r', status: 'unused' })) } as any;
+    await restore(env, registry, 'a/r');
+    expect(notify).toHaveBeenCalledWith(env, 'a', 'r', 'missing');
   });
 
   test('not blocked → null, no notify', async () => {

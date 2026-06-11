@@ -3,8 +3,8 @@ import {
   STORAGE_ACTIONS,
   STORAGE_STATES,
   canPurge,
+  lifecycleState,
   purgeRequires,
-  type LifecycleState,
   type StorageAction,
 } from '@worker/storage/actions';
 import { MoreHorizontal } from 'lucide-vue-next';
@@ -50,19 +50,6 @@ const storedSize = (r: StorageRow) => r.usage.present.size + r.usage.pending.siz
 const OBJECT_STATUSES = ['present', 'pending', 'missing', 'deleted', 'purged'] as const;
 const objectBreakdown = (r: StorageRow) =>
   OBJECT_STATUSES.map((s) => ({ status: s, ...r.usage[s] })).filter((o) => o.count > 0);
-
-// Reduce a row to its lifecycle state so selection (default action) and the purge precondition
-// come from the shared catalog (worker/storage/actions.ts) — same rules the Slack alerts use.
-const stateOf = (r: StorageRow): LifecycleState =>
-  r.activeOp === 'purge'
-    ? 'purging'
-    : r.status === 'purged'
-      ? 'purged'
-      : r.archivedAt
-        ? 'archived'
-        : r.status === 'unused'
-          ? 'unused'
-          : 'used';
 
 // Inline confirm: clicking Archive/Restore/Purge swaps the action buttons in place for a
 // {confirm} | Cancel pair with the action's description right underneath. One row confirms at a time.
@@ -290,7 +277,7 @@ const runConfirm = (r: StorageRow) => {
                   <div data-slot="confirm" class="flex items-center gap-2">
                     <!-- Purge needs an archived prefix; otherwise the confirm is blocked (Archive first). -->
                     <Button
-                      v-if="confirmFor.action === 'purge' && !canPurge(stateOf(r))"
+                      v-if="confirmFor.action === 'purge' && !canPurge(lifecycleState(r))"
                       size="xs"
                       variant="destructive"
                       disabled
@@ -316,8 +303,8 @@ const runConfirm = (r: StorageRow) => {
                   <Button
                     size="xs"
                     variant="outline"
-                    @click="startConfirm(r, STORAGE_STATES[stateOf(r)].action!)"
-                    >{{ STORAGE_ACTIONS[STORAGE_STATES[stateOf(r)].action!].label }}</Button
+                    @click="startConfirm(r, STORAGE_STATES[lifecycleState(r)].action!)"
+                    >{{ STORAGE_ACTIONS[STORAGE_STATES[lifecycleState(r)].action!].label }}</Button
                   >
                   <!-- "…" overflow: Purge. -->
                   <DropdownMenu>

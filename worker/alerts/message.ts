@@ -37,7 +37,7 @@ const stateOfKind: Record<AlertKind, LifecycleState> = {
 
 export function alertCopy(kind: AlertKind, scope: string): AlertCopy {
   const { emoji, line } = STORAGE_STATES[stateOfKind[kind]];
-  return { emoji, text: `${scopeLabel(scope)} ${line}` };
+  return { emoji, text: `\`${scopeLabel(scope)}\` ${line}` };
 }
 
 export function adminLink(baseUrl: string, scope: string): string {
