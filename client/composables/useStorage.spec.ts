@@ -25,6 +25,7 @@ const mockStorage: StorageRow[] = [
     gitRepo: { owner: 'org', repo: 'test-repo', status: 'active' },
     willArchiveAt: null,
     willPurgeAt: null,
+    purgeConfirmBy: null,
     lastAccessedAt: null,
     usage: {
       deleted: { count: 0, size: 0 },

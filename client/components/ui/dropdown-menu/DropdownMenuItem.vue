@@ -1,0 +1,33 @@
+<script setup lang="ts">
+import { reactiveOmit } from '@vueuse/core';
+import { DropdownMenuItem, type DropdownMenuItemProps, useForwardProps } from 'reka-ui';
+import type { HTMLAttributes } from 'vue';
+
+import { cn } from '@/lib/utils';
+
+const props = withDefaults(
+  defineProps<
+    DropdownMenuItemProps & { class?: HTMLAttributes['class']; variant?: 'default' | 'destructive' }
+  >(),
+  { variant: 'default' },
+);
+
+const delegatedProps = reactiveOmit(props, 'class', 'variant');
+const forwarded = useForwardProps(delegatedProps);
+</script>
+
+<template>
+  <DropdownMenuItem
+    data-slot="dropdown-menu-item"
+    :data-variant="variant"
+    v-bind="forwarded"
+    :class="
+      cn(
+        'focus:bg-muted focus:text-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*=text-])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        props.class,
+      )
+    "
+  >
+    <slot />
+  </DropdownMenuItem>
+</template>

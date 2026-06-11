@@ -1,19 +1,19 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { purgePrefix } from '@/server/lfs-server';
+import { purgeServer } from '@/server/operations';
 import { PurgeWorkflow, purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
 
-// Gate + RPC cleanup are covered by their own units (confirm.spec, lfs-server) — stub them so the
-// test drives PurgeWorkflow.run's own logic: the guard re-read and the R2 cursor-walk delete loop.
+// Gate + RPC cleanup are covered by their own units (confirm.spec, operations.spec) — stub them so
+// the test drives PurgeWorkflow.run's own logic: the guard re-read and the R2 cursor-walk delete loop.
 vi.mock('@/workflows/confirm', () => ({ runConfirmation: vi.fn(async () => {}) }));
-vi.mock('@/server/lfs-server', () => ({ purgePrefix: vi.fn(async () => {}) }));
+vi.mock('@/server/operations', () => ({ purgeServer: vi.fn(async () => {}) }));
 
 const archived = { status: 'unused', archivedAt: '2026-01-01T00:00:00Z' };
 
 const event = {
   payload: { prefix: 'A/R', scope: 'storage:a/r', triggeredBy: 'admin' as const },
-  instanceId: 'purge:A/R',
+  instanceId: 'purge-abc123',
 };
 
 // One R2 list page per entry; `cursor` set ⇒ more pages follow (truncated).
@@ -70,8 +70,8 @@ describe('PurgeWorkflow.run', () => {
 
     expect(b.list).toHaveBeenCalledWith({ prefix: 'A/R/' });
     expect(b.delete).toHaveBeenCalledWith(['A/R/o1', 'A/R/o2']);
-    expect(purgePrefix).toHaveBeenCalledWith(env, 'A/R');
-    expect(endOp).toHaveBeenCalledWith('A/R', 'purge:A/R', 'complete', 'purged');
+    expect(purgeServer).toHaveBeenCalledWith(env, 'A/R');
+    expect(endOp).toHaveBeenCalledWith('A/R', 'purge-abc123', 'complete', 'purged');
     expect(calls).toEqual(['guard', 'delete:0', 'server-cleanup', 'finish']);
   });
 
@@ -96,8 +96,8 @@ describe('PurgeWorkflow.run', () => {
     await run(env, step);
 
     expect(b.delete).not.toHaveBeenCalled();
-    expect(purgePrefix).toHaveBeenCalledWith(env, 'A/R');
-    expect(endOp).toHaveBeenCalledWith('A/R', 'purge:A/R', 'complete', 'purged');
+    expect(purgeServer).toHaveBeenCalledWith(env, 'A/R');
+    expect(endOp).toHaveBeenCalledWith('A/R', 'purge-abc123', 'complete', 'purged');
   });
 
   test('guard: repo no longer eligible → throws, nothing deleted', async () => {
@@ -107,13 +107,20 @@ describe('PurgeWorkflow.run', () => {
 
     await expect(run(env, step)).rejects.toThrow('purge no longer eligible');
     expect(b.list).not.toHaveBeenCalled();
-    expect(purgePrefix).not.toHaveBeenCalled();
+    expect(purgeServer).not.toHaveBeenCalled();
   });
 });
 
 describe('purgeInstanceId', () => {
-  test('deterministic from the prefix', () => {
-    expect(purgeInstanceId('Alice/Repo')).toBe('purge:Alice/Repo');
+  // Must be a valid Workflow instance id: `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$` (no `/`, `.`, `:`).
+  test('deterministic, valid-charset id from the prefix', async () => {
+    const id = purgeInstanceId('Alice/Repo.git');
+    expect(id).toMatch(/^purge-[0-9A-Za-z_]{1,64}$/);
+    expect(id).toBe(purgeInstanceId('Alice/Repo.git'));
+  });
+
+  test('different prefixes → different ids', async () => {
+    expect(purgeInstanceId('a/b')).not.toBe(purgeInstanceId('a/c'));
   });
 });
 
@@ -127,9 +134,10 @@ describe('startPurge', () => {
     } as any;
     const params = { prefix: 'a/r', scope: 'storage:a/r', triggeredBy: 'admin' as const };
     const id = await startPurge(env, params);
-    expect(id).toBe('purge:a/r');
-    expect(beginOp).toHaveBeenCalledWith('a/r', 'purge:a/r', 'purge');
-    expect(create).toHaveBeenCalledWith({ id: 'purge:a/r', params });
+    const expected = purgeInstanceId('a/r');
+    expect(id).toBe(expected);
+    expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'purge');
+    expect(create).toHaveBeenCalledWith({ id: expected, params });
   });
 });
 

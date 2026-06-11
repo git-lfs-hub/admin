@@ -4,26 +4,9 @@ import type { LfsServer } from '@git-lfs-hub/lib/contracts';
 
 export type { LfsServer };
 
+// Pure RPC accessor — no logic. The block/unblock/purge RPCs take a repo's two path segments
+// (owner, repo) and the server canonicalizes internally via `resolveName`. Deriving owner/repo
+// from a prefix is caller logic and lives in `server/operations`. Throws propagate to the caller.
 export function lfsServer(env: CloudflareBindings): LfsServer {
   return env.LFS_SERVER as unknown as LfsServer;
-}
-
-// The block/unblock RPC takes a prefix's two URL-path segments; the server canonicalizes
-// internally via `resolveName`. Throws propagate to the caller (RPC-before-write contract).
-export function blockPrefix(env: CloudflareBindings, prefix: string): Promise<void> {
-  const [owner, repo] = prefix.split('/');
-  return lfsServer(env).blockRepo(owner, repo);
-}
-
-export function unblockPrefix(env: CloudflareBindings, prefix: string): Promise<void> {
-  const [owner, repo] = prefix.split('/');
-  return lfsServer(env).unblockRepo(owner, repo);
-}
-
-// Post-purge cleanup: wipe Locks + mark the server registry row purged. Called
-// *after* live R2 deletion completes (PurgeWorkflow) — RPC-after-write, so a
-// failure leaves the admin DO row unchanged for the next attempt. Idempotent.
-export function purgePrefix(env: CloudflareBindings, prefix: string): Promise<void> {
-  const [owner, repo] = prefix.split('/');
-  return lfsServer(env).purgeRepo(owner, repo);
 }

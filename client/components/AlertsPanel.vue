@@ -20,21 +20,21 @@ const label = (scope: string) => scope.slice(scope.indexOf(':') + 1);
 
 <template>
   <ul class="divide-y rounded-lg border">
-    <li
-      v-for="a in alerts"
-      :key="`${a.scope}:${a.kind}`"
-      class="flex items-center justify-between gap-2 p-2 text-sm"
-    >
-      <div class="flex items-center gap-2 overflow-hidden">
-        <Badge :variant="a.severity === 'warning' ? 'destructive' : 'secondary'">{{
-          a.kind
-        }}</Badge>
+    <li v-for="a in alerts" :key="`${a.scope}:${a.kind}`" class="flex flex-col gap-1 p-2 text-sm">
+      <!-- Line 1: storage prefix, with the relative time + kind badge on the right. -->
+      <div class="flex items-center justify-between gap-2">
         <span class="truncate font-mono">{{ label(a.scope) }}</span>
-        <span class="truncate text-muted-foreground">{{ LABEL[a.kind] }}</span>
+        <span class="flex shrink-0 items-center gap-2">
+          <span class="text-muted-foreground" :title="formatTime(a.updatedAt)">{{
+            formatRelative(a.updatedAt)
+          }}</span>
+          <Badge :variant="a.severity === 'warning' ? 'secondary' : 'outline'" class="h-6">{{
+            a.kind
+          }}</Badge>
+        </span>
       </div>
-      <span class="shrink-0 text-muted-foreground" :title="formatTime(a.updatedAt)">
-        {{ formatRelative(a.updatedAt) }}
-      </span>
+      <!-- Line 2: the human description. -->
+      <span class="text-muted-foreground">{{ LABEL[a.kind] }}</span>
     </li>
   </ul>
 </template>

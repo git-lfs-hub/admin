@@ -21,27 +21,27 @@ describe('formatRelative', () => {
   const ago = (ms: number) => formatRelative(new Date(Date.now() - ms).toISOString());
 
   it('counts seconds under a minute', () => {
-    expect(ago(0)).toBe('0s ago');
-    expect(ago(5 * 1000)).toBe('5s ago');
-    expect(ago(59 * 1000)).toBe('59s ago');
+    expect(ago(0)).toBe('0 s ago');
+    expect(ago(5 * 1000)).toBe('5 s ago');
+    expect(ago(59 * 1000)).toBe('59 s ago');
   });
 
   it('counts minutes under an hour', () => {
-    expect(ago(60 * 1000)).toBe('1m ago');
-    expect(ago(59 * 60 * 1000)).toBe('59m ago');
+    expect(ago(60 * 1000)).toBe('1 m ago');
+    expect(ago(59 * 60 * 1000)).toBe('59 m ago');
   });
 
   it('counts hours under a day', () => {
-    expect(ago(60 * 60 * 1000)).toBe('1h ago');
-    expect(ago(23 * 60 * 60 * 1000)).toBe('23h ago');
+    expect(ago(60 * 60 * 1000)).toBe('1 h ago');
+    expect(ago(23 * 60 * 60 * 1000)).toBe('23 h ago');
   });
 
   it('counts days beyond that', () => {
-    expect(ago(24 * 60 * 60 * 1000)).toBe('1d ago');
-    expect(ago(10 * 24 * 60 * 60 * 1000)).toBe('10d ago');
+    expect(ago(24 * 60 * 60 * 1000)).toBe('1 d ago');
+    expect(ago(10 * 24 * 60 * 60 * 1000)).toBe('10 d ago');
   });
 
   it('clamps future timestamps to 0s', () => {
-    expect(formatRelative(new Date(Date.now() + 10_000).toISOString())).toBe('0s ago');
+    expect(formatRelative(new Date(Date.now() + 10_000).toISOString())).toBe('0 s ago');
   });
 });

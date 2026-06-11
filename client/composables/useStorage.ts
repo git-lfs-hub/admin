@@ -12,5 +12,7 @@ export function useStorage() {
     queryKey: ['storage'],
     queryFn: async () => (await api.api.storage.$get()).json(),
     select: (d) => d.storage,
+    // Live-refresh while any prefix has an in-flight op (e.g. a pending Purge countdown).
+    refetchInterval: (query) => (query.state.data?.storage.some((r) => r.activeOp) ? 4000 : false),
   });
 }

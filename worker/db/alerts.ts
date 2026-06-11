@@ -140,6 +140,21 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     return { ok: true, row: updated };
   }
 
+  // Decide, but if the alert row is gone (local dev / DO reset / deliver lag), recreate what the
+  // workflow gate's deliver step would have raised, then decide again. Wake (`sendEvent`) stays
+  // the caller's job.
+  async decideOrRaise(
+    scope: string,
+    kind: ConfirmKind,
+    decision: Decision,
+    by: string,
+  ): Promise<ActionResult> {
+    const res = await this.decide(scope, kind, decision, by);
+    if (res.ok || res.reason !== 'not_found') return res;
+    await this.sendConfirmation({ kind, scope });
+    return await this.decide(scope, kind, decision, by);
+  }
+
   async getAlert(scope: string, kind: string): Promise<AlertRow | null> {
     const [row] = await this.db.select().from(alerts).where(keyWhere(scope, kind));
     return row ?? null;

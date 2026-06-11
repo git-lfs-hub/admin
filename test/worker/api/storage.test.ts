@@ -1,8 +1,21 @@
 import { reset } from 'cloudflare:test';
 import { env, exports } from 'cloudflare:workers';
+import { Hono } from 'hono';
 import { describe, test, expect, afterEach, vi } from 'vitest';
 
+import type { AppEnv } from '@/_env';
 import storageApp from '@/api/storage';
+import { purgeInstanceId } from '@/workflows/purge';
+
+// The real worker gates `/api/*` with `auth`, which sets `c.var.admin`. Driving the sub-app
+// directly skips that, so wrap it to inject the authed identity the way auth would.
+const asAdmin = (admin: string) =>
+  new Hono<AppEnv>()
+    .use('*', async (c, next) => {
+      c.set('admin', admin);
+      await next();
+    })
+    .route('/', storageApp);
 
 afterEach(async () => {
   await reset();
@@ -287,6 +300,27 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     expect(unblockRepo).not.toHaveBeenCalled();
   });
 
+  test('purged prefix → 409 already_purged, no unblock', async () => {
+    await seedBlocked('alice/gone');
+    await reg().markPurged('alice/gone');
+    const { env: e, unblockRepo } = appEnv();
+
+    const res = await post('/alice/gone/restore', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'already_purged' });
+    expect(unblockRepo).not.toHaveBeenCalled();
+  });
+
+  test('in-flight purge → 409 busy, no unblock', async () => {
+    await seedActivePurge('alice/r');
+    const { env: e, unblockRepo } = appEnv();
+
+    const res = await post('/alice/r/restore', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'busy' });
+    expect(unblockRepo).not.toHaveBeenCalled();
+  });
+
   test('unknown prefix → 404', async () => {
     const { env: e } = appEnv();
     expect((await post('/nobody/nope/restore', e)).status).toBe(404);
@@ -344,8 +378,8 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     const { env: e } = appEnv();
     const res = await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { confirmToken: string; impact: { objects: number } };
-    expect(body.confirmToken).toMatch(/^[0-9a-f]{64}$/);
+    const body = (await res.json()) as { token: string; impact: { objects: number } };
+    expect(body.token).toMatch(/^[0-9a-f]{64}$/);
     expect(body.impact.objects).toBe(1);
   });
 
@@ -355,7 +389,7 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     expect((await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)).status).toBe(
       409,
     );
-    expect((await purge('/alice/r/purge', e, { confirmToken: 'x' })).status).toBe(409);
+    expect((await purge('/alice/r/purge', e, { token: 'x' })).status).toBe(409);
   });
 
   test('409 in_use when a matching git repo is active', async () => {
@@ -370,7 +404,7 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
   test('stale/missing token → 409', async () => {
     await seedArchived('alice/r');
     const { env: e } = appEnv();
-    expect((await purge('/alice/r/purge', e, { confirmToken: 'nope' })).status).toBe(409);
+    expect((await purge('/alice/r/purge', e, { token: 'nope' })).status).toBe(409);
   });
 
   test('valid token → starts the workflow (beginOp reserved + create called) → 202', async () => {
@@ -378,11 +412,11 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     const { env: e, PURGE_WORKFLOW } = appEnv();
     const prev = (await (
       await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
-    ).json()) as { confirmToken: string };
-    const res = await purge('/alice/r/purge', e, { confirmToken: prev.confirmToken });
+    ).json()) as { token: string };
+    const res = await purge('/alice/r/purge', e, { token: prev.token });
     expect(res.status).toBe(202);
     expect(PURGE_WORKFLOW.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'purge:alice/r' }),
+      expect.objectContaining({ id: expect.stringMatching(/^purge-[0-9A-Za-z_]{1,64}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('purge');
   });
@@ -394,5 +428,202 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
       501,
     );
     expect((await purge('/alice/r/purge', e, {})).status).toBe(501);
+  });
+});
+
+// Reserve a purge op so the prefix reads `activeOp = 'purge'` (the in-flight workflow state).
+async function seedActivePurge(prefix: string) {
+  await seedArchived(prefix);
+  await env.STORAGE.getByName(prefix).beginOp(prefix, purgeInstanceId(prefix), 'purge');
+}
+
+describe('in-flight purge workflow', () => {
+  test('GET surfaces activeOp + purgeConfirmBy = updatedAt + GC.purgeConfirmDays', async () => {
+    await seedActivePurge('alice/r');
+    const res = await exports.default.fetch('http://localhost/api/storage');
+    const body = (await res.json()) as {
+      storage: Array<{
+        repo: string;
+        activeOp: string | null;
+        updatedAt: string;
+        purgeConfirmBy: string | null;
+      }>;
+    };
+    const row = body.storage.find((r) => r.repo === 'r')!;
+    expect(row.activeOp).toBe('purge');
+    const expected =
+      new Date(row.updatedAt).getTime() + env.GC.purgeConfirmDays * 24 * 60 * 60 * 1000;
+    expect(new Date(row.purgeConfirmBy!).getTime()).toBe(expected);
+  });
+
+  test('confirm → records approve + wakes the workflow', async () => {
+    await seedActivePurge('alice/r');
+    await env.ALERTS.getByName('global').sendConfirmation({
+      kind: 'purge',
+      scope: 'storage:alice/r',
+    });
+    const instance = { sendEvent: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await post('/alice/r/workflow/confirm', e);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'confirmed' });
+    expect(
+      (await env.ALERTS.getByName('global').getAlert('storage:alice/r', 'purge'))?.decision,
+    ).toBe('approve');
+    expect(instance.sendEvent).toHaveBeenCalled();
+  });
+
+  test('confirm with no active op → 409', async () => {
+    await seedArchived('alice/r'); // archived but no workflow in flight
+    const { env: e } = appEnv();
+    expect((await post('/alice/r/workflow/confirm', e)).status).toBe(409);
+  });
+
+  test('confirm with no alert row → repairs alert + wakes the workflow', async () => {
+    await seedActivePurge('alice/r');
+    const instance = { sendEvent: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await post('/alice/r/workflow/confirm', e);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'confirmed' });
+    expect(
+      (await env.ALERTS.getByName('global').getAlert('storage:alice/r', 'purge'))?.decision,
+    ).toBe('approve');
+    expect(instance.sendEvent).toHaveBeenCalled();
+  });
+
+  test('confirm when already approved → 409, no wake', async () => {
+    await seedActivePurge('alice/r');
+    await env.ALERTS.getByName('global').sendConfirmation({
+      kind: 'purge',
+      scope: 'storage:alice/r',
+    });
+    await env.ALERTS.getByName('global').decide('storage:alice/r', 'purge', 'approve', 'slack:u1');
+    const instance = { sendEvent: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await post('/alice/r/workflow/confirm', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'already' });
+    expect(instance.sendEvent).not.toHaveBeenCalled();
+  });
+
+  test('cancel → terminates the instance + clears activeOp, status unchanged', async () => {
+    await seedActivePurge('alice/r');
+    await env.ALERTS.getByName('global').sendConfirmation({
+      kind: 'purge',
+      scope: 'storage:alice/r',
+    });
+    const instance = { terminate: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await post('/alice/r/workflow/cancel', e);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'cancelled' });
+    expect(instance.terminate).toHaveBeenCalled();
+    const row = await reg().getStorage('alice/r');
+    expect(row?.activeOp).toBeNull(); // op cleared
+    expect(row?.status).toBe('unused'); // resting status untouched
+    expect(await env.STORAGE.getByName('alice/r').activeOp()).toBeNull();
+  });
+
+  test('cancel survives a missing/finished instance (still clears the op)', async () => {
+    await seedActivePurge('alice/r');
+    await env.ALERTS.getByName('global').sendConfirmation({
+      kind: 'purge',
+      scope: 'storage:alice/r',
+    });
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(undefined); // instance already gone → terminate throws
+
+    const res = await post('/alice/r/workflow/cancel', e);
+    expect(res.status).toBe(200);
+    expect((await reg().getStorage('alice/r'))?.activeOp).toBeNull();
+  });
+
+  test('cancel with no active op → 409', async () => {
+    await seedArchived('alice/r');
+    const { env: e } = appEnv();
+    expect((await post('/alice/r/workflow/cancel', e)).status).toBe(409);
+  });
+
+  test('cancel with no alert row → repairs alert + clears activeOp', async () => {
+    await seedActivePurge('alice/r');
+    const instance = { terminate: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await post('/alice/r/workflow/cancel', e);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'cancelled' });
+    expect(instance.terminate).toHaveBeenCalled();
+    expect(
+      (await env.ALERTS.getByName('global').getAlert('storage:alice/r', 'purge'))?.decision,
+    ).toBe('cancel');
+    expect(await env.STORAGE.getByName('alice/r').activeOp()).toBeNull();
+  });
+
+  test('cancel when already cancelled still clears activeOp (e.g. Slack cancel, then UI endOp)', async () => {
+    await seedActivePurge('alice/r');
+    await env.ALERTS.getByName('global').sendConfirmation({
+      kind: 'purge',
+      scope: 'storage:alice/r',
+    });
+    await env.ALERTS.getByName('global').decide('storage:alice/r', 'purge', 'cancel', 'slack:u1');
+    const instance = { terminate: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await post('/alice/r/workflow/cancel', e);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'cancelled' });
+    expect(instance.terminate).toHaveBeenCalled();
+    expect(await env.STORAGE.getByName('alice/r').activeOp()).toBeNull();
+  });
+
+  test('confirm/cancel unknown prefix → 404', async () => {
+    const { env: e } = appEnv();
+    expect((await post('/nobody/nope/workflow/confirm', e)).status).toBe(404);
+    expect((await post('/nobody/nope/workflow/cancel', e)).status).toBe(404);
+  });
+
+  test('confirm records the authed admin (not a hardcoded actor) as decidedBy', async () => {
+    await seedActivePurge('alice/r');
+    const instance = { sendEvent: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await asAdmin('octocat').request(
+      '/alice/r/workflow/confirm',
+      { method: 'POST' },
+      e,
+    );
+    expect(res.status).toBe(200);
+    expect(
+      (await env.ALERTS.getByName('global').getAlert('storage:alice/r', 'purge'))?.decidedBy,
+    ).toBe('admin:octocat');
+  });
+
+  test('cancel records the authed admin as decidedBy', async () => {
+    await seedActivePurge('alice/r');
+    await env.ALERTS.getByName('global').sendConfirmation({
+      kind: 'purge',
+      scope: 'storage:alice/r',
+    });
+    const instance = { terminate: vi.fn(async () => {}) };
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    PURGE_WORKFLOW.get.mockResolvedValue(instance);
+
+    const res = await asAdmin('octocat').request('/alice/r/workflow/cancel', { method: 'POST' }, e);
+    expect(res.status).toBe(200);
+    expect(
+      (await env.ALERTS.getByName('global').getAlert('storage:alice/r', 'purge'))?.decidedBy,
+    ).toBe('admin:octocat');
   });
 });

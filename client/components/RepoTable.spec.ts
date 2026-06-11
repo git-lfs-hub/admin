@@ -56,29 +56,29 @@ describe('RepoTable', () => {
     const link = wrapper.find('a[href="/storage"]');
     expect(link.exists()).toBe(true);
     expect(link.text()).toContain('org/my-repo');
-    expect(wrapper.find('td:nth-child(2)').text()).not.toContain('used');
+    expect(wrapper.find('[data-slot="storage"]').text()).not.toContain('used');
   });
 
   it('badges purged storage but not the now-redundant unused state', async () => {
     const purged = await mountTable([{ ...repo, storage: { ...repo.storage!, status: 'purged' } }]);
-    expect(purged.find('td:nth-child(2)').text()).toContain('purged');
+    expect(purged.find('[data-slot="storage"]').text()).toContain('purged');
 
     // `unused` is implied by the repo being missing — no badge.
     const unused = await mountTable([{ ...repo, storage: { ...repo.storage!, status: 'unused' } }]);
-    expect(unused.find('td:nth-child(2)').text()).not.toContain('unused');
+    expect(unused.find('[data-slot="storage"]').text()).not.toContain('unused');
   });
 
   it('badges archived storage', async () => {
     const wrapper = await mountTable([
       { ...repo, storage: { ...repo.storage!, archivedAt: '2026-05-25T00:00:00Z' } },
     ]);
-    expect(wrapper.find('td:nth-child(2)').text()).toContain('archived');
+    expect(wrapper.find('[data-slot="storage"]').text()).toContain('archived');
   });
 
   it('renders a dash when no storage prefix matches', async () => {
     const wrapper = await mountTable([{ ...repo, storage: null }]);
     expect(wrapper.find('a[href="/storage"]').exists()).toBe(false);
-    expect(wrapper.find('td:nth-child(2)').text()).toBe('—');
+    expect(wrapper.find('[data-slot="storage"]').text()).toBe('—');
   });
 
   it('merges status with "missing since" age, full timestamp + meaning on hover', async () => {
@@ -88,9 +88,9 @@ describe('RepoTable', () => {
       missingAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
     };
     const wrapper = await mountTable([missing]);
-    const status = wrapper.find('td:nth-child(3)');
+    const status = wrapper.find('[data-slot="status"]');
     expect(status.text()).toContain('missing');
-    expect(status.text()).toContain('since 5m ago');
+    expect(status.text()).toContain('since 5 m ago');
     await openHoverCard(status.find('[data-slot="hover-card-trigger"]'));
     expect(document.body.textContent).toContain(new Date(missing.missingAt).toLocaleString());
     expect(document.body.textContent).toContain('No longer found on GitHub');
@@ -99,7 +99,7 @@ describe('RepoTable', () => {
 
   it('shows the active status without a "since" age', async () => {
     const wrapper = await mountTable([repo]);
-    const status = wrapper.find('td:nth-child(3)');
+    const status = wrapper.find('[data-slot="status"]');
     expect(status.text()).toContain('active');
     expect(status.text()).not.toContain('since');
   });

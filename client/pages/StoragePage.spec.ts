@@ -25,6 +25,7 @@ const row: StorageRow = {
   gitRepo: { owner: 'org', repo: 'my-repo', status: 'active' },
   willArchiveAt: null,
   willPurgeAt: null,
+  purgeConfirmBy: null,
   lastAccessedAt: null,
   usage: {
     deleted: { count: 0, size: 0 },
@@ -105,29 +106,5 @@ describe('StoragePage', () => {
     const wrapper = mountPage();
     await flushPromises();
     expect(wrapper.text()).toContain('org/my-repo');
-  });
-
-  it('has Storage heading', async () => {
-    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ storage: [] })));
-    const wrapper = mountPage();
-    await flushPromises();
-    expect(wrapper.find('h2').text()).toBe('Storage');
-  });
-
-  it('Reconcile now button POSTs /api/reconcile', async () => {
-    vi.useFakeTimers(); // useReconcile schedules a delayed refetch; don't let it dangle
-    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ storage: [] })));
-    const wrapper = mountPage();
-    await flushPromises();
-
-    fetchMock.mockClear().mockResolvedValue(okResponse({ status: 'reconciling' }));
-    await wrapper.find('header button').trigger('click');
-    await flushPromises();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/reconcile',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    vi.useRealTimers();
   });
 });

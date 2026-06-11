@@ -22,11 +22,18 @@ Default to using Bun instead of Node.js.
 
 ## Coding
 
-- Group by use cases
-- Main flows first, edge cases and error handling last
-- Callers before called
-- Tests mirror main file order
-- Keep comments brief. Focus on the "why" and non-obvious.
+Order code in reading order of the main flow — not the order the compiler needs definitions.
+
+- **Top-down: callers before callees.** Entry point / public export at the top; each
+  helper appears _below_ its first caller. Reading top-to-bottom, you meet each name in
+  use before its definition.
+- **Main flow first; edge cases, helpers, and error handling last.** Happy path reads as
+  a story up top; guards, fallbacks, and one-off helpers sink to the bottom.
+- Make module-level helpers hoisted `function` declarations so the caller can precede
+  them. Do NOT reorder to "definition before use": a `const fn = () => …` parked above its
+  only caller is the wrong shape — make it a `function` and move it down.
+- Group by use case. Tests mirror the main file's order.
+- Keep comments brief. Focus on the "why" and the non-obvious.
 
 ## Testing
 

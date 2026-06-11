@@ -54,12 +54,19 @@ const row: StorageRow = {
   gitRepo: { owner: 'org', repo: 'my-repo', status: 'active' },
   willArchiveAt: null,
   willPurgeAt: null,
+  purgeConfirmBy: null,
   lastAccessedAt: '2026-05-24T12:00:00Z',
   usage: { ...zeroUsage, present: { count: 142, size: 1073741824 } },
 };
 
 const unused = { ...row, status: 'unused' as const, unusedAt: '2026-05-20T00:00:00Z' };
 const archived = { ...unused, archivedAt: '2026-05-25T00:00:00Z' };
+const purging = {
+  ...archived,
+  activeOp: 'purge' as const,
+  // +49h so the floor-based countdown lands on a stable "2 d" regardless of test runtime.
+  purgeConfirmBy: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+};
 
 // Hovering (or focusing) a trigger opens its hover-card; reka opens after openDelay, so drive fake
 // timers past the delay. The card content is teleported into document.body.
@@ -81,56 +88,60 @@ describe('StorageTable', () => {
     const wrapper = await mountTable([row]);
     expect(wrapper.text()).toContain('1.07 GB');
     // The object count lives in the Size hover, not a column.
-    const size = wrapper.find('td:nth-child(3) [data-slot="hover-card-trigger"]');
+    const size = wrapper.find('[data-slot="metrics"] [data-slot="hover-card-trigger"]');
     await openHoverCard(size);
     expect(document.body.textContent).toContain('142 objects');
     expect(document.body.textContent).toContain('present');
     wrapper.unmount();
   });
 
-  it('links the matching git repo; an orphan prefix badges missing', async () => {
-    const linked = await mountTable([row]);
-    const link = linked.find('a[href="/repos"]');
-    expect(link.exists()).toBe(true);
-    expect(link.text()).toBe('org/my-repo');
-
-    // No tracked git repo → the prefix is itself `missing`, badged with no link.
-    const orphan = await mountTable([{ ...unused, gitRepo: null }]);
-    expect(orphan.find('a[href="/repos"]').exists()).toBe(false);
-    expect(orphan.find('td:nth-child(2)').text()).toContain('missing');
+  it('badges a used prefix and names its repo in the hover', async () => {
+    const wrapper = await mountTable([row]);
+    const status = wrapper.find('[data-slot="status"]');
+    expect(status.text()).toContain('used');
+    // The repo it serves lives in the badge hover, not inline.
+    await openHoverCard(status.find('[data-slot="hover-card-trigger"]'));
+    const link = [...document.body.querySelectorAll('a[href="/repos"]')];
+    expect(link.map((a) => a.textContent)).toContain('org/my-repo');
+    wrapper.unmount();
   });
 
-  it('badges a missing git repo in the Repo column', async () => {
-    const missing = await mountTable([
-      { ...row, gitRepo: { owner: 'org', repo: 'my-repo', status: 'missing' } },
-    ]);
-    expect(missing.find('td:nth-child(2)').text()).toContain('missing');
-    // Active repos are the norm — not badged.
-    const active = await mountTable([row]);
-    expect(active.find('td:nth-child(2)').text()).not.toContain('missing');
+  it('badges an unused prefix (orphan or repo-missing) without a repo link', async () => {
+    const orphan = await mountTable([{ ...unused, gitRepo: null }]);
+    expect(orphan.find('[data-slot="status"]').text()).toContain('unused');
+    expect(orphan.find('a[href="/repos"]').exists()).toBe(false);
   });
 
   it('renders size for empty usage', async () => {
     const emptyRow = { ...row, usage: zeroUsage };
     const wrapper = await mountTable([emptyRow]);
-    expect(wrapper.findAll('td')[2].text()).toBe('0 B');
+    expect(wrapper.find('[data-slot="metrics"] [data-slot="hover-card-trigger"]').text()).toBe(
+      '0 B',
+    );
   });
 
-  it('renders willArchiveAt as a date with full timestamp on hover', async () => {
-    const wrapper = await mountTable([{ ...unused, willArchiveAt: '2026-05-27T00:00:00Z' }]);
-    const cell = wrapper.find('td:nth-child(5)');
-    // Date sits in flow; the hover-card trigger is the (overlaid) Archive button.
-    expect(cell.text()).toContain(new Date('2026-05-27T00:00:00Z').toLocaleDateString());
-    await openHoverCard(cell.find('[data-slot="hover-card-trigger"]'));
-    expect(document.body.textContent).toContain(new Date('2026-05-27T00:00:00Z').toLocaleString());
+  it('renders the auto-archive deadline relative in the metrics row, full timestamp once on hover', async () => {
+    // +49h floors to a stable "2 d" countdown regardless of test runtime.
+    const willArchiveAt = new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString();
+    const wrapper = await mountTable([{ ...unused, willArchiveAt }]);
+    const metrics = wrapper.find('[data-slot="metrics"]');
+    expect(metrics.text()).toContain('Archiving in');
+    // The relative deadline is the last metrics hover trigger (Size, Last accessed, Archiving).
+    const triggers = metrics.findAll('[data-slot="hover-card-trigger"]');
+    expect(triggers.at(-1)!.text()).toBe('2 d');
+    await openHoverCard(triggers.at(-1)!);
+    // The full timestamp shows once — the old tooltip duplicated the date.
+    const ts = new Date(willArchiveAt).toLocaleString();
+    expect(document.body.textContent!.split(ts).length - 1).toBe(1);
     wrapper.unmount();
   });
 
   it('renders lastAccessed relative with absolute timestamp on hover', async () => {
     const recent = { ...row, lastAccessedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() };
     const wrapper = await mountTable([recent]);
-    const trigger = wrapper.find('td:nth-child(4) [data-slot="hover-card-trigger"]');
-    expect(trigger.text()).toBe('5m ago');
+    // Metrics carries two hover triggers — Size, then Last accessed.
+    const trigger = wrapper.findAll('[data-slot="metrics"] [data-slot="hover-card-trigger"]')[1];
+    expect(trigger.text()).toBe('5 m ago');
     await openHoverCard(trigger);
     expect(document.body.textContent).toContain(new Date(recent.lastAccessedAt).toLocaleString());
     wrapper.unmount();
@@ -138,123 +149,130 @@ describe('StorageTable', () => {
 
   it('renders dash for null lastAccessedAt', async () => {
     const wrapper = await mountTable([{ ...row, lastAccessedAt: null }]);
-    expect(wrapper.find('td:nth-child(4)').text()).toBe('—');
+    // Only Size keeps a hover trigger; Last accessed collapses to a plain dash.
+    expect(wrapper.findAll('[data-slot="metrics"] [data-slot="hover-card-trigger"]')).toHaveLength(
+      1,
+    );
+    expect(wrapper.find('[data-slot="metrics"]').text()).toContain('—');
   });
 
   const actionLabels = async (storage: StorageRow[]) =>
     (await mountTable(storage)).findAll('button').map((b) => b.text());
 
-  it('shows Archive (hover-reveal) for unused, not-yet-archived prefixes only', async () => {
-    expect(await actionLabels([unused])).toContain('Archive');
-    expect(await actionLabels([row])).not.toContain('Archive'); // used
-    expect(await actionLabels([archived])).not.toContain('Archive'); // already archived
+  it('shows Archive for unused, not-yet-archived prefixes only', async () => {
+    expect(await actionLabels([unused])).toContain('Archive now');
+    expect(await actionLabels([row])).not.toContain('Archive now'); // used
+    expect(await actionLabels([archived])).not.toContain('Archive now'); // already archived
   });
 
-  it('shows Restore (hover-reveal) whenever the prefix is archived, regardless of status', async () => {
+  it('shows Restore for archived prefixes, but not once purged', async () => {
     expect(await actionLabels([archived])).toContain('Restore');
     expect(await actionLabels([unused])).not.toContain('Restore');
     expect(await actionLabels([row])).not.toContain('Restore'); // used, not archived
+    // Purged keeps `archivedAt` but is terminal — no Restore.
+    const purged = { ...archived, status: 'purged' as const, purgedAt: '2026-05-26T00:00:00Z' };
+    expect(await actionLabels([purged])).not.toContain('Restore');
   });
 
-  it('overlays the Will-archive text with the Archive trigger on hover/open', async () => {
-    const cell = (await mountTable([{ ...unused, willArchiveAt: '2026-05-27T00:00:00Z' }])).find(
-      'td:nth-child(5)',
-    );
-    // The date stays in flow (constant width); the trigger is an absolute overlay revealed on
-    // hover and kept while its popover is open.
-    expect(cell.text()).toContain(new Date('2026-05-27T00:00:00Z').toLocaleDateString());
-    const archiveBtn = cell.findAll('button').find((b) => b.text() === 'Archive');
-    expect(archiveBtn!.classes()).toEqual(
-      expect.arrayContaining([
-        'absolute',
-        'hidden',
-        'group-hover:inline-flex',
-        'data-[state=open]:inline-flex',
-      ]),
-    );
+  it('shows an always-visible Archive button in a ButtonGroup beside the deadline', async () => {
+    const willArchiveAt = new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString();
+    const wrapper = await mountTable([{ ...unused, willArchiveAt }]);
+    // The deadline lives in the metrics row; the action stays in the lifecycle column.
+    expect(wrapper.find('[data-slot="metrics"]').text()).toContain('Archiving in');
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    // Archive is a plain button in a ButtonGroup — not the old absolute hover-reveal overlay.
+    const archiveBtn = cell.findAll('button').find((b) => b.text() === 'Archive now');
+    expect(archiveBtn).toBeTruthy();
+    expect(archiveBtn!.classes()).not.toContain('absolute');
+    expect(archiveBtn!.classes()).not.toContain('hidden');
+    expect(cell.find('[data-slot="button-group"]').exists()).toBe(true);
   });
 
-  it('shows Purge for unused storage only; used and purged show a badge instead', async () => {
-    expect(await actionLabels([unused])).toContain('Purge');
+  it('offers Purge only via the "…" overflow for unused storage; used and purged show a badge', async () => {
+    // Purge is no longer a column button — it lives in the "…" DropdownMenu.
+    const unusedW = await mountTable([unused]);
+    const cell = unusedW.find('[data-slot="lifecycle"]');
+    expect(cell.findAll('button').map((b) => b.text())).not.toContain('Purge');
+    await moreTrigger(cell)!.trigger('click');
+    await flushPromises();
+    expect(menuItemEls().map((el) => el.textContent?.trim())).toContain('Purge…');
+    unusedW.unmount();
 
-    // Used storage is actively serving — no Purge, just a dash (its badge lives in Archive).
+    // Used storage is actively serving — no lifecycle actions, just the "used" badge (top-right).
     const used = await mountTable([row]);
-    expect(used.findAll('button').map((b) => b.text())).not.toContain('Purge');
-    expect(used.find('td:nth-child(6)').text()).toBe('—');
+    expect(used.find('[data-slot="status"]').text()).toContain('used');
+    expect(moreTrigger(used.find('[data-slot="lifecycle"]'))).toBeUndefined();
 
     const purged = await mountTable([
       { ...row, status: 'purged', purgedAt: '2026-05-26T00:00:00Z' },
     ]);
-    expect(purged.findAll('button').map((b) => b.text())).not.toContain('Purge');
-    expect(purged.find('td:nth-child(6)').text()).toContain('purged');
+    expect(purged.find('[data-slot="status"]').text()).toContain('purged');
   });
 
-  // The confirm action + Cancel + the action description live in the teleported popover
-  // (document.body). Detect popover open/close via its content slot.
-  const bodyButtons = () => [...document.body.querySelectorAll('button')];
-  const popoverOpen = () => document.body.querySelector('[data-slot="popover-content"]') !== null;
+  // Clicking an action swaps the buttons in place for an inline {confirm} | Cancel pair plus a
+  // description — all rendered within the lifecycle cell, not teleported.
+  const confirmBox = (cell: ReturnType<ReturnType<typeof mount>['find']>) =>
+    cell.find('[data-slot="confirm"]');
 
-  it('opens a confirm popover on Archive carrying the action, Cancel, and its description', async () => {
-    const wrapper = await mountTable([unused]);
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text() === 'Archive')!
-      .trigger('click');
+  // Purge lives behind the "…" overflow: open the DropdownMenu (teleported), then select its Purge
+  // item, which swaps in the inline confirm.
+  const moreTrigger = (cell: ReturnType<ReturnType<typeof mount>['find']>) =>
+    cell.findAll('button').find((b) => b.attributes('aria-label') === 'More actions');
+  const menuItemEls = () => [...document.body.querySelectorAll('[data-slot="dropdown-menu-item"]')];
+  const openPurgeConfirm = async (cell: ReturnType<ReturnType<typeof mount>['find']>) => {
+    await moreTrigger(cell)!.trigger('click');
     await flushPromises();
-    expect(popoverOpen()).toBe(true);
-    expect(bodyButtons().map((b) => b.textContent?.trim())).toEqual(
-      expect.arrayContaining(['Archive', 'Cancel']),
-    );
-    expect(document.body.textContent).toContain('Stops this storage from serving Git LFS');
-    wrapper.unmount();
-  });
+    (menuItemEls().find((el) => el.textContent?.includes('Purge')) as HTMLElement).click();
+    await flushPromises();
+  };
 
-  it('Cancel dismisses the confirm popover', async () => {
+  it('swaps Archive in place for an inline confirm carrying the action, Cancel, and description', async () => {
     const wrapper = await mountTable([unused]);
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text() === 'Archive')!
-      .trigger('click');
-    await flushPromises();
-    expect(popoverOpen()).toBe(true);
-    bodyButtons()
-      .find((b) => b.textContent?.trim() === 'Cancel')!
-      .click();
-    await flushPromises();
-    expect(popoverOpen()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it('Esc dismisses the confirm popover', async () => {
-    const wrapper = await mountTable([unused]);
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text() === 'Archive')!
-      .trigger('click');
-    await flushPromises();
-    expect(popoverOpen()).toBe(true);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await flushPromises();
-    expect(popoverOpen()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it('explains Purge on hover and confirms in a popover with Purge disabled', async () => {
-    const wrapper = await mountTable([unused]);
-    const cell = wrapper.find('td:nth-child(6)');
-    // Hover-card trigger is the cell span; its hover carries the warning.
-    await openHoverCard(cell.find('[data-slot="hover-card-trigger"]'));
-    expect(document.body.textContent).toContain('Permanently deletes every file');
-    // Click opens the confirm popover; the Purge confirm stays disabled (not implemented).
+    const cell = wrapper.find('[data-slot="lifecycle"]');
     await cell
       .findAll('button')
-      .find((b) => b.text() === 'Purge')!
+      .find((b) => b.text() === 'Archive now')!
       .trigger('click');
-    await flushPromises();
-    const action = bodyButtons().find(
-      (b) => b.textContent?.trim() === 'Purge' && b.hasAttribute('disabled'),
+    const box = confirmBox(cell);
+    expect(box.exists()).toBe(true);
+    expect(box.findAll('button').map((b) => b.text())).toEqual(
+      expect.arrayContaining(['Archive now', 'Cancel']),
     );
-    expect(action).toBeTruthy();
+    // The description is a full-width row below the buttons (not inside the lifecycle cell).
+    expect(wrapper.find('[data-slot="confirm-description"]').text()).toContain(
+      'Stops this storage from serving Git LFS',
+    );
+    wrapper.unmount();
+  });
+
+  it('Cancel dismisses the inline confirm', async () => {
+    const wrapper = await mountTable([unused]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    await cell
+      .findAll('button')
+      .find((b) => b.text() === 'Archive now')!
+      .trigger('click');
+    expect(confirmBox(cell).exists()).toBe(true);
+    await confirmBox(cell)
+      .findAll('button')
+      .find((b) => b.text() === 'Cancel')!
+      .trigger('click');
+    expect(confirmBox(cell).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('inline Purge confirm stays disabled (Archive first) for an unarchived prefix', async () => {
+    const wrapper = await mountTable([unused]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    await openPurgeConfirm(cell);
+    const box = confirmBox(cell);
+    expect(box.exists()).toBe(true);
+    const description = wrapper.find('[data-slot="confirm-description"]').text();
+    expect(description).toContain('Permanently deletes every file');
+    expect(description).toContain('Archive this storage first');
+    // The Purge confirm stays disabled until the prefix is archived.
+    const action = box.findAll('button').find((b) => b.text() === 'Purge');
+    expect(action!.attributes('disabled')).toBeDefined();
     wrapper.unmount();
   });
 
@@ -265,11 +283,36 @@ describe('StorageTable', () => {
 
   it('fades a highlight over the row matching the highlight deep link (case-insensitive)', async () => {
     const wrapper = await mountTable([row], row.prefix.toUpperCase());
-    expect(wrapper.find('tbody tr').classes()).toContain('animate-highlight');
+    expect(wrapper.find('[data-slot="item"]').classes()).toContain('animate-highlight');
   });
 
   it('does not tint any row without a highlight', async () => {
     const wrapper = await mountTable([row]);
-    expect(wrapper.find('tbody tr').classes()).not.toContain('animate-highlight');
+    expect(wrapper.find('[data-slot="item"]').classes()).not.toContain('animate-highlight');
+  });
+
+  it('enables the inline Purge confirm for an archived (purgeable) prefix', async () => {
+    const wrapper = await mountTable([archived]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    await openPurgeConfirm(cell);
+    const action = confirmBox(cell)
+      .findAll('button')
+      .find((b) => b.text() === 'Purge');
+    expect(action).toBeTruthy();
+    expect(action!.attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('shows the in-flight Purge workflow with a countdown plus Purge now/Cancel', async () => {
+    const wrapper = await mountTable([purging]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    expect(cell.text()).toContain('purging');
+    expect(cell.text()).toContain('2 d'); // countdown to purgeConfirmBy
+    expect(cell.findAll('button').map((b) => b.text())).toEqual(
+      expect.arrayContaining(['Purge now', 'Cancel']),
+    );
+    // No plain Purge trigger while an op is in flight.
+    expect(cell.findAll('button').map((b) => b.text())).not.toContain('Purge');
+    wrapper.unmount();
   });
 });

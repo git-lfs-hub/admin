@@ -9,10 +9,6 @@ const { data: repos, isLoading, error } = useRepos();
 
 <template>
   <section class="space-y-4">
-    <header class="flex items-center justify-between">
-      <h2 class="text-2xl font-semibold tracking-tight">Repositories</h2>
-    </header>
-
     <Alert v-if="error" variant="destructive">
       <AlertTitle>Failed to load</AlertTitle>
       <AlertDescription>{{ error.message }}</AlertDescription>

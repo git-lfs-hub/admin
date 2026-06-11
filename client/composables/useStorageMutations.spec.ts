@@ -30,6 +30,7 @@ function mountWithQuery() {
 describe('useStorageMutations', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    fetchMock.mockReset();
     toast.success.mockReset();
     toast.error.mockReset();
   });
@@ -78,6 +79,71 @@ describe('useStorageMutations', () => {
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     );
     expect(toast.success).toHaveBeenCalledWith('Restored alice/gone');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    wrapper.unmount();
+  });
+
+  const okJson = (body: unknown) => ({
+    ok: true,
+    status: 200,
+    clone() {
+      return this;
+    },
+    json: () => Promise.resolve(body),
+  });
+
+  it('purge previews then POSTs the confirm token, toasts, invalidates', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ token: 'tok', impact: { objects: 1 } }));
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'purging' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper, invalidate } = mountWithQuery();
+    await wrapper.vm.purge.mutateAsync({ owner: 'alice', repo: 'gone' });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/storage/alice/gone/purge/preview',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(url).toBe('/api/storage/alice/gone/purge');
+    expect(JSON.parse(init.body)).toEqual({ token: 'tok' });
+    expect(toast.success).toHaveBeenCalledWith('Purge started for alice/gone');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    wrapper.unmount();
+  });
+
+  it('confirmWorkflow POSTs to workflow/confirm', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'confirmed' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper, invalidate } = mountWithQuery();
+    await wrapper.vm.confirmWorkflow.mutateAsync({ owner: 'alice', repo: 'gone' });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/storage/alice/gone/workflow/confirm',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('Confirmed purge for alice/gone');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    wrapper.unmount();
+  });
+
+  it('cancelWorkflow POSTs to workflow/cancel', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'cancelled' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper, invalidate } = mountWithQuery();
+    await wrapper.vm.cancelWorkflow.mutateAsync({ owner: 'alice', repo: 'gone' });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/storage/alice/gone/workflow/cancel',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('Cancelled purge for alice/gone');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
     wrapper.unmount();
   });

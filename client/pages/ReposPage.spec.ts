@@ -86,7 +86,6 @@ describe('ReposPage', () => {
   it('renders loading skeletons initially', () => {
     vi.stubGlobal('fetch', fetchMock.mockReturnValue(new Promise(() => {})));
     const wrapper = mountPage();
-    expect(wrapper.text()).toContain('Repositories');
     expect(wrapper.findAll('[class*="skeleton"], [data-slot="skeleton"]').length).toBeGreaterThan(
       0,
     );
@@ -98,12 +97,5 @@ describe('ReposPage', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('org/my-repo');
     expect(wrapper.text()).toContain('active');
-  });
-
-  it('has Repositories heading', async () => {
-    vi.stubGlobal('fetch', fetchMock.mockResolvedValue(okResponse({ repos: [] })));
-    const wrapper = mountPage();
-    await flushPromises();
-    expect(wrapper.find('h2').text()).toBe('Repositories');
   });
 });

@@ -9,7 +9,7 @@ import type {
 } from '@/db/registry';
 import type { OrgStatus } from '@/db/registry-schema';
 import { probeOrg, type OrgProbeResult } from '@/github/probeOrg';
-import { unblockPrefix } from '@/server/lfs-server';
+import { restore } from '@/server/operations';
 
 export type OrgsByStatus = Record<OrgStatus, string[]>;
 
@@ -175,11 +175,7 @@ export async function autoUnblock(
       continue;
     }
     try {
-      await unblockPrefix(env, r.prefix);
-      await registry.unblock(r.prefix);
-      unblocked++;
-      const { owner, repo } = splitPrefix(r.prefix);
-      await notify(env, owner, repo, 'restored');
+      if (await restore(env, registry, r.prefix)) unblocked++;
     } catch (e) {
       console.error(`[reconcile] auto-unblock failed for ${r.prefix}:`, e);
     }

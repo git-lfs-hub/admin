@@ -5,8 +5,10 @@ import { scopeLabel } from '@/alerts/message';
 import type { Decision } from '@/db/alerts-schema';
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
-import { purgePrefix } from '@/server/lfs-server';
+import { gcConfig } from '@/gc/config';
+import { purgeServer } from '@/server/operations';
 import { runConfirmation } from '@/workflows/confirm';
+import { workflowInstanceId } from '@/workflows/instanceId';
 
 export type PurgeParams = {
   prefix: string; // STORAGE DO key + R2 key root (canonical OwnerCase/RepoCase)
@@ -30,7 +32,7 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
       prefix,
       kind: 'purge',
       proceedOnTimeout: triggeredBy === 'admin',
-      timeout: `${this.env.GC.purgeConfirmDays} days`,
+      timeout: `${gcConfig(this.env).purgeConfirmDays} days`,
     });
 
     // Re-read at execution time — abort if the repo reappeared / was already purged.
@@ -47,7 +49,7 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
       n++;
     } while (page.cursor);
 
-    await step.do('server-cleanup', () => purgePrefix(this.env, prefix));
+    await step.do('server-cleanup', () => purgeServer(this.env, prefix));
 
     await step.do('finish', () =>
       Storage.byPrefix(this.env, prefix).endOp(prefix, event.instanceId, 'complete', 'purged'),
@@ -58,14 +60,20 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
   // Bulk delete is idempotent, so a retried step is safe.
   private async deleteR2Page(page: DeletePage): Promise<DeletePage> {
     const list = await this.env.LFS_BUCKET.list(page);
-    if (list.objects.length > 0) await this.env.LFS_BUCKET.delete(list.objects.map((o) => o.key));
+    if (list.objects.length > 0) {
+      await this.env.LFS_BUCKET.delete(list.objects.map((o) => o.key));
+    }
     return { prefix: page.prefix, cursor: list.truncated ? list.cursor : undefined };
   }
 }
 
 // Deterministic single-shard id — `create()` throws on a live duplicate (idempotent trigger);
-// approve/cancel reconstruct it from the prefix to wake the waiting instance.
-export const purgeInstanceId = (prefix: string): string => `purge:${prefix}`;
+// approve/cancel reconstruct it from the prefix to wake the waiting instance. Workflow instance
+// ids must match `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$` (no `/`, `.`, or `:`, which prefixes carry), so
+// hash the prefix instead of embedding it.
+export function purgeInstanceId(prefix: string): string {
+  return workflowInstanceId('purge', prefix);
+}
 
 // Reserve the op (409 if the prefix is already busy) then create the workflow instance.
 export async function startPurge(env: CloudflareBindings, params: PurgeParams): Promise<string> {

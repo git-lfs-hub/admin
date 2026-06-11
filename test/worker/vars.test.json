@@ -11,7 +11,8 @@
     "autoClearDays": 30,
     "liveStorageRetentionDays": 30,
     "coldStorageRetentionDays": 365,
-    "coldStorage": ""
+    "coldStorage": "",
+    "purgeConfirmDays": 3
   },
   "env": "test"
 }

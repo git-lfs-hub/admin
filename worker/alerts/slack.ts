@@ -1,4 +1,4 @@
-import { hexToBytes } from '@git-lfs-hub/lib/auth';
+import { hexToBytes } from '@git-lfs-hub/lib/crypto';
 import { SlackAPIClient } from 'slack-web-api-client';
 
 import { adminLink, alertCopy, encodeAction } from '@/alerts/message';

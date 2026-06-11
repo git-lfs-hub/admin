@@ -13,13 +13,24 @@ export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** Coarse "time until" a future instant: days, hours, minutes; "now" once elapsed. */
+export function formatUntil(iso: string): string {
+  const sec = Math.floor((new Date(iso).getTime() - Date.now()) / 1000);
+  if (sec <= 0) return 'now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} h`;
+  return `${Math.floor(hr / 24)} d`;
+}
+
 /** Coarse "time ago": seconds, then minutes, hours, days. */
 export function formatRelative(iso: string): string {
   const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 60) return `${sec} s ago`;
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return `${min} m ago`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
+  if (hr < 24) return `${hr} h ago`;
+  return `${Math.floor(hr / 24)} d ago`;
 }
