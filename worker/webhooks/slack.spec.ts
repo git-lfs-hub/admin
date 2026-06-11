@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { decide, wakePurge } = vi.hoisted(() => ({
+const { decide, wakePurge, storageForRepo, archive, restore } = vi.hoisted(() => ({
   decide: vi.fn(async () => ({ ok: true })),
   wakePurge: vi.fn(async () => {}),
+  storageForRepo: vi.fn(async () => null as any),
+  archive: vi.fn(async () => ({})),
+  restore: vi.fn(async () => ({})),
 }));
 vi.mock('@/db/alerts', () => ({
   Alerts: { global: () => ({ decide }) },
   isDecision: (s: string) => s === 'approve' || s === 'cancel',
 }));
 vi.mock('@/workflows/purge', () => ({ wakePurge }));
+vi.mock('@/db/registry', () => ({ Registry: { global: () => ({ storageForRepo }) } }));
+vi.mock('@/server/operations', () => ({ archive, restore }));
 
 import app from '@/webhooks/index';
 
@@ -50,6 +55,9 @@ async function post(body: string, opts: { ts?: string; sig?: string } = {}) {
 beforeEach(() => {
   decide.mockClear();
   wakePurge.mockClear();
+  storageForRepo.mockReset();
+  archive.mockClear();
+  restore.mockClear();
 });
 
 describe('POST /webhooks/slack/interactions', () => {
@@ -82,5 +90,29 @@ describe('POST /webhooks/slack/interactions', () => {
     const res = await post(payload('approve', 'storage:alice/repo#missing'));
     expect(res.status).toBe(200);
     expect(decide).not.toHaveBeenCalled();
+  });
+
+  test('Archive on a missing alert → archives the prefix', async () => {
+    storageForRepo.mockResolvedValueOnce({ prefix: 'alice/repo', status: 'unused', archivedAt: null });
+    const res = await post(payload('archive', 'storage:alice/repo#missing'));
+    expect(res.status).toBe(200);
+    expect(storageForRepo).toHaveBeenCalledWith('alice', 'repo');
+    expect(archive).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'alice/repo');
+    expect(restore).not.toHaveBeenCalled();
+  });
+
+  test('Restore on an archived alert → restores the prefix', async () => {
+    storageForRepo.mockResolvedValueOnce({ prefix: 'alice/repo', status: 'used', archivedAt: 't' });
+    const res = await post(payload('restore', 'storage:alice/repo#archived'));
+    expect(res.status).toBe(200);
+    expect(restore).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'alice/repo');
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  test('stale Archive button on a now-live prefix → no-op (guarded)', async () => {
+    storageForRepo.mockResolvedValueOnce({ prefix: 'alice/repo', status: 'used', archivedAt: null });
+    const res = await post(payload('archive', 'storage:alice/repo#missing'));
+    expect(res.status).toBe(200);
+    expect(archive).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
-import { adminLink, alertCopy, scopeFor, scopeLabel } from '@/alerts/message';
+import {
+  adminLink,
+  alertCopy,
+  isNotifyAction,
+  notifyActionFor,
+  scopeFor,
+  scopeLabel,
+} from '@/alerts/message';
 import { alertKinds } from '@/db/alerts-schema';
 
 describe('scopeFor / scopeLabel', () => {
@@ -22,6 +29,23 @@ describe('alertCopy', () => {
       expect(copy.text).toContain('alice/repo');
       expect(copy.text).not.toContain('storage:');
     }
+  });
+});
+
+describe('notify actions', () => {
+  test('missing → archive, archived → restore; recovery kinds have none', () => {
+    expect(notifyActionFor('missing')).toEqual({ verb: 'archive', label: 'Archive' });
+    expect(notifyActionFor('archived')).toEqual({ verb: 'restore', label: 'Restore' });
+    expect(notifyActionFor('reappeared')).toBeNull();
+    expect(notifyActionFor('restored')).toBeNull();
+    expect(notifyActionFor('purge')).toBeNull();
+  });
+
+  test('isNotifyAction recognizes only the action verbs', () => {
+    expect(isNotifyAction('archive')).toBe(true);
+    expect(isNotifyAction('restore')).toBe(true);
+    expect(isNotifyAction('approve')).toBe(false);
+    expect(isNotifyAction('missing')).toBe(false);
   });
 });
 

@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 
 import type { AppEnv } from '@/_env';
-import { decodeAction } from '@/alerts/message';
+import { decodeAction, isNotifyAction, scopeLabel, type NotifyAction } from '@/alerts/message';
 import { Alerts, isDecision } from '@/db/alerts';
 import { isConfirmKind } from '@/db/alerts-schema';
+import { Registry } from '@/db/registry';
 import { githubVerify } from '@/middleware/githubVerify';
 import { slackVerify } from '@/middleware/slackVerify';
+import { archive, restore } from '@/server/operations';
 import { handleInstallation, handleInstallationRepositories } from '@/webhooks/installation';
 import { handleRepository } from '@/webhooks/repository';
 import { wakePurge } from '@/workflows/purge';
@@ -13,27 +15,62 @@ import { wakePurge } from '@/workflows/purge';
 // Routes mount outside `auth` — the request signature is the only gate.
 const app = new Hono<AppEnv>();
 
-// Slack interactivity: Confirm/Cancel buttons on confirmation alerts. The button `action_id`
-// is the decision verb (`approve`/`cancel`) — no remapping, just validate the untrusted value.
+// Slack interactivity. The button `action_id` is the verb — no remapping, just validate the
+// untrusted value: `approve`/`cancel` decisions on confirmation alerts, `archive`/`restore`
+// default actions on notify alerts.
 app.post('/slack/interactions', slackVerify, async (c) => {
   const raw = new URLSearchParams(await c.req.text()).get('payload');
   if (!raw) return c.text('missing payload', 400);
   const payload = JSON.parse(raw);
 
   const action = payload.actions?.[0];
-  const decision = action?.action_id;
+  const verb = action?.action_id;
   const decoded = action?.value ? decodeAction(action.value) : null;
-  // Unknown action / non-confirmation kind → ack (stop retries), do nothing.
-  if (!isDecision(decision) || !decoded || !isConfirmKind(decoded.kind)) return c.body(null, 200);
-
+  if (!decoded) return c.body(null, 200);
   const by = `slack:${payload.user?.username ?? payload.user?.id ?? 'unknown'}`;
-  const res = await Alerts.global(c.env).decide(decoded.scope, decoded.kind, decision, by);
-  // Wake the waiting workflow only when the decision actually changed (idempotent re-clicks
-  // already woke it). One confirm kind today; generalize the wake per kind when more land.
-  if (res.ok) await wakePurge(c.env, decoded.scope, decision, by);
 
+  // Confirmation decision → record + wake the waiting workflow only when it actually changed
+  // (idempotent re-clicks already woke it). One confirm kind today; generalize the wake when more
+  // land.
+  if (isDecision(verb) && isConfirmKind(decoded.kind)) {
+    const res = await Alerts.global(c.env).decide(decoded.scope, decoded.kind, verb, by);
+    if (res.ok) await wakePurge(c.env, decoded.scope, verb, by);
+    return c.body(null, 200);
+  }
+
+  // Notify-alert default action (missing → archive, archived → restore).
+  if (isNotifyAction(verb)) await runNotifyAction(c.env, verb, decoded.scope);
+
+  // Unknown action / state mismatch → ack (stop retries), do nothing.
   return c.body(null, 200);
 });
+
+// Run a notify alert's default action against its storage prefix. Guards mirror the storage
+// routes so a stale button can't block a now-live prefix or restore a purged one. Best-effort:
+// a refused/failed op leaves the message as-is; on success the lifecycle `notify` chat.updates
+// the message in place to the new state (and its new default action).
+async function runNotifyAction(
+  env: CloudflareBindings,
+  verb: NotifyAction,
+  scope: string,
+): Promise<void> {
+  const [owner, repo] = scopeLabel(scope).split('/');
+  if (!owner || !repo) return;
+  const registry = Registry.global(env);
+  const row = await registry.storageForRepo(owner, repo);
+  if (!row) return;
+  try {
+    if (verb === 'archive') {
+      if (row.status !== 'unused' || row.archivedAt) return;
+      await archive(env, registry, row.prefix);
+    } else {
+      if (!row.archivedAt || row.status === 'purged' || row.activeOp === 'purge') return;
+      await restore(env, registry, row.prefix);
+    }
+  } catch (e) {
+    console.error(`[slack] ${verb} ${scope} failed:`, e);
+  }
+}
 
 // GitHub webhooks.
 app.post('/github', githubVerify, async (c) => {

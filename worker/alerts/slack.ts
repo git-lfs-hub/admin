@@ -1,7 +1,7 @@
 import { hexToBytes } from '@git-lfs-hub/lib/crypto';
 import { SlackAPIClient } from 'slack-web-api-client';
 
-import { adminLink, alertCopy, encodeAction } from '@/alerts/message';
+import { adminLink, alertCopy, encodeAction, notifyActionFor } from '@/alerts/message';
 import { alerts, isConfirmKind, type AlertKind } from '@/db/alerts-schema';
 import { isoNow } from '@/lib/time';
 
@@ -102,11 +102,24 @@ const openButton = (env: CloudflareBindings, alert: AlertRow) => ({
   url: adminLink(env.ADMIN.url, alert.scope),
 });
 
+// Plus the kind's one-click default action (missing → Archive, archived → Restore), if any.
 export function notificationBlocks(env: CloudflareBindings, alert: AlertRow): unknown[] {
   const copy = alertCopy(alert.kind as AlertKind, alert.scope);
+  const action = notifyActionFor(alert.kind);
+  const elements = action
+    ? [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: action.label },
+          action_id: action.verb,
+          value: encodeAction(alert.scope, alert.kind),
+        },
+        openButton(env, alert),
+      ]
+    : [openButton(env, alert)];
   return [
     { type: 'section', text: { type: 'mrkdwn', text: `${copy.emoji} ${copy.text}` } },
-    { type: 'actions', elements: [openButton(env, alert)] },
+    { type: 'actions', elements },
   ];
 }
 

@@ -41,6 +41,26 @@ export function adminLink(baseUrl: string, scope: string): string {
   return `${baseUrl}/storage?highlight=${encodeURIComponent(scopeLabel(scope))}`;
 }
 
+// One-click default action on a non-confirmation alert: the `verb` is the Slack button
+// `action_id`, dispatched to the matching storage op by the webhook. Recovery states
+// (reappeared/restored) carry none.
+export type NotifyActionDef = { verb: 'archive' | 'restore'; label: string };
+export type NotifyAction = NotifyActionDef['verb'];
+
+const notifyActions: Partial<Record<AlertKind, NotifyActionDef>> = {
+  missing: { verb: 'archive', label: 'Archive' },
+  archived: { verb: 'restore', label: 'Restore' },
+};
+
+export function notifyActionFor(kind: string): NotifyActionDef | null {
+  return notifyActions[kind as AlertKind] ?? null;
+}
+
+const notifyActionVerbs = new Set(Object.values(notifyActions).map((a) => a.verb));
+export function isNotifyAction(verb: string): verb is NotifyAction {
+  return notifyActionVerbs.has(verb as NotifyAction);
+}
+
 // Slack button `value` round-trips the alert identity. Delimit on `#` (scope holds `:` and `/`).
 export function encodeAction(scope: string, kind: string): string {
   return `${scope}#${kind}`;

@@ -135,12 +135,25 @@ describe('deliverSlack', () => {
 });
 
 describe('notificationBlocks', () => {
-  test('section copy + an Open-in-admin url button', () => {
-    const blocks = notificationBlocks(envWith('xoxb', 'C1'), alert) as any[];
+  test('actionable kind → default-action button (scope#kind) + Open-in-admin', () => {
+    const blocks = notificationBlocks(envWith('xoxb', 'C1'), {
+      ...alert,
+      scope: 'storage:alice/repo',
+    }) as any[];
     expect(blocks[0].text.text).toContain('alice/repo');
-    const button = blocks[1].elements[0];
-    expect(button.type).toBe('button');
-    expect(button.url).toContain('/storage?highlight=alice%2Frepo');
+    const [act, open] = blocks[1].elements;
+    expect(act.action_id).toBe('archive'); // missing → Archive
+    expect(act.value).toBe('storage:alice/repo#missing');
+    expect(open.url).toContain('/storage?highlight=alice%2Frepo');
+  });
+
+  test('recovery kind → only Open-in-admin, no action button', () => {
+    const blocks = notificationBlocks(envWith('xoxb', 'C1'), {
+      ...alert,
+      kind: 'restored',
+    }) as any[];
+    expect(blocks[1].elements).toHaveLength(1);
+    expect(blocks[1].elements[0].url).toContain('/storage?highlight=');
   });
 });
 
