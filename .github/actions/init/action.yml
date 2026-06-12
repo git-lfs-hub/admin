@@ -5,7 +5,7 @@ runs:
   using: composite
   steps:
     - uses: git-lfs-hub/ci-cd/actions/init@main
-      with: { peers: lib@lfs-admin config }
+      with: { peers: lib@lfs-admin config@lfs-admin }
 
     - name: Render vars.json + wrangler.jsonc + types
       shell: bash
