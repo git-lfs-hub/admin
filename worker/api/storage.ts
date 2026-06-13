@@ -245,10 +245,9 @@ async function withStorage(c: Context<StorageEnv>, next: Next) {
   await next();
 }
 
-// Purge gate: cold-storage purge isn't wired yet (501); prefix must be blocked, not yet purged,
-// and not still backing a live git repo.
+// Purge gate (both cold and no-cold paths): prefix must be blocked, not yet purged, and not still
+// backing a live git repo. The workflow drops the cold copy when cold storage is on.
 async function purgeable(c: Context<StorageEnv>, next: Next) {
-  if (gcConfig(c.env).coldStorage) return c.json({ error: 'not_implemented' }, 501);
   const cur = c.var.storage;
   if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
   if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);

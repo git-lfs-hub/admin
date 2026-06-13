@@ -6,9 +6,10 @@ import type { Decision } from '@/db/alerts-schema';
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
+import { s3DeleteObject } from '@/s3/delete';
 import { purgeServer } from '@/server/operations';
 import { runConfirmation } from '@/workflows/confirm';
-import { startWorkflow, walkR2Pages } from '@/workflows/lifecycle';
+import { startWorkflow, walkR2Pages, walkS3Pages } from '@/workflows/lifecycle';
 
 export type PurgeParams = {
   prefix: string; // STORAGE DO key + R2 key root (canonical OwnerCase/RepoCase)
@@ -16,8 +17,9 @@ export type PurgeParams = {
   triggeredBy: 'admin' | 'auto';
 };
 
-// No-cold-storage Purge: confirmation gate → delete live R2 in batches → purgeRepo → `purged`.
-// Cold-storage path (delete S3 too) is not yet implemented.
+// Purge: confirmation gate → delete live R2 in batches → (cold storage) delete the cold S3 copy →
+// purgeRepo → `purged`. With cold storage on, live R2 may already be cleared (the live walk is then a
+// no-op) but the cold copy still needs dropping.
 export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeParams> {
   async run(event: WorkflowEvent<PurgeParams>, step: WorkflowStep): Promise<void> {
     const { prefix, scope, triggeredBy } = event.payload;
@@ -44,6 +46,13 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
     await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'delete', async (objects) => {
       if (objects.length > 0) await this.env.LFS_BUCKET.delete(objects.map((o) => o.key));
     });
+
+    // Cold storage: drop the cold (S3) copy too. Per-object DELETE is idempotent. Dead branch when
+    // cold storage is off (no S3 creds), so config stability keeps step labels deterministic.
+    if (gcConfig(this.env).coldStorage)
+      await walkS3Pages(step, this.env, prefix, 's3-delete', async (objects) => {
+        await Promise.all(objects.map((o) => s3DeleteObject(this.env, o.key)));
+      });
 
     await step.do('server-cleanup', () => purgeServer(this.env, prefix));
 

@@ -9,6 +9,16 @@ import { PurgeWorkflow, startPurge, wakePurge } from '@/workflows/purge';
 vi.mock('@/workflows/confirm', () => ({ runConfirmation: vi.fn(async () => {}) }));
 vi.mock('@/server/operations', () => ({ purgeServer: vi.fn(async () => {}) }));
 
+// Cold-storage S3 pass — stubbed so the cold test drives only the walk + delete wiring.
+const listS3Page = vi.fn<(...a: unknown[]) => Promise<{ objects: { key: string }[]; cursor?: string }>>();
+const s3DeleteObject = vi.fn<(...a: unknown[]) => Promise<void>>();
+vi.mock('@/s3/list', () => ({
+  listS3Page: (env: unknown, prefix: unknown, cursor: unknown) => listS3Page(env, prefix, cursor),
+}));
+vi.mock('@/s3/delete', () => ({
+  s3DeleteObject: (env: unknown, key: unknown) => s3DeleteObject(env, key),
+}));
+
 const archived = { status: 'unused', archivedAt: '2026-01-01T00:00:00Z' };
 
 const event = {
@@ -98,6 +108,31 @@ describe('PurgeWorkflow.run', () => {
     expect(b.delete).not.toHaveBeenCalled();
     expect(purgeServer).toHaveBeenCalledWith(env, 'A/R');
     expect(endOp).toHaveBeenCalledWith('A/R', 'purge-abc123', 'complete', 'purged');
+  });
+
+  test('cold storage on → also deletes the cold S3 copy, between R2 delete and server-cleanup', async () => {
+    listS3Page.mockResolvedValue({ objects: [{ key: 'A/R/o1' }, { key: 'A/R/o2' }] });
+    const b = bucket([{ keys: ['A/R/o1'] }]);
+    const env = envWith(b, archived);
+    (env as { GC: unknown }).GC = { purgeConfirmDays: 3, coldStorage: 's3.backup' };
+    const { step, calls } = fakeStep();
+
+    await run(env, step);
+
+    expect(s3DeleteObject).toHaveBeenCalledWith(env, 'A/R/o1');
+    expect(s3DeleteObject).toHaveBeenCalledWith(env, 'A/R/o2');
+    expect(calls).toEqual(['guard', 'delete:0', 's3-delete:0', 'server-cleanup', 'finish']);
+  });
+
+  test('cold storage off → no S3 pass', async () => {
+    const b = bucket([{ keys: ['A/R/o1'] }]);
+    const { step, calls } = fakeStep();
+
+    await run(envWith(b, archived), step);
+
+    expect(listS3Page).not.toHaveBeenCalled();
+    expect(s3DeleteObject).not.toHaveBeenCalled();
+    expect(calls).not.toContain('s3-delete:0');
   });
 
   test('guard: repo no longer eligible → throws, nothing deleted', async () => {

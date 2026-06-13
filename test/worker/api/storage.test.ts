@@ -644,13 +644,15 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('purge');
   });
 
-  test('501 while cold storage is enabled (not yet implemented)', async () => {
+  test('cold storage enabled → purge passes the gate (preview 200, valid token → 202)', async () => {
     await seedArchived('alice/r');
-    const { env: e } = appEnv({}, { coldStorage: 's3.backup' });
-    expect((await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)).status).toBe(
-      501,
-    );
-    expect((await purge('/alice/r/purge', e, {})).status).toBe(501);
+    const { env: e, PURGE_WORKFLOW } = appEnv({}, { coldStorage: 's3.backup' });
+    const prev = (await (
+      await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
+    ).json()) as { token: string };
+    const res = await purge('/alice/r/purge', e, { token: prev.token });
+    expect(res.status).toBe(202);
+    expect(PURGE_WORKFLOW.create).toHaveBeenCalled();
   });
 });
 
