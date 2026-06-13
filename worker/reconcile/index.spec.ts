@@ -4,6 +4,7 @@ const discoverRepos = vi.fn(async (..._a: unknown[]) => {});
 const reconcileRepos = vi.fn(async (..._a: unknown[]) => {});
 const reconcileObjects = vi.fn(async (..._a: unknown[]) => {});
 const autoArchive = vi.fn(async (..._a: unknown[]) => []);
+const autoPurge = vi.fn(async (..._a: unknown[]) => []);
 
 vi.mock('@/storage/discovery', () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
 vi.mock('@/reconcile/repos', () => ({ reconcileRepos: (...a: unknown[]) => reconcileRepos(...a) }));
@@ -11,10 +12,15 @@ vi.mock('@/reconcile/objects', () => ({
   reconcileObjects: (...a: unknown[]) => reconcileObjects(...a),
 }));
 vi.mock('@/gc/autoArchive', () => ({ autoArchive: (...a: unknown[]) => autoArchive(...a) }));
+vi.mock('@/gc/autoPurge', () => ({ autoPurge: (...a: unknown[]) => autoPurge(...a) }));
 
 import { reconcileAll } from '@/reconcile/index';
 
-const registryStub = { id: 'registry', listStorage: vi.fn(async (): Promise<unknown[]> => []) };
+const registryStub = {
+  id: 'registry',
+  listStorage: vi.fn(async (): Promise<unknown[]> => []),
+  getLastFullScanAt: vi.fn(async (): Promise<string | null> => '2026-01-01T00:00:00Z'),
+};
 const storeStub = { id: 'store' };
 
 function makeEnv() {
@@ -30,7 +36,10 @@ beforeEach(() => {
   reconcileRepos.mockClear();
   reconcileObjects.mockClear();
   autoArchive.mockClear();
+  autoPurge.mockClear();
   registryStub.listStorage.mockClear();
+  registryStub.getLastFullScanAt.mockClear();
+  registryStub.getLastFullScanAt.mockResolvedValue('2026-01-01T00:00:00Z');
 });
 
 describe('reconcileAll', () => {
@@ -41,6 +50,15 @@ describe('reconcileAll', () => {
     expect(discoverRepos).toHaveBeenCalledWith(env.LFS_BUCKET, registryStub);
     expect(reconcileRepos).toHaveBeenCalledWith(env, registryStub);
     expect(autoArchive).toHaveBeenCalledWith(env, registryStub);
+    expect(autoPurge).toHaveBeenCalledWith(env, registryStub);
+  });
+
+  test('cold-start guard: no full scan → destructive passes skipped', async () => {
+    const env = makeEnv();
+    registryStub.getLastFullScanAt.mockResolvedValueOnce(null);
+    await reconcileAll(env);
+    expect(autoArchive).not.toHaveBeenCalled();
+    expect(autoPurge).not.toHaveBeenCalled();
   });
 
   test('local flag skips reconcileRepos but still reconciles objects', async () => {

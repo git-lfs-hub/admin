@@ -6,9 +6,8 @@ import { isoNow, isoAddDays } from '@/lib/time';
 const blockRepo = vi.fn(async () => {});
 const env = { GC: { autoArchiveDays: 7 }, LFS_SERVER: { blockRepo } } as any;
 
-function fakeRegistry(unused: unknown[], lastFullScanAt: string | null = isoNow()) {
+function fakeRegistry(unused: unknown[]) {
   return {
-    getLastFullScanAt: vi.fn(async () => lastFullScanAt),
     listStorageByStatus: vi.fn(async () => unused),
     block: vi.fn(async (prefix: string) => ({ prefix, archivedAt: isoNow() })),
   } as any;
@@ -31,14 +30,6 @@ describe('autoArchive', () => {
     expect(blockRepo).toHaveBeenCalledWith('a', 'r');
     expect(registry.block).toHaveBeenCalledWith('a/r');
     expect(out).toHaveLength(1);
-  });
-
-  test('cold-start guard: no full scan recorded → nothing archived', async () => {
-    const registry = fakeRegistry([row({ unusedAt: daysAgo(8) })], null);
-    const out = await autoArchive(env, registry);
-    expect(registry.listStorageByStatus).not.toHaveBeenCalled();
-    expect(blockRepo).not.toHaveBeenCalled();
-    expect(out).toEqual([]);
   });
 
   test('within grace → skipped', async () => {

@@ -5,14 +5,11 @@ import { archive } from '@/server/operations';
 
 /** Cron: block `unused` prefixes past their grace window (`unusedAt + autoArchiveDays`).
  *  Status untouched (block is orthogonal). RPC before the DB write, so a failure retries
- *  next tick. */
+ *  next tick. Caller gates on the cold-start guard (`reconcileAll`). */
 export async function autoArchive(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
 ): Promise<StorageRow[]> {
-  // Cold-start guard: until one trustworthy full pass certifies the link state, a stale/failed
-  // probe could read every prefix as `unused` and archive live repos.
-  if (!(await registry.getLastFullScanAt())) return [];
   const now = Date.now();
   const archived: StorageRow[] = [];
   for (const r of await registry.listStorageByStatus('unused')) {
