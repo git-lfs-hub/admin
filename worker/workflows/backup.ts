@@ -12,9 +12,9 @@ export type BackupParams = {
   prefix: string; // STORAGE DO key + R2 key root (canonical OwnerCase/RepoCase)
 };
 
-// BackUp: copy every live R2 object to cold storage (`GLACIER_IR`), then land `backedUpAt`. Runs on
-// any non-purged prefix and never blocks (Archive does). `backupComplete` is earned only if the
-// prefix stayed blocked under the same `archivedAt` the whole run (see `Registry.endBackup`).
+// BackUp: copy every live R2 object to cold storage (`GLACIER_IR`), then land `backedUpAt`.
+// `backupComplete` is earned only if the prefix stayed blocked under the same `archivedAt` the whole
+// run (see `Registry.endBackup`).
 export class BackupWorkflow extends WorkflowEntrypoint<CloudflareBindings, BackupParams> {
   async run(event: WorkflowEvent<BackupParams>, step: WorkflowStep): Promise<void> {
     const { prefix } = event.payload;
@@ -26,7 +26,7 @@ export class BackupWorkflow extends WorkflowEntrypoint<CloudflareBindings, Backu
       return row.archivedAt;
     });
 
-    // Per-object HEAD-skip (in `copyObject`) makes a retried page re-do no completed work.
+    // Per-object HEAD-skip (in `copyObject`) makes a retried page redo no completed work.
     const src = r2Store(this.env);
     const dst = s3Store(this.env, 'GLACIER_IR');
     await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'copy', async (objects) => {

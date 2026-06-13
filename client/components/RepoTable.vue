@@ -16,8 +16,7 @@ defineProps<{ repos: RepoRow[] }>();
     <template v-for="r in repos" :key="`${r.owner}/${r.repo}`">
       <Item variant="outline" class="items-start">
         <ItemContent>
-          <!-- Row 1: repo + its GitHub-presence status badge, vertically centered. The badge merges
-               the repo's presence with its "missing since" age. -->
+          <!-- The status badge merges the repo's GitHub presence with its "missing since" age. -->
           <div class="flex items-center justify-between gap-4">
             <ItemTitle class="font-mono break-all">{{ r.owner }}/{{ r.repo }}</ItemTitle>
 
@@ -54,8 +53,8 @@ defineProps<{ repos: RepoRow[] }>();
             </div>
           </div>
 
-          <!-- Row 2: the inferred storage prefix. `used`/`unused` are implied by the repo status, so
-               only the notable storage states (`purged`, `archived`) are badged here. -->
+          <!-- `used`/`unused` are implied by the repo status, so only the notable storage states
+               (`purged`, `archived`) are badged here. -->
           <div v-if="r.storage" class="flex items-start justify-between gap-4">
             <ItemDescription
               data-slot="storage"

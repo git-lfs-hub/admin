@@ -24,7 +24,7 @@ describe('GET /api/repos', () => {
   });
 
   test('returns git presence rows with status', async () => {
-    await reg().upsertRepo('alice', 'live'); // active
+    await reg().upsertRepo('alice', 'live');
     await reg().upsertRepo('bob', 'gone');
     await reg().markMissing('bob', 'gone');
 
@@ -42,8 +42,8 @@ describe('GET /api/repos', () => {
 
   test('cross-links the matching storage prefix (same-key), null when none', async () => {
     await reg().upsertRepo('alice', 'a');
-    await reg().upsertStorage('alice/a'); // matching prefix
-    await reg().upsertRepo('bob', 'nostore'); // no prefix discovered
+    await reg().upsertStorage('alice/a');
+    await reg().upsertRepo('bob', 'nostore');
 
     const res = await get();
     const body = (await res.json()) as {

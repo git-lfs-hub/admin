@@ -1,8 +1,7 @@
 import { s3BackupClient, s3ObjectUrl } from '@/s3/client';
 
-// Cold-storage thaw helpers: a colder Glacier tier (`GLACIER`/`DEEP_ARCHIVE`) needs an async
-// `RestoreObject` + a wait before it's readable (`GLACIER_IR` reads immediately). The `RestoreWorkflow`
-// drives the order + sleeps, then pulls each object back into live R2 with `copyObject`.
+// Thaw helpers: colder Glacier tiers (`GLACIER`/`DEEP_ARCHIVE`) need an async `RestoreObject` + a wait
+// before they're readable (`GLACIER_IR` reads immediately).
 
 // Kick off an async Glacier retrieval (POST `?restore`). Idempotent: `409 RestoreAlreadyInProgress`
 // is the desired no-op on a resumed step; a 200 means a restored copy already exists.
@@ -20,8 +19,7 @@ export async function s3RestoreObject(env: CloudflareBindings, key: string): Pro
   throw new Error(`S3 RestoreObject ${key} failed: ${res.status}`);
 }
 
-// True once the temporary restored copy is ready — `x-amz-restore: ongoing-request="false"`. A
-// `GLACIER_IR` object is always readable, so the workflow never polls it.
+// True once the restored copy is ready — `x-amz-restore: ongoing-request="false"`.
 export async function s3HeadRestored(env: CloudflareBindings, key: string): Promise<boolean> {
   const aws = s3BackupClient(env);
   const res = await aws.fetch(s3ObjectUrl(env, key), { method: 'HEAD' });

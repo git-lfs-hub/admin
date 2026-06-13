@@ -142,9 +142,9 @@ describe('notificationBlocks', () => {
     }) as any[];
     expect(section.text.text).toContain('alice/repo');
     expect(consequence.type).toBe('context');
-    expect(consequence.elements[0].text).toContain('Stops this storage'); // archive consequence
+    expect(consequence.elements[0].text).toContain('Stops this storage');
     const [act, open] = actions.elements;
-    expect(act.action_id).toBe('archive'); // missing → Archive
+    expect(act.action_id).toBe('archive');
     expect(act.value).toBe('storage:alice/repo#missing');
     expect(open.url).toContain('/storage?highlight=alice%2Frepo');
   });
@@ -154,7 +154,7 @@ describe('notificationBlocks', () => {
       ...alert,
       kind: 'restored',
     }) as any[];
-    expect(blocks).toHaveLength(2); // section + actions, no context
+    expect(blocks).toHaveLength(2);
     expect(blocks[1].elements).toHaveLength(1);
     expect(blocks[1].elements[0].url).toContain('/storage?highlight=');
   });

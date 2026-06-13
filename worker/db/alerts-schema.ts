@@ -1,7 +1,6 @@
 import { sqliteTable, text, primaryKey } from 'drizzle-orm/sqlite-core';
 
-// Alert kinds → mode (single source of truth). `notify` raises with no decision; `confirm`
-// (`purge` now; `clear` later) carries approve/cancel.
+// Alert kind → mode. `notify` raises with no decision; `confirm` carries approve/cancel.
 export const alertModes = {
   missing: 'notify',
   reappeared: 'notify',
@@ -25,7 +24,7 @@ export function isConfirmKind(kind: string): kind is ConfirmKind {
 export const alertSeverities = ['info', 'warning'] as const;
 export type AlertSeverity = (typeof alertSeverities)[number];
 
-// Severity is a property of the kind (denormalized onto each row for the UI). Source of truth.
+// Severity per kind; denormalized onto each row for the UI.
 export const alertSeverity: Record<AlertKind, AlertSeverity> = {
   missing: 'warning',
   reappeared: 'info',
@@ -34,20 +33,19 @@ export const alertSeverity: Record<AlertKind, AlertSeverity> = {
   purge: 'warning',
 };
 
-// Confirmation decision verbs — also the Slack button `action_id`s (no remapping). Latest wins:
-// a `cancel` after `approve` (or vice versa) overwrites; only one decision stands per alert.
+// Decision verbs — also the Slack button `action_id`s (no remapping). Latest wins: one decision
+// stands per alert.
 export const decisions = ['approve', 'cancel'] as const;
 export type Decision = (typeof decisions)[number];
 export const isDecision = (s: string): s is Decision =>
   (decisions as readonly string[]).includes(s);
 
-// Non-storage scopes live here too (e.g. `system:slack` for delivery health), so `kind` is
-// plain text, not the storage enum.
+// Non-storage scopes live here too (e.g. `system:slack`), so `kind` is plain text, not the enum.
 export const SYSTEM_SLACK_SCOPE = 'system:slack';
 
-// One singleton ALERTS DO holds every alert, keyed `(scope, kind)`. `scope` is `storage:lc(owner/repo)`
-// for storage alerts or a `system:*` channel for global health. `detail` is free text (e.g. a
-// Slack error message); null for storage alerts.
+// Singleton ALERTS DO holds every alert, keyed `(scope, kind)`. `scope` is `storage:lc(owner/repo)`
+// for storage alerts or a `system:*` channel for global health. `detail` is free text, null for
+// storage alerts.
 export const alerts = sqliteTable(
   'alerts',
   {
@@ -57,8 +55,8 @@ export const alerts = sqliteTable(
     detail: text('detail'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    // Confirmation kinds only (`purge`); null for notify kinds and pending confirmations.
-    // The gate keys on `decision` presence, not "deadlines".
+    // Confirmation kinds only; null for notify kinds and pending confirmations. The gate keys
+    // on `decision` presence.
     decision: text('decision', { enum: decisions }),
     decidedAt: text('decided_at'),
     decidedBy: text('decided_by'),
@@ -66,9 +64,9 @@ export const alerts = sqliteTable(
   (t) => [primaryKey({ columns: [t.scope, t.kind] })],
 );
 
-// One Slack message per scope, edited in place (chat.update) as its state changes — so a
-// prefix's missing → archived → restored shows as one updating message, not four. `kind` is
-// the currently-shown state (skip the update when it hasn't changed).
+// One Slack message per scope, edited in place (chat.update) as state changes — so a prefix's
+// missing → archived → restored shows as one updating message, not four. `kind` is the
+// currently-shown state (skip the update when unchanged).
 export const slack = sqliteTable('slack', {
   scope: text('scope').primaryKey(),
   kind: text('kind').notNull(),

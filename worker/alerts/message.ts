@@ -8,8 +8,7 @@ import {
 
 export type { AlertKind };
 
-// Alert scopes are namespaced `<namespace>:<id>` so future entities (e.g. `repo:`) coexist
-// with storage and system rows. Storage lifecycle raises `storage:`; global health `system:`.
+// Alert scopes are namespaced `<namespace>:<id>` so future entities coexist with storage/system.
 export const STORAGE_SCOPE_PREFIX = 'storage:';
 
 /** Storage-prefix alert scope: `storage:lc(owner/repo)`. */
@@ -24,9 +23,7 @@ export function scopeLabel(scope: string): string {
 
 export type AlertCopy = { emoji: string; text: string };
 
-// Each Slack event reduces to a lifecycle state; emoji + one-liner come from the shared catalog,
-// so the UI's state copy and the Slack line never drift. `reappeared`/`restored` both mean the
-// storage serves again (`used`).
+// Each alert kind reduces to a lifecycle state, so UI copy and the Slack line never drift.
 const stateOfKind: Record<AlertKind, LifecycleState> = {
   missing: 'unused',
   reappeared: 'used',
@@ -44,10 +41,8 @@ export function adminLink(baseUrl: string, scope: string): string {
   return `${baseUrl}/storage?highlight=${encodeURIComponent(scopeLabel(scope))}`;
 }
 
-// One-click default action on a non-confirmation alert: the `verb` is the Slack button
-// `action_id`, dispatched to the matching storage op by the webhook. The event's lifecycle state
-// picks the verb (unused → Archive, archived → Restore); recovery/terminal states carry none.
-// Label + consequence come from the shared catalog.
+// One-click default action on a notify alert; the `verb` is the Slack button `action_id`. The
+// lifecycle state picks it (unused → Archive, archived → Restore); other states carry none.
 export type NotifyAction = Extract<StorageAction, 'archive' | 'restore'>;
 
 export function notifyActionFor(
@@ -69,6 +64,7 @@ export function isNotifyAction(verb: string): verb is NotifyAction {
 }
 
 // Slack button `value` round-trips the alert identity. Delimit on `#` (scope holds `:` and `/`).
+// oxlint-disable-next-line no-unused-vars
 export function encodeAction(scope: string, kind: string): string {
   return `${scope}#${kind}`;
 }

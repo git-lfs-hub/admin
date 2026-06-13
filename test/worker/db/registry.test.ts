@@ -234,7 +234,7 @@ describe('markCleared', () => {
     await reg().block('alice/a');
     const row = await reg().markCleared('alice/a');
     expect(row?.clearedAt).toMatch(ISO_RE);
-    expect(row?.status).toBe('unused'); // status + block untouched
+    expect(row?.status).toBe('unused');
     expect(row?.archivedAt).toMatch(ISO_RE);
     expect(await reg().markCleared('alice/a')).toBeNull(); // already cleared → no-op
   });
@@ -247,7 +247,6 @@ describe('reconcileStorage (link state from repos, same-key)', () => {
     // both active/used: no flip
     let res = await reg().reconcileStorage();
     expect(res.becameUnused).toEqual([]);
-    // repo goes missing → prefix unused
     await reg().markMissing('alice', 'a');
     res = await reg().reconcileStorage();
     expect(res.becameUnused.map((s) => s.prefix)).toEqual(['Alice/A']);
@@ -264,7 +263,7 @@ describe('reconcileStorage (link state from repos, same-key)', () => {
     await reg().upsertStorage('Alice/A');
     await reg().markUnused('Alice/A');
     await reg().block('Alice/A');
-    await reg().upsertRepo('alice', 'a'); // git repo (re)appears, active
+    await reg().upsertRepo('alice', 'a');
     const res = await reg().reconcileStorage();
     expect(res.becameUsed.map((s) => s.prefix)).toEqual(['Alice/A']);
     expect(res.blockedReused.map((s) => s.prefix)).toEqual(['Alice/A']);
@@ -273,7 +272,7 @@ describe('reconcileStorage (link state from repos, same-key)', () => {
 
   test('already used but still blocked → surfaced as blockedReused', async () => {
     await reg().upsertRepo('alice', 'a');
-    await reg().upsertStorage('Alice/A'); // used
+    await reg().upsertStorage('Alice/A');
     await reg().block('Alice/A');
     const res = await reg().reconcileStorage();
     expect(res.blockedReused.map((s) => s.prefix)).toEqual(['Alice/A']);

@@ -3,10 +3,9 @@ import type { AwsClient } from 'aws4fetch';
 import { s3BackupClient, s3ObjectUrl, UNSIGNED_STREAM } from '@/s3/client';
 import type { BlobStore, MultipartWriter, Part } from '@/s3/copy';
 
-// The external cold-storage bucket (AWS S3, no wrangler binding) as a `BlobStore` — backup's
-// destination and restore's source. Writes carry `storageClass` (Glacier) + stream unsigned; reads
-// throw on a missing object (it was just listed). `storageClass` is only read on the write paths, so
-// restore (read-only) constructs it without one.
+// The external cold-storage bucket (AWS S3) as a `BlobStore` — backup's destination and restore's
+// source. Writes carry `storageClass` (Glacier) + stream unsigned; reads throw on a missing object
+// (it was just listed). `storageClass` is write-only, so restore (read-only) omits it.
 export function s3Store(env: CloudflareBindings, storageClass?: string): BlobStore {
   const aws = s3BackupClient(env);
   const url = (key: string) => s3ObjectUrl(env, key);
@@ -49,8 +48,7 @@ export function s3Store(env: CloudflareBindings, storageClass?: string): BlobSto
   };
 }
 
-// Open an S3 multipart upload and return a writer over its `uploadId`. Each part streams from a
-// ranged source read; `multipartCopy` orders + completes them and aborts on failure.
+// Open an S3 multipart upload and return a writer over its `uploadId`.
 async function startMultipart(
   aws: AwsClient,
   url: string,

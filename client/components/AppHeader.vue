@@ -31,7 +31,6 @@ const all = computed(() => data.value?.alerts ?? []);
 const list = computed(() => all.value.filter((a) => !isSystem(a.scope)));
 // `system:*` scopes are global health (e.g. Slack delivery), rendered apart from the resource list.
 const systemAlerts = computed(() => all.value.filter((a) => isSystem(a.scope)));
-// The bell wears a dot whenever there's anything to show.
 const hasAny = computed(() => all.value.length > 0);
 </script>
 
@@ -59,8 +58,7 @@ const hasAny = computed(() => all.value.length > 0);
           <RefreshCw :class="reconcile.isPending.value ? 'animate-spin' : ''" />
         </Button>
 
-        <!-- Notifications (rightmost): a bell with an overlay dot when any alert (or a Slack-delivery
-             failure) is live; the list opens in a menu. -->
+        <!-- Bell wears an overlay dot when any alert is live; the list opens in a menu. -->
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <Button variant="ghost" size="icon-sm" class="relative" aria-label="Notifications">
@@ -78,8 +76,8 @@ const hasAny = computed(() => all.value.length > 0);
               <span class="text-xs text-muted-foreground">{{ all.length }}</span>
             </div>
             <div class="space-y-2 p-3">
-              <!-- Global health (`system:*`): each row's `detail` is the error; serving is degraded
-                   until fixed. Rendered above the resource list, distinct from it. -->
+              <!-- Global health (`system:*`): `detail` is the error; serving is degraded until
+                   fixed. Rendered above the resource list, distinct from it. -->
               <p
                 v-for="s in systemAlerts"
                 :key="`${s.scope}:${s.kind}`"

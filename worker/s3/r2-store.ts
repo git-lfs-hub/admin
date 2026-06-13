@@ -1,8 +1,7 @@
 import type { BlobStore } from '@/s3/copy';
 
 // Live R2 (the LFS bucket) as a `BlobStore` — backup's source and restore's destination. A source
-// object deleted since listing reads as null (skip, not error). R2's binding caps a single `put` at
-// 5 GiB and numbers multipart parts from 1, matching `s3Store`.
+// object deleted since listing reads as null (skip, not error).
 export function r2Store(env: CloudflareBindings): BlobStore {
   const bucket = env.LFS_BUCKET;
   return {

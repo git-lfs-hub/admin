@@ -23,8 +23,8 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
   async run(event: WorkflowEvent<PurgeParams>, step: WorkflowStep): Promise<void> {
     const { prefix, scope, triggeredBy } = event.payload;
 
-    // Admin-initiated: proceed when the grace deadline elapses (intent already expressed).
-    // Cron-triggered: wait-only. Cancel/ineligible throws ConfirmAborted (terminal, no retry).
+    // Admin: proceed at the grace deadline (intent expressed). Cron: wait-only. Cancel/ineligible
+    // throws ConfirmAborted (terminal, no retry).
     await runConfirmation(step, {
       env: this.env,
       scope,
@@ -34,7 +34,7 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
       timeout: `${gcConfig(this.env).purgeConfirmDays} days`,
     });
 
-    // Re-read at execution time — abort if the repo reappeared / was already purged.
+    // Re-read guard — abort if the repo reappeared / was already purged.
     await step.do('guard', async () => {
       const row = await Registry.global(this.env).getStorage(prefix);
       if (!row || row.status === 'purged' || !row.archivedAt)
@@ -54,8 +54,8 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
   }
 }
 
-// Deterministic single-shard id — `create()` throws on a live duplicate (idempotent trigger);
-// approve/cancel + the cron repair reconstruct it from the prefix to wake/heal the instance.
+// Deterministic id — `create()` throws on a live duplicate (idempotent trigger); approve/cancel + the
+// cron repair reconstruct it from the prefix to wake/heal the instance.
 export function purgeInstanceId(prefix: string): string {
   return workflowInstanceId('purge', prefix);
 }
@@ -65,9 +65,8 @@ export function startPurge(env: CloudflareBindings, params: PurgeParams): Promis
   return startWorkflow(env, 'purge', env.PURGE_WORKFLOW, params);
 }
 
-// Wake the waiting purge instance after an approve/cancel. Maps the alert scope back to the
-// canonical prefix (same-key lookup) to rebuild the deterministic id. Best-effort: if the
-// instance is gone the gate re-reads the decision on the next cron repair.
+// Wake the waiting purge instance after an approve/cancel. Best-effort: if the instance is gone the
+// gate re-reads the decision on the next cron repair.
 export async function wakePurge(
   env: CloudflareBindings,
   scope: string,

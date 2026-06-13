@@ -22,6 +22,6 @@ describe('gcConfig', () => {
     const gc = gcConfig({ GC: { purgeConfirmDays: 1, coldStorage: 's3' } } as any);
     expect(gc.purgeConfirmDays).toBe(1);
     expect(gc.coldStorage).toBe('s3');
-    expect(gc.autoArchiveDays).toBe(7); // untouched keys still default
+    expect(gc.autoArchiveDays).toBe(7);
   });
 });

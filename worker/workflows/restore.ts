@@ -16,7 +16,7 @@ export type RestoreParams = {
 
 // Cold Restore: live R2 was cleared (`clearedAt` set), so pull every object back from cold storage,
 // thawing colder Glacier tiers first, then unblock. Repo stays blocked (`archivedAt` set) the whole
-// retrieval window — days for Deep Archive. Admin-only; no confirmation gate.
+// retrieval window — days for Deep Archive.
 export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, RestoreParams> {
   async run(event: WorkflowEvent<RestoreParams>, step: WorkflowStep): Promise<void> {
     const { prefix } = event.payload;

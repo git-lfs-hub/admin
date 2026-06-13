@@ -124,8 +124,8 @@ describe('GET /api/storage', () => {
 
   test('cross-links the matching git repo (same-key), null when none', async () => {
     await reg().upsertStorage('alice/a');
-    await reg().upsertRepo('alice', 'a'); // git repo present
-    await reg().upsertStorage('bob/orphan'); // no matching repo
+    await reg().upsertRepo('alice', 'a');
+    await reg().upsertStorage('bob/orphan');
 
     const res = await exports.default.fetch('http://localhost/api/storage');
     const body = (await res.json()) as {
@@ -149,9 +149,9 @@ describe('GET /api/storage', () => {
 
   test('returns the index usage breakdown by status', async () => {
     await reg().upsertStorage('alice/a');
-    await env.STORAGE.getByName('alice/a').recordObject('oid1', 10, 'download'); // present
-    await env.STORAGE.getByName('alice/a').recordObject('oid2', 5, 'verify'); // present
-    await env.STORAGE.getByName('alice/a').recordObject('oid3', 7, 'upload'); // pending
+    await env.STORAGE.getByName('alice/a').recordObject('oid1', 10, 'download');
+    await env.STORAGE.getByName('alice/a').recordObject('oid2', 5, 'verify');
+    await env.STORAGE.getByName('alice/a').recordObject('oid3', 7, 'upload');
     await reg().upsertStorage('bob/other');
     await env.STORAGE.getByName('bob/other').recordObject('oid', 1, 'download');
 
@@ -229,7 +229,6 @@ describe('POST /api/storage/:owner/:repo/archive', () => {
     const row = await reg().getStorage('alice/gone');
     expect(row?.status).toBe('unused');
     expect(row?.archivedAt).toBeTruthy();
-    // emits an `archived` notification for the scope
     expect(
       await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'archived'),
     ).toMatchObject({
@@ -754,7 +753,7 @@ describe('in-flight purge workflow', () => {
     expect(await res.json()).toEqual({ status: 'cancelled' });
     expect(instance.terminate).toHaveBeenCalled();
     const row = await reg().getStorage('alice/r');
-    expect(row?.activeOp).toBeNull(); // op cleared
+    expect(row?.activeOp).toBeNull();
     expect(row?.status).toBe('unused'); // resting status untouched
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBeNull();
   });

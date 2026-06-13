@@ -55,9 +55,8 @@ const app = new Hono<StorageEnv>()
               ? isoAddDays(row.unusedAt, archiveDays)
               : null,
           willPurgeAt: row.archivedAt ? isoAddDays(row.archivedAt, retentionDays) : null,
-          // In-flight Purge confirm deadline. Op started at `updatedAt` (`beginOp` bumps it,
-          // nothing rewrites the row while waiting), so the gate proceeds `purgeConfirmDays`
-          // later. Computed here for the UI countdown — avoids a STORAGE DO fan-out.
+          // Purge confirm deadline = op-start (`updatedAt`) + `purgeConfirmDays`. Computed here
+          // for the UI countdown to avoid a STORAGE DO fan-out.
           purgeConfirmBy:
             row.activeOp === 'purge' ? isoAddDays(row.updatedAt, gc.purgeConfirmDays) : null,
         };
@@ -66,8 +65,7 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: result });
   })
 
-  // Gate + resolve the row for every per-repo mutation, once (guard first — cross-owner
-  // writes 403 before the lookup). GET `/` above stays global.
+  // Guard before lookup so cross-owner writes 403 before resolving. GET `/` above stays global.
   .use('/:owner/:repo/*', requireOwnerAdmin, withStorage)
 
   // Serve-block. RPC before the DB write so a failure leaves the row unchanged. `unused`-only:
@@ -87,13 +85,12 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: row });
   })
 
-  // Clear the serve-block. Status untouched — link state is reconcile's call. Live still present
-  // (`clearedAt` null) → inline `unblockRepo`, RPC before the DB write. Live cleared (`clearedAt`
-  // set) → durable cold-retrieval workflow (Glacier), which unblocks on completion.
+  // Clear the serve-block. Status untouched — link state is reconcile's call. Live present →
+  // inline `unblockRepo` (RPC before DB write). Live cleared → durable Glacier retrieval.
   .post('/:owner/:repo/restore', async (c) => {
     const cur = c.var.storage;
-    // Purged objects are gone; an in-flight purge is mid-delete — neither serves, so unblocking
-    // is meaningless. Gate both before the block check (a purged row keeps its `archivedAt`).
+    // Purged/mid-purge neither serves, so unblocking is meaningless. Gate before the block check
+    // (a purged row keeps its `archivedAt`).
     if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
     if (cur.activeOp === 'purge') return c.json({ error: 'busy' }, 409);
     if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
@@ -120,8 +117,8 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: row });
   })
 
-  // BackUp live R2 → cold storage. Cold-storage only. Runs on any non-purged prefix (blocked or an
-  // admin pre-warm of a serving one); 409 if an op is already in flight.
+  // Back up live R2 → cold storage. Cold-storage only; any non-purged prefix; 409 if an op is
+  // already in flight.
   .post('/:owner/:repo/backup', async (c) => {
     if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
     const cur = c.var.storage;
@@ -134,9 +131,8 @@ const app = new Hono<StorageEnv>()
     }
   })
 
-  // Delete the cold copy, leaving live R2. Admin-only, no auto-trigger. Cold-storage only; 409
-  // unless a cold copy exists (`backedUpAt`) and live is still present (`clearedAt` null — once
-  // cleared the cold copy is the only copy).
+  // Delete the cold copy, leaving live R2. Cold-storage only; 409 unless a cold copy exists and
+  // live is still present (once cleared the cold copy is the only copy).
   .delete('/:owner/:repo/backup', async (c) => {
     if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
     const cur = c.var.storage;

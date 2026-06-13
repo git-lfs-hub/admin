@@ -33,11 +33,9 @@ export type StorageReconciliationResult = {
   blockedReused: StorageRow[];
 };
 
-/**
- * Singleton registry DO (`getByName("global")`). Three tables: `repos` (git presence),
- * `storage` (prefix lifecycle), `orgs` (reconciliation state). The git↔storage edge is not
- * stored — it is resolved 1:1 by same-key lookup `lc(prefix) ⇔ lc(owner/repo)`.
- */
+/** Singleton registry DO (`getByName("global")`). Tables: `repos` (git presence), `storage`
+ *  (prefix lifecycle), `orgs` (reconciliation state). The git↔storage edge is resolved 1:1 by
+ *  same-key lookup `lc(prefix) ⇔ lc(owner/repo)`, not stored. */
 export class Registry extends DurableObject<CloudflareBindings> {
   private db: DrizzleSqliteDODatabase;
 
@@ -92,9 +90,9 @@ export class Registry extends DurableObject<CloudflareBindings> {
 
   // --- live updates: push a tick to every connected admin SPA on each storage write ---
 
-  // Hibernatable WebSocket: the SPA opens `/api/live` (proxied to this DO). Push-only — we never
-  // read from the socket, so no message/close handlers are needed (the runtime drops closed
-  // sockets from `getWebSockets()`), and it survives DO hibernation between writes.
+  // Hibernatable WebSocket: the SPA opens `/api/live` (proxied to this DO). Push-only — no
+  // message/close handlers needed (the runtime drops closed sockets from `getWebSockets()`), and
+  // it survives DO hibernation between writes.
   override async fetch(req: Request): Promise<Response> {
     if (req.headers.get('upgrade') !== 'websocket')
       return new Response('expected websocket', { status: 426 });
@@ -103,8 +101,8 @@ export class Registry extends DurableObject<CloudflareBindings> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // Wake every connected client to refetch the named topic ('storage' | 'repos'). Called after a
-  // row in that table actually changes; the SPA filters by topic (one socket sees both).
+  // Wake every connected client to refetch the named topic. Called only after a row actually
+  // changes; the SPA filters by topic (one socket sees both).
   private broadcast(topic: 'storage' | 'repos'): void {
     for (const ws of this.ctx.getWebSockets()) ws.send(topic);
   }
@@ -135,16 +133,14 @@ export class Registry extends DurableObject<CloudflareBindings> {
       })
       .onConflictDoUpdate({ target: [repos.owner, repos.repo], set: { updatedAt: now } })
       .returning();
-    // New repo discovered → tell clients; a re-upsert only bumps `updatedAt` (not shown), stay quiet.
+    // New repo → tell clients; a re-upsert only bumps `updatedAt` (not shown), so stay quiet.
     if (!existed) this.broadcast('repos');
     return row;
   }
 
-  /**
-   * Reconcile the `repos` table (git truth) against an org listing: upsert every active repo
-   * (creating rows for newly-listed repos, flipping `missing`→`active`), and mark `missing`
-   * any tracked repo in an active org absent from the listing.
-   */
+  /** Reconcile `repos` against an org listing: upsert every active repo (flipping
+   *  `missing`→`active`), and mark `missing` any tracked repo in an active org absent from
+   *  the listing. */
   async recordReconciliation(input: ReconciliationInput): Promise<ReconciliationResult> {
     const out: ReconciliationResult = { missing: [], reappeared: [] };
     if (input.activeOrgs.size === 0) return out;
@@ -173,8 +169,8 @@ export class Registry extends DurableObject<CloudflareBindings> {
     return out;
   }
 
-  /** Per-repo analogue of `recordReconciliation` for a webhook event (idempotent). Untracked
-   *  repos are created on a present event, ignored on an absent one. */
+  /** Per-repo analogue of `recordReconciliation` for a webhook event. Untracked repos are
+   *  created on a present event, ignored on an absent one. */
   async applyRepoEvent(
     owner: string,
     repo: string,
@@ -250,8 +246,8 @@ export class Registry extends DurableObject<CloudflareBindings> {
       .values({ prefix, firstSeen: now, updatedAt: now })
       .onConflictDoUpdate({ target: storage.prefix, set: { updatedAt: now } })
       .returning();
-    // New prefix discovered → tell clients; a re-upsert only bumps `updatedAt`, which the table
-    // doesn't show, so stay quiet to avoid churn each reconcile tick.
+    // New prefix → tell clients; a re-upsert only bumps `updatedAt` (not shown), so stay quiet
+    // to avoid churn each reconcile tick.
     if (!existed) this.broadcast('storage');
     return row;
   }
@@ -321,11 +317,9 @@ export class Registry extends DurableObject<CloudflareBindings> {
     return rows[0] ?? null;
   }
 
-  /**
-   * Reconcile every non-purged prefix's link state against the `repos` table (same-key match):
-   * a prefix is `used` while its matching git repo is `active`, `unused` otherwise. Returns the
-   * flips, plus `blockedReused` (became used but still blocked) for the caller to unblock/alert.
-   */
+  /** Reconcile every non-purged prefix's link state (same-key match): `used` while its matching
+   *  git repo is `active`, `unused` otherwise. Returns the flips, plus `blockedReused` (became
+   *  used but still blocked) for the caller to unblock/alert. */
   async reconcileStorage(): Promise<StorageReconciliationResult> {
     const out: StorageReconciliationResult = {
       becameUnused: [],
@@ -425,8 +419,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
   }
 
   /** Land a finished BackUp (cross-DO from the STORAGE DO): a cold copy now exists (`backedUpAt`),
-   *  complete only if the prefix stayed blocked under the same `archivedAt` throughout. Status
-   *  untouched (BackUp never moves it). */
+   *  complete only if the prefix stayed blocked under the same `archivedAt` throughout. */
   async endBackup(prefix: string, archivedAtAtStart: string | null): Promise<void> {
     const now = isoNow();
     const row = await this.getStorage(prefix);
@@ -440,9 +433,8 @@ export class Registry extends DurableObject<CloudflareBindings> {
   }
 
   /** Land a finished cold Restore (cross-DO from the STORAGE DO): live R2 holds every object again,
-   *  so clear the block (`archivedAt`) and `clearedAt`, and drop `backupComplete` (the prefix is no
-   *  longer blocked-throughout). `backedUpAt` stays — the cold copy still exists. Status untouched
-   *  (presence is reconcile's call). */
+   *  so clear the block (`archivedAt`/`clearedAt`) and `backupComplete`. `backedUpAt` stays — the
+   *  cold copy still exists. */
   async endRestore(prefix: string): Promise<void> {
     await this.updateStorage(prefix, {
       archivedAt: null,
@@ -460,7 +452,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
   }
 
   /** Land a finished Delete Backup (cross-DO from the STORAGE DO): the cold copy is gone, so clear
-   *  `backedUpAt`/`backupComplete`. Live R2 + status untouched (Delete Backup never moves them). */
+   *  `backedUpAt`/`backupComplete`. Live R2 + status untouched. */
   async endDeleteBackup(prefix: string): Promise<void> {
     await this.updateStorage(prefix, {
       backedUpAt: null,

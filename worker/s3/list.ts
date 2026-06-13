@@ -1,8 +1,7 @@
 import { s3BackupClient, s3BucketUrl } from '@/s3/client';
 
-// List one cursor-paginated page of backup-bucket objects under a prefix (ListObjectsV2). Returns
-// each object's key + storage class so the caller knows whether a thaw is needed. Drives the
-// cold-storage workflow walk (`walkS3Pages`); the backup/purge side walks live R2 instead.
+// List one page of backup-bucket objects under a prefix (ListObjectsV2). Storage class is returned so
+// the caller knows whether a thaw is needed.
 
 export type S3Object = { key: string; storageClass: string };
 export type S3ListPage = { prefix: string; objects: S3Object[]; cursor?: string };
@@ -28,7 +27,7 @@ export async function listS3Page(
   return { prefix, objects, cursor: truncated ? tag(xml, 'NextContinuationToken') : undefined };
 }
 
-// First `<name>…</name>` text (S3 list XML), or '' when absent.
+// First `<name>…</name>` text, or '' when absent.
 function tag(xml: string, name: string): string {
   return xml.match(new RegExp(`<${name}>([^<]*)</${name}>`))?.[1] ?? '';
 }

@@ -32,16 +32,13 @@ export type ConfirmInput = {
   severity?: AlertSeverity;
 };
 
-// `decide` outcomes — the caller (Slack endpoint / SPA api) maps these to HTTP status.
+// `decide` outcomes; the caller maps these to HTTP status.
 export type ActionResult =
   | { ok: true; row: AlertRow }
   | { ok: false; reason: 'not_found' | 'already' };
 
-/**
- * Singleton alerts DO (`getByName("global")`). Every alert lives in one `alerts` table keyed
- * `(scope, kind)` — storage alerts (scope `storage:lc(owner/repo)`) and global health (scope
- * `system:*`) alike. Notify-only kinds raise + supersede; confirmation kinds carry decisions.
- */
+/** Singleton alerts DO (`getByName("global")`). Every alert lives in one `alerts` table keyed
+ *  `(scope, kind)`. Notify kinds raise + supersede; confirmation kinds carry decisions. */
 export class Alerts extends DurableObject<CloudflareBindings> {
   private db: DrizzleSqliteDODatabase;
 
@@ -79,11 +76,9 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     });
   }
 
-  /**
-   * Idempotent so level-triggered callers (reconcile re-sends every unused prefix each tick)
-   * cause no churn. Existing alert left untouched but re-passed to `deliverSlack` — which
-   * still posts if no Slack row exists yet (alert raised while Slack was unconfigured).
-   */
+  // Idempotent so level-triggered callers cause no churn. An existing alert is left untouched but
+  // re-passed to `deliverSlack`, which still posts if no Slack row exists yet (alert raised while
+  // Slack was unconfigured).
   async sendNotification(input: NotifyInput): Promise<AlertRow> {
     const existing = await this.getAlert(input.scope, input.kind);
     if (existing) {
@@ -100,9 +95,9 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     return row;
   }
 
-  // Raise (or re-deliver) a confirmation alert. Idempotent on the `(scope, kind)` PK: an existing
-  // row keeps its `decision` and just re-delivers, so cron repair / a restarted workflow never
-  // resets a prior approve. `clearAlert` drops the row between cycles.
+  // Raise (or re-deliver) a confirmation alert. Idempotent on the PK: an existing row keeps its
+  // `decision` and just re-delivers, so cron repair / a restarted workflow never resets a prior
+  // approve.
   async sendConfirmation(input: ConfirmInput): Promise<AlertRow> {
     const existing = await this.getAlert(input.scope, input.kind);
     if (existing) {
@@ -119,8 +114,8 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     return row;
   }
 
-  // Record an approve / cancel (= the hold) decision + refresh Slack. Duplicate → `already`.
-  // The workflow wake (`sendEvent`) is handled by the caller.
+  // Record an approve / cancel decision + refresh Slack. Duplicate → `already`. The caller wakes
+  // the workflow.
   async decide(
     scope: string,
     kind: ConfirmKind,
@@ -140,9 +135,8 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     return { ok: true, row: updated };
   }
 
-  // Decide, but if the alert row is gone (local dev / DO reset / deliver lag), recreate what the
-  // workflow gate's deliver step would have raised, then decide again. Wake (`sendEvent`) stays
-  // the caller's job.
+  // Decide, but if the alert row is gone (local dev / DO reset / deliver lag), recreate it and
+  // decide again. The caller still wakes the workflow.
   async decideOrRaise(
     scope: string,
     kind: ConfirmKind,
@@ -165,9 +159,9 @@ export class Alerts extends DurableObject<CloudflareBindings> {
   }
 
   async clearAlert(scope: string, kind: string): Promise<void> {
-    // Drop the alert row only — the per-scope `slack` message row persists so the next state
-    // chat.updates it in place rather than posting a new message. Raw SQL: drizzle's
-    // composite-`where` DELETE qualifies columns (`alerts.scope`), which DO SQLite rejects.
+    // Drop the alert row only — the per-scope `slack` row persists so the next state chat.updates
+    // in place. Raw SQL: drizzle's composite-`where` DELETE qualifies columns (`alerts.scope`),
+    // which DO SQLite rejects.
     this.ctx.storage.sql.exec('DELETE FROM alerts WHERE scope = ? AND kind = ?', scope, kind);
   }
 

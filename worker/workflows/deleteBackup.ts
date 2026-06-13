@@ -10,9 +10,9 @@ export type DeleteBackupParams = {
   prefix: string; // STORAGE DO key + R2/S3 key root (canonical OwnerCase/RepoCase)
 };
 
-// Delete Backup: drop every cold-storage object, leaving live R2 untouched. Admin-only, no
-// auto-trigger. Gated on a cold copy existing (`backedUpAt`) and live still present (`clearedAt`
-// null) — once live is cleared the cold copy is the only copy, so deleting it would lose data.
+// Delete Backup: drop every cold-storage object, leaving live R2 untouched. Gated on a cold copy
+// existing (`backedUpAt`) and live still present (`clearedAt` null) — once live is cleared the cold
+// copy is the only copy, so deleting it would lose data.
 export class DeleteBackupWorkflow extends WorkflowEntrypoint<
   CloudflareBindings,
   DeleteBackupParams

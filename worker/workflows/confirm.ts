@@ -5,9 +5,8 @@ import { Alerts } from '@/db/alerts';
 import type { ConfirmKind } from '@/db/alerts-schema';
 import { Registry } from '@/db/registry';
 
-// Workflow-side confirmation gate, kind-agnostic (purge, clear, etc). The gate decision
-// (`readConfirmGate`) + the wait loop (`runConfirmation`). The workflow supplies the real
-// `WorkflowStep`; the approve/cancel `sendEvent` wake lives with the workflow trigger.
+// Workflow-side confirmation gate, kind-agnostic (purge, clear, etc): the wait loop
+// (`runConfirmation`) + the gate decision (`readConfirmGate`).
 
 export type ConfirmCtx = {
   env: CloudflareBindings;
@@ -23,7 +22,7 @@ export type ConfirmCtx = {
 export class ConfirmAborted extends NonRetryableError {}
 
 // Deliver, then loop on `waitForEvent`: approve → proceed; cancel/ineligible → throw; deadline
-// (admin path only) → proceed.
+// (admin only) → proceed.
 export async function runConfirmation(step: WorkflowStep, ctx: ConfirmCtx): Promise<void> {
   const { kind } = ctx;
   await step.do(`confirm:${kind}:deliver`, async () => {

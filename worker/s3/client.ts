@@ -1,7 +1,6 @@
 import { AwsClient } from 'aws4fetch';
 
-// Shared SigV4 access to the external `s3.backup` bucket (AWS S3, no wrangler binding). Used by all
-// cold-storage ops; callers are gated on `GC.coldStorage`.
+// SigV4 client for the external `s3.backup` bucket (AWS S3, no wrangler binding).
 
 // Lets aws4fetch stream a body unhashed (it can't SHA-256 a ReadableStream); S3-over-TLS accepts it.
 export const UNSIGNED_STREAM = { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' } as const;
@@ -16,7 +15,7 @@ export function s3BackupClient(env: CloudflareBindings): AwsClient {
   });
 }
 
-// Path-style URL `https://s3.{region}.amazonaws.com/{bucket}/{key…}` (slashes in `key` stay path segments).
+// Path-style object URL; slashes in `key` stay path segments.
 export function s3ObjectUrl(env: CloudflareBindings, key: string): string {
   const { region, bucket } = env.S3.backup;
   const segments = [bucket, ...key.split('/')].map((s) =>
@@ -25,8 +24,7 @@ export function s3ObjectUrl(env: CloudflareBindings, key: string): string {
   return `https://s3.${region}.amazonaws.com/${segments.join('/')}`;
 }
 
-// Bucket-root URL `https://s3.{region}.amazonaws.com/{bucket}` (no trailing slash) — callers append
-// the operation query (`?list-type=2&…`). Path-style, like `s3ObjectUrl`.
+// Bucket-root URL (no trailing slash) — callers append the operation query (`?list-type=2&…`).
 export function s3BucketUrl(env: CloudflareBindings): string {
   const { region, bucket } = env.S3.backup;
   return `https://s3.${region}.amazonaws.com/${encodeURIComponent(bucket)}`;

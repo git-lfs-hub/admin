@@ -31,8 +31,8 @@ const props = defineProps<{ storage: StorageRow[]; highlight?: string }>();
 
 const { archive, restore, purge, confirmWorkflow, cancelWorkflow } = useStorageMutations();
 
-// Deep-link target from a notification (`?highlight=lc(owner/repo)`): ring the matching row
-// and scroll it into view. The prefix may be cased; match case-insensitively.
+// Deep-link target from a notification (`?highlight=lc(owner/repo)`): ring the matching row and
+// scroll it into view. Prefix may be cased, so match case-insensitively.
 const highlightKey = computed(() => props.highlight?.toLowerCase() ?? null);
 const isHighlighted = (r: StorageRow) =>
   highlightKey.value !== null && r.prefix.toLowerCase() === highlightKey.value;
@@ -51,15 +51,14 @@ const OBJECT_STATUSES = ['present', 'pending', 'missing', 'deleted', 'purged'] a
 const objectBreakdown = (r: StorageRow) =>
   OBJECT_STATUSES.map((s) => ({ status: s, ...r.usage[s] })).filter((o) => o.count > 0);
 
-// Inline confirm: clicking Archive/Restore/Purge swaps the action buttons in place for a
-// {confirm} | Cancel pair with the action's description right underneath. One row confirms at a time.
+// Inline confirm: clicking an action swaps the buttons for a {confirm} | Cancel pair with its
+// description underneath. One row confirms at a time.
 const confirmFor = ref<{ prefix: string; action: StorageAction } | null>(null);
 const startConfirm = (r: StorageRow, action: StorageAction) =>
   (confirmFor.value = { prefix: r.prefix, action });
 
-// Freeze the row order while a confirm is open so a background poll's re-sort (e.g. another row's
-// purge advancing) can't shuffle rows out from under the confirm you're reading. Snapshot the
-// prefix order when the confirm opens; rows still update in place, only their order is pinned.
+// Freeze row order while a confirm is open so a background poll's re-sort can't shuffle rows out
+// from under the confirm you're reading. Rows still update in place; only their order is pinned.
 const frozenOrder = ref<string[] | null>(null);
 watch(confirmFor, (c) => (frozenOrder.value = c ? props.storage.map((r) => r.prefix) : null));
 const rows = computed(() => {
@@ -76,7 +75,6 @@ const confirm = (
   r: StorageRow,
 ) => mutation.mutate({ owner: r.owner, repo: r.repo });
 
-// Run the confirmed mutation, then drop back to the default buttons.
 const runConfirm = (r: StorageRow) => {
   confirm({ archive, restore, purge }[confirmFor.value!.action], r);
   confirmFor.value = null;
@@ -93,11 +91,10 @@ const runConfirm = (r: StorageRow) => {
         :class="isHighlighted(r) ? 'animate-highlight' : ''"
       >
         <ItemContent>
-          <!-- Row 1: prefix + the storage's used/unused state badge, vertically centered. -->
           <div class="flex items-center justify-between gap-4">
             <ItemTitle class="font-mono break-all">{{ r.prefix }}</ItemTitle>
 
-            <!-- State badge: the storage's used/unused state. `used` names the repo it serves. -->
+            <!-- `used` names the repo it serves. -->
             <div data-slot="status" class="shrink-0">
               <HoverCard v-if="r.status === 'used'">
                 <HoverCardTrigger as-child>
@@ -158,15 +155,11 @@ const runConfirm = (r: StorageRow) => {
             </div>
           </div>
 
-          <!-- Row 2: metrics + lifecycle actions, top-aligned so the metrics line sits on the same
-               row as the action buttons and an expanding confirm grows downward (title stays put).
-               Dropped entirely once purged — every object is gone, so size/last-accessed are moot
-               and there are no actions; the row1 badge stands alone (keeps padding symmetric). -->
+          <!-- Dropped once purged — every object is gone, so metrics/actions are moot and the row-1
+               badge stands alone. -->
           <div v-if="r.status !== 'purged'" class="flex items-start justify-between gap-4">
-            <!-- Metrics: stored size (hover → per-status object breakdown), last accessed, and — for
-                 an unused prefix awaiting auto-archive — the relative archive deadline. Each
-                 label+value is a nowrap group so only the "·" dividers wrap, never a label from its
-                 value. -->
+            <!-- Each label+value is a nowrap group so only the "·" dividers wrap, never a label from
+                 its value. -->
             <ItemDescription
               data-slot="metrics"
               class="flex flex-wrap items-center gap-x-2 gap-y-1"
@@ -210,8 +203,7 @@ const runConfirm = (r: StorageRow) => {
                 <span v-else class="text-foreground">—</span>
               </span>
 
-              <!-- Auto-archive deadline for an unused, not-yet-archived prefix: relative ("in 3 d"),
-                 full timestamp on hover. -->
+              <!-- Auto-archive deadline for an unused, not-yet-archived prefix. -->
               <template v-if="r.status === 'unused' && !r.archivedAt && r.willArchiveAt">
                 <span class="text-muted-foreground/50">·</span>
                 <span
@@ -235,11 +227,9 @@ const runConfirm = (r: StorageRow) => {
               </template>
             </ItemDescription>
 
-            <!-- Lifecycle actions: top-aligned with the metrics line so they share a row; an
-                 expanding inline confirm grows downward. -->
             <div data-slot="lifecycle" class="flex shrink-0 flex-col items-end gap-2">
-              <!-- A Purge workflow is in flight, waiting for confirmation: show the countdown to the
-                   auto-proceed deadline plus inline Confirm (delete now) / Cancel (abort). -->
+              <!-- Purge workflow in flight: countdown to the auto-proceed deadline plus inline
+                   Confirm (delete now) / Cancel (abort). -->
               <div
                 v-if="r.activeOp === 'purge'"
                 data-slot="actions"
@@ -278,15 +268,13 @@ const runConfirm = (r: StorageRow) => {
                 >
               </div>
 
-              <!-- Unused: archived rows offer Restore, not-yet-archived rows offer Archive. Purge is the
-               destructive overflow — enabled only once archived. Clicking an action swaps these
-               buttons in place for an inline {confirm} | Cancel pair with the description underneath. -->
+              <!-- Unused: archived rows offer Restore, not-yet-archived rows offer Archive. Purge is
+                   the destructive overflow, enabled only once archived. -->
               <div
                 v-else-if="r.status === 'unused'"
                 data-slot="actions"
                 class="flex flex-col items-end gap-2"
               >
-                <!-- Confirming: inline confirm replaces the action buttons. -->
                 <template v-if="confirmFor && confirmFor.prefix === r.prefix">
                   <div data-slot="confirm" class="flex items-center gap-2">
                     <!-- Purge needs an archived prefix; otherwise the confirm is blocked (Archive first). -->
