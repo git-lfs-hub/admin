@@ -5,7 +5,7 @@ import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { copyObject } from '@/s3/copy';
 import { r2Store } from '@/s3/r2-store';
-import { s3HeadRestored, s3RestoreObject } from '@/s3/restore';
+import { s3NeedsThaw, s3Ready, s3RestoreObject } from '@/s3/restore';
 import { s3Store } from '@/s3/s3-store';
 import { unblockServer } from '@/server/operations';
 import { startWorkflow, walkS3Pages } from '@/workflows/lifecycle';
@@ -33,9 +33,9 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     // re-lists its page via the `list()` thunk, so no key list is persisted across the sleeps
     // (instance state stays cursor-sized regardless of object count).
 
-    // 1. Initiate the async retrieval for every colder object (no-op for `GLACIER_IR`; idempotent).
+    // 1. Initiate the async retrieval for every colder object (no-op for `GLACIER_IR`; idempotent)
     await walkS3Pages(step, this.env, prefix, 'thaw', async (objects) => {
-      await Promise.all(objects.filter(colder).map((o) => s3RestoreObject(this.env, o.key)));
+      await Promise.all(objects.filter(s3NeedsThaw).map((o) => s3RestoreObject(this.env, o)));
     });
 
     // 2. Wait until every page's colder objects are retrievable — one shared retrieval window. The
@@ -43,7 +43,7 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     for (let t = 0; ; t++) {
       const allReady = await walkS3Pages(step, this.env, prefix, `poll:${t}`, async (objects) => {
         const states = await Promise.all(
-          objects.filter(colder).map((o) => s3HeadRestored(this.env, o.key)),
+          objects.filter(s3NeedsThaw).map((o) => s3Ready(this.env, o)),
         );
         return states.every(Boolean);
       });
@@ -64,12 +64,6 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
       Storage.byPrefix(this.env, prefix).endRestoreOp(prefix, event.instanceId),
     );
   }
-}
-
-// `GLACIER_IR` is read immediately; colder tiers (`GLACIER`/`DEEP_ARCHIVE`) need an async
-// `RestoreObject` + retrieval wait first.
-function colder(o: { storageClass: string }): boolean {
-  return o.storageClass !== 'GLACIER_IR';
 }
 
 // Reserve the op (409 if the prefix is already busy) then create the workflow instance.

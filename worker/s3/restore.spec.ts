@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { copyObject } from '@/s3/copy';
 import { r2Store } from '@/s3/r2-store';
-import { s3HeadRestored, s3RestoreObject } from '@/s3/restore';
+import { s3NeedsThaw, s3Ready, s3RestoreObject } from '@/s3/restore';
 import { s3Store } from '@/s3/s3-store';
 
 // The restore direction (S3 → R2) of `copyObject`, exercised through the real stores so this covers
@@ -22,59 +22,148 @@ function env() {
 
 afterEach(() => vi.restoreAllMocks());
 
-// --- s3RestoreObject ---
+function headResponse(headers: Record<string, string> = {}) {
+  return new Response(null, { status: 200, headers });
+}
 
-describe('s3RestoreObject', () => {
-  test('POST ?restore with a RestoreRequest body', async () => {
-    const spy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 202 }));
-    await s3RestoreObject(env(), 'A/R/o1');
-    const req = spy.mock.calls[0][0] as Request;
-    expect(req.method).toBe('POST');
-    expect(new URL(req.url).searchParams.has('restore')).toBe(true);
-    expect(await req.text()).toContain('<RestoreRequest>');
-  });
+// --- s3NeedsThaw ---
 
-  test('409 RestoreAlreadyInProgress → no-op (idempotent resume)', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 409 }));
-    await expect(s3RestoreObject(env(), 'A/R/o1')).resolves.toBeUndefined();
-  });
-
-  test('other failure → throws', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
-    await expect(s3RestoreObject(env(), 'A/R/o1')).rejects.toThrow(/RestoreObject/);
+describe('s3NeedsThaw', () => {
+  test.each([
+    ['GLACIER', true],
+    ['INTELLIGENT_TIERING', true],
+    ['GLACIER_IR', false],
+    ['STANDARD', false],
+  ])('%s → %s', (storageClass, expected) => {
+    expect(s3NeedsThaw({ storageClass })).toBe(expected);
   });
 });
 
-// --- s3HeadRestored ---
+// --- s3Ready ---
 
-describe('s3HeadRestored', () => {
-  const head = (restore?: string) =>
-    vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(null, { status: 200, headers: restore ? { 'x-amz-restore': restore } : {} }),
-      );
-
-  test('ongoing-request="false" → ready', async () => {
-    head('ongoing-request="false", expiry-date="Wed, 01 Jan 2025 00:00:00 GMT"');
-    expect(await s3HeadRestored(env(), 'A/R/o1')).toBe(true);
+describe('s3Ready', () => {
+  test('INTELLIGENT_TIERING frequent tier → true', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(headResponse());
+    expect(await s3Ready(env(), { key: 'A/R/o1', storageClass: 'INTELLIGENT_TIERING' })).toBe(true);
   });
 
-  test('ongoing-request="true" → not ready', async () => {
-    head('ongoing-request="true"');
-    expect(await s3HeadRestored(env(), 'A/R/o1')).toBe(false);
+  test('INTELLIGENT_TIERING archive, restore in progress → false (one HEAD)', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      headResponse({
+        'x-amz-archive-status': 'ARCHIVE_ACCESS',
+        'x-amz-restore': 'ongoing-request="true"',
+      }),
+    );
+    expect(await s3Ready(env(), { key: 'A/R/o1', storageClass: 'INTELLIGENT_TIERING' })).toBe(
+      false,
+    );
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  test('no x-amz-restore header → not ready', async () => {
-    head();
-    expect(await s3HeadRestored(env(), 'A/R/o1')).toBe(false);
+  test('INTELLIGENT_TIERING archive, restore complete → true', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      headResponse({
+        'x-amz-archive-status': 'ARCHIVE_ACCESS',
+        'x-amz-restore': 'ongoing-request="false"',
+      }),
+    );
+    expect(await s3Ready(env(), { key: 'A/R/o1', storageClass: 'INTELLIGENT_TIERING' })).toBe(true);
+  });
+
+  test('GLACIER without restore header → false', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(headResponse());
+    expect(await s3Ready(env(), { key: 'A/R/o1', storageClass: 'GLACIER' })).toBe(false);
+  });
+
+  test('GLACIER restore complete → true', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      headResponse({
+        'x-amz-restore': 'ongoing-request="false", expiry-date="Wed, 01 Jan 2025 00:00:00 GMT"',
+      }),
+    );
+    expect(await s3Ready(env(), { key: 'A/R/o1', storageClass: 'GLACIER' })).toBe(true);
+  });
+
+  test('GLACIER restore in progress → false', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      headResponse({ 'x-amz-restore': 'ongoing-request="true"' }),
+    );
+    expect(await s3Ready(env(), { key: 'A/R/o1', storageClass: 'GLACIER' })).toBe(false);
   });
 
   test('HEAD failure → throws', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 403 }));
-    await expect(s3HeadRestored(env(), 'A/R/o1')).rejects.toThrow(/S3 HEAD/);
+    await expect(s3Ready(env(), { key: 'A/R/o1', storageClass: 'GLACIER' })).rejects.toThrow(
+      /S3 HEAD/,
+    );
+  });
+});
+
+// --- s3RestoreObject ---
+
+describe('s3RestoreObject', () => {
+  test('POST ?restore with Days for Glacier classes', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    await s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'GLACIER' });
+    const req = spy.mock.calls[0][0] as Request;
+    expect(req.method).toBe('POST');
+    expect(new URL(req.url).searchParams.has('restore')).toBe(true);
+    const body = await req.text();
+    expect(body).toContain('<Days>7</Days>');
+    expect(body).toContain('<RestoreRequest>');
+  });
+
+  test('POST ?restore without Days for INTELLIGENT_TIERING archive', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    await s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'INTELLIGENT_TIERING' });
+    const body = await (spy.mock.calls[0][0] as Request).text();
+    expect(body).not.toContain('<Days>');
+    expect(body).toContain('<GlacierJobParameters>');
+  });
+
+  test('409 RestoreAlreadyInProgress → no-op (idempotent resume)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 409 }));
+    await expect(
+      s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'GLACIER' }),
+    ).resolves.toBeUndefined();
+  });
+
+  test('403 ObjectAlreadyInActiveTierError → no-op (already readable)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<Error><Code>ObjectAlreadyInActiveTierError</Code></Error>', { status: 403 }),
+    );
+    await expect(
+      s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'STANDARD' }),
+    ).resolves.toBeUndefined();
+  });
+
+  test('403 InvalidObjectState → no-op (IT object not in an archive tier)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<Error><Code>InvalidObjectState</Code></Error>', { status: 403 }),
+    );
+    await expect(
+      s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'INTELLIGENT_TIERING' }),
+    ).resolves.toBeUndefined();
+  });
+
+  test('403 AccessDenied → throws', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 }),
+    );
+    await expect(
+      s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'GLACIER' }),
+    ).rejects.toThrow(/RestoreObject/);
+  });
+
+  test('other failure → throws', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
+    await expect(
+      s3RestoreObject(env(), { key: 'A/R/o1', storageClass: 'GLACIER' }),
+    ).rejects.toThrow(/RestoreObject/);
   });
 });
 

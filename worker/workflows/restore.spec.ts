@@ -11,7 +11,7 @@ type S3Page = { prefix: string; objects: { key: string; storageClass: string }[]
 const listS3Page = vi.fn<(...a: unknown[]) => Promise<S3Page>>();
 const copyObject = vi.fn<(...a: unknown[]) => Promise<void>>();
 const s3RestoreObject = vi.fn<(...a: unknown[]) => Promise<void>>();
-const s3HeadRestored = vi.fn<(...a: unknown[]) => Promise<boolean>>();
+const s3Ready = vi.fn<(...a: unknown[]) => Promise<boolean>>();
 vi.mock('@/s3/list', () => ({
   listS3Page: (env: unknown, prefix: unknown, cursor: unknown) => listS3Page(env, prefix, cursor),
 }));
@@ -20,10 +20,14 @@ vi.mock('@/s3/copy', () => ({
 }));
 vi.mock('@/s3/s3-store', () => ({ s3Store: () => 'S3' }));
 vi.mock('@/s3/r2-store', () => ({ r2Store: () => 'R2' }));
-vi.mock('@/s3/restore', () => ({
-  s3RestoreObject: (env: unknown, key: unknown) => s3RestoreObject(env, key),
-  s3HeadRestored: (env: unknown, key: unknown) => s3HeadRestored(env, key),
-}));
+vi.mock('@/s3/restore', async (importActual) => {
+  const actual = await importActual<typeof import('@/s3/restore')>();
+  return {
+    ...actual,
+    s3Ready: (env: unknown, o: unknown) => s3Ready(env, o),
+    s3RestoreObject: (env: unknown, o: unknown) => s3RestoreObject(env, o),
+  };
+});
 const unblockServer = vi.fn<(...a: unknown[]) => Promise<void>>();
 vi.mock('@/server/operations', () => ({
   unblockServer: (env: unknown, prefix: unknown) => unblockServer(env, prefix),
@@ -70,7 +74,10 @@ const cleared = {
 const irObj = (key: string) => ({ key, storageClass: 'GLACIER_IR' });
 
 describe('RestoreWorkflow.run', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    s3Ready.mockResolvedValue(true);
+  });
 
   test('GLACIER_IR page: thaw (no-op) → ready at once (no sleep) → pull all, then unblock + finish', async () => {
     listS3Page.mockResolvedValue({ prefix: 'A/R/', objects: [irObj('A/R/o1'), irObj('A/R/o2')] });
@@ -81,11 +88,27 @@ describe('RestoreWorkflow.run', () => {
 
     expect(listS3Page).toHaveBeenCalledWith(env, 'A/R/', undefined); // re-listed per sub-step
     expect(s3RestoreObject).not.toHaveBeenCalled(); // GLACIER_IR needs no thaw
-    expect(s3HeadRestored).not.toHaveBeenCalled(); // poll filters colder → empty → ready, no sleep
+    expect(s3Ready).not.toHaveBeenCalled();
     expect(copyObject).toHaveBeenCalledWith('A/R/o1', 'S3', 'R2');
     expect(copyObject).toHaveBeenCalledWith('A/R/o2', 'S3', 'R2');
     expect(unblockServer).toHaveBeenCalledWith(env, 'A/R');
     expect(endRestoreOp).toHaveBeenCalledWith('A/R', 'restore-abc');
+    expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
+  });
+
+  test('STANDARD page: no thaw/poll, pull immediately (legacy or missing StorageClass)', async () => {
+    listS3Page.mockResolvedValue({
+      prefix: 'A/R/',
+      objects: [{ key: 'A/R/o1', storageClass: 'STANDARD' }],
+    });
+    const { env } = envWith(cleared);
+    const { step, calls } = fakeStep();
+
+    await run(env, step);
+
+    expect(s3RestoreObject).not.toHaveBeenCalled();
+    expect(s3Ready).not.toHaveBeenCalled();
+    expect(copyObject).toHaveBeenCalledWith('A/R/o1', 'S3', 'R2');
     expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
   });
 
@@ -94,14 +117,17 @@ describe('RestoreWorkflow.run', () => {
       prefix: 'A/R/',
       objects: [{ key: 'A/R/cold', storageClass: 'DEEP_ARCHIVE' }],
     });
-    s3HeadRestored.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    s3Ready.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const { env } = envWith(cleared);
     const { step, calls } = fakeStep();
 
     await run(env, step);
 
-    expect(s3RestoreObject).toHaveBeenCalledWith(env, 'A/R/cold');
-    expect(s3HeadRestored).toHaveBeenCalledTimes(2); // not-ready, then ready
+    expect(s3RestoreObject).toHaveBeenCalledWith(env, {
+      key: 'A/R/cold',
+      storageClass: 'DEEP_ARCHIVE',
+    });
+    expect(s3Ready).toHaveBeenCalledTimes(2); // poll:0 + poll:1
     expect(copyObject).toHaveBeenCalledWith('A/R/cold', 'S3', 'R2');
     expect(calls).toEqual([
       'begin',
@@ -128,7 +154,7 @@ describe('RestoreWorkflow.run', () => {
             },
       ),
     );
-    s3HeadRestored.mockResolvedValue(true); // both ready on the first scan
+    s3Ready.mockResolvedValue(true); // poll only
     const { env } = envWith(cleared);
     const { step, calls } = fakeStep();
 
@@ -146,8 +172,14 @@ describe('RestoreWorkflow.run', () => {
       'unblock',
       'finish',
     ]);
-    expect(s3RestoreObject).toHaveBeenCalledWith(env, 'A/R/o1');
-    expect(s3RestoreObject).toHaveBeenCalledWith(env, 'A/R/o2');
+    expect(s3RestoreObject).toHaveBeenCalledWith(env, {
+      key: 'A/R/o1',
+      storageClass: 'DEEP_ARCHIVE',
+    });
+    expect(s3RestoreObject).toHaveBeenCalledWith(env, {
+      key: 'A/R/o2',
+      storageClass: 'DEEP_ARCHIVE',
+    });
     expect(copyObject).toHaveBeenCalledTimes(2);
     expect(listS3Page).toHaveBeenCalledWith(env, 'A/R/', 'c1'); // page 2 re-listed from the cursor
   });
@@ -158,7 +190,7 @@ describe('RestoreWorkflow.run', () => {
       objects: [{ key: 'A/R/cold', storageClass: 'GLACIER' }],
     });
     // tick 0: not ready → sleep; tick 1: ready.
-    s3HeadRestored.mockResolvedValueOnce(false).mockResolvedValue(true);
+    s3Ready.mockResolvedValueOnce(false).mockResolvedValue(true);
     const { env } = envWith(cleared);
     const { step, calls } = fakeStep();
 
@@ -166,6 +198,44 @@ describe('RestoreWorkflow.run', () => {
 
     expect(calls).toContain('sleep:wait:0');
     expect(calls.filter((c) => c.startsWith('poll:')).length).toBe(2); // poll:0:0, poll:1:0
+  });
+
+  test('INTELLIGENT_TIERING archive → thaw with IT body → poll until restored', async () => {
+    listS3Page.mockResolvedValue({
+      prefix: 'A/R/',
+      objects: [{ key: 'A/R/it', storageClass: 'INTELLIGENT_TIERING' }],
+    });
+    s3Ready.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const { env } = envWith(cleared);
+    const { step, calls } = fakeStep();
+
+    await run(env, step);
+
+    expect(s3RestoreObject).toHaveBeenCalledWith(env, {
+      key: 'A/R/it',
+      storageClass: 'INTELLIGENT_TIERING',
+    });
+    expect(s3Ready).toHaveBeenCalledTimes(2);
+    expect(calls).toContain('sleep:wait:0');
+  });
+
+  test('INTELLIGENT_TIERING frequent tier → POST restore (403 no-op), poll ready at once', async () => {
+    listS3Page.mockResolvedValue({
+      prefix: 'A/R/',
+      objects: [{ key: 'A/R/it', storageClass: 'INTELLIGENT_TIERING' }],
+    });
+    s3Ready.mockResolvedValue(true);
+    const { env } = envWith(cleared);
+    const { step, calls } = fakeStep();
+
+    await run(env, step);
+
+    expect(s3RestoreObject).toHaveBeenCalledWith(env, {
+      key: 'A/R/it',
+      storageClass: 'INTELLIGENT_TIERING',
+    });
+    expect(s3Ready).toHaveBeenCalledTimes(1); // poll only
+    expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
   });
 
   test.each([
