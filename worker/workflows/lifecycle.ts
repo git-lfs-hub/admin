@@ -3,20 +3,24 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { Storage } from '@/db/storage';
 import type { WorkflowOp } from '@/db/storage-schema';
 import { listS3Page, type S3Object } from '@/s3/list';
-import { workflowInstanceId } from '@/workflows/instanceId';
 
 // Shared scaffolding for the lifecycle workflows (backup / purge / restore).
 
+// `<op>-<uuid>` — fresh per run so a rerun never collides with a prior (completed) instance.
+export function workflowInstanceId(op: string): string {
+  return `${op}-${crypto.randomUUID()}`;
+}
+
 // Reserve the op on the STORAGE DO (409 if the prefix is busy with a *different* op), then create
-// the deterministic instance. The id is reconstructable from `(op, prefix)`, so a later approve/cancel
-// can wake the running instance.
+// the instance under a fresh `<op>-<uuid>` id (recorded in the `workflows` table). A later
+// approve/cancel reads the id back via `Storage.activeInstanceId`, not from the prefix.
 export async function startWorkflow<P extends { prefix: string }>(
   env: CloudflareBindings,
   op: WorkflowOp,
   workflow: Workflow<P>,
   params: P,
 ): Promise<string> {
-  const id = workflowInstanceId(op, params.prefix);
+  const id = workflowInstanceId(op);
   await Storage.byPrefix(env, params.prefix).beginOp(params.prefix, id, op);
   await workflow.create({ id, params });
   return id;

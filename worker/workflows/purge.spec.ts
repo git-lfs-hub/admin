@@ -2,7 +2,7 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { purgeServer } from '@/server/operations';
-import { PurgeWorkflow, purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
+import { PurgeWorkflow, startPurge, wakePurge } from '@/workflows/purge';
 
 // Gate + RPC cleanup are covered by their own units (confirm.spec, operations.spec) — stub them so
 // the test drives PurgeWorkflow.run's own logic: the guard re-read and the R2 cursor-walk delete loop.
@@ -111,21 +111,8 @@ describe('PurgeWorkflow.run', () => {
   });
 });
 
-describe('purgeInstanceId', () => {
-  // Must be a valid Workflow instance id: `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$` (no `/`, `.`, `:`).
-  test('deterministic, valid-charset id from the prefix', async () => {
-    const id = purgeInstanceId('Alice/Repo.git');
-    expect(id).toMatch(/^purge-[0-9A-Za-z_]{1,64}$/);
-    expect(id).toBe(purgeInstanceId('Alice/Repo.git'));
-  });
-
-  test('different prefixes → different ids', async () => {
-    expect(purgeInstanceId('a/b')).not.toBe(purgeInstanceId('a/c'));
-  });
-});
-
 describe('startPurge', () => {
-  test('reserves the op then creates the instance with the deterministic id', async () => {
+  test('reserves the op then creates the instance with a fresh id', async () => {
     const beginOp = vi.fn(async () => {});
     const create = vi.fn(async () => {});
     const env = {
@@ -134,10 +121,9 @@ describe('startPurge', () => {
     } as any;
     const params = { prefix: 'a/r', scope: 'storage:a/r', triggeredBy: 'admin' as const };
     const id = await startPurge(env, params);
-    const expected = purgeInstanceId('a/r');
-    expect(id).toBe(expected);
-    expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'purge');
-    expect(create).toHaveBeenCalledWith({ id: expected, params });
+    expect(id).toMatch(/^purge-[0-9a-f-]{36}$/);
+    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'purge');
+    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });
 
@@ -148,6 +134,7 @@ describe('wakePurge', () => {
         REGISTRY: {
           getByName: () => ({ storageForRepo: async () => (prefix ? { prefix } : null) }),
         },
+        STORAGE: { getByName: () => ({ activeInstanceId: async () => 'purge-abc123' }) },
         PURGE_WORKFLOW: { get: async () => ({ sendEvent }) },
       } as any,
       sendEvent,
@@ -172,6 +159,7 @@ describe('wakePurge', () => {
   test('gone instance (get throws) is swallowed', async () => {
     const e = {
       REGISTRY: { getByName: () => ({ storageForRepo: async () => ({ prefix: 'a/r' }) }) },
+      STORAGE: { getByName: () => ({ activeInstanceId: async () => 'purge-abc123' }) },
       PURGE_WORKFLOW: {
         get: async () => {
           throw new Error('not found');

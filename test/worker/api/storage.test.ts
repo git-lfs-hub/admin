@@ -6,8 +6,6 @@ import { describe, test, expect, afterEach, vi } from 'vitest';
 import type { AppEnv } from '@/_env';
 import storageApp from '@/api/storage';
 import type { Registry } from '@/db/registry';
-import { workflowInstanceId } from '@/workflows/instanceId';
-import { purgeInstanceId } from '@/workflows/purge';
 
 // The real worker gates `/api/*` with `auth`, which sets `c.var.admin`. Driving the sub-app
 // directly skips that, so wrap it to inject the authed identity the way auth would.
@@ -336,7 +334,7 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ status: 'restoring' });
     expect(RESTORE_WORKFLOW.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: workflowInstanceId('restore', 'alice/cold') }),
+      expect.objectContaining({ id: expect.stringMatching(/^restore-[0-9a-f-]{36}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/cold').activeOp()).toBe('restore');
     expect(unblockRepo).not.toHaveBeenCalled(); // unblock is the workflow's finish step, not inline
@@ -418,7 +416,7 @@ describe('POST /api/storage/:o/:r/clear (cold storage on)', () => {
     const res = await post('/alice/r/clear', e);
     expect(res.status).toBe(202);
     expect(CLEAR_WORKFLOW.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.stringMatching(/^clear-[0-9A-Za-z_]{1,64}$/) }),
+      expect.objectContaining({ id: expect.stringMatching(/^clear-[0-9a-f-]{36}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('clear');
   });
@@ -491,7 +489,7 @@ describe('DELETE /api/storage/:o/:r/backup (cold storage on)', () => {
     const res = await del('/alice/r/backup', e);
     expect(res.status).toBe(202);
     expect(DELETE_BACKUP_WORKFLOW.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.stringMatching(/^deleteBackup-[0-9A-Za-z_]{1,64}$/) }),
+      expect.objectContaining({ id: expect.stringMatching(/^deleteBackup-[0-9a-f-]{36}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('deleteBackup');
   });
@@ -545,7 +543,7 @@ describe('POST /api/storage/:o/:r/backup (cold storage on)', () => {
     const res = await post('/alice/r/backup', e);
     expect(res.status).toBe(202);
     expect(BACKUP_WORKFLOW.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.stringMatching(/^backup-[0-9A-Za-z_]{1,64}$/) }),
+      expect.objectContaining({ id: expect.stringMatching(/^backup-[0-9a-f-]{36}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('backup');
   });
@@ -641,7 +639,7 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     const res = await purge('/alice/r/purge', e, { token: prev.token });
     expect(res.status).toBe(202);
     expect(PURGE_WORKFLOW.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: expect.stringMatching(/^purge-[0-9A-Za-z_]{1,64}$/) }),
+      expect.objectContaining({ id: expect.stringMatching(/^purge-[0-9a-f-]{36}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('purge');
   });
@@ -659,7 +657,7 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
 // Reserve a purge op so the prefix reads `activeOp = 'purge'` (the in-flight workflow state).
 async function seedActivePurge(prefix: string) {
   await seedArchived(prefix);
-  await env.STORAGE.getByName(prefix).beginOp(prefix, purgeInstanceId(prefix), 'purge');
+  await env.STORAGE.getByName(prefix).beginOp(prefix, `purge-${crypto.randomUUID()}`, 'purge');
 }
 
 describe('in-flight purge workflow', () => {

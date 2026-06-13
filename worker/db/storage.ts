@@ -206,6 +206,16 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return row?.op ?? null;
   }
 
+  /** Instance id of the active (un-ended) `op`, for waking/cancelling it. Null if none. */
+  async activeInstanceId(op: WorkflowOp): Promise<string | null> {
+    const [row] = await this.db
+      .select({ instanceId: workflows.instanceId })
+      .from(workflows)
+      .where(and(isNull(workflows.endedAt), eq(workflows.op, op)))
+      .limit(1);
+    return row?.instanceId ?? null;
+  }
+
   /** Start (a shard of) an op. Refused while busy with a *different* op (409); same-op shards
    *  allowed. Denormalizes `activeOp` onto `REGISTRY.storage` (list view, no fan-out). */
   async beginOp(

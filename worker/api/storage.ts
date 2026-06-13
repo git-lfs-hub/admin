@@ -13,7 +13,7 @@ import { archive, restore } from '@/server/operations';
 import { startBackup } from '@/workflows/backup';
 import { startClear } from '@/workflows/clear';
 import { startDeleteBackup } from '@/workflows/deleteBackup';
-import { purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
+import { startPurge, wakePurge } from '@/workflows/purge';
 import { startRestore } from '@/workflows/restore';
 
 // `:owner/:repo` routes carry the resolved storage row in `c.var.storage`.
@@ -196,7 +196,7 @@ const app = new Hono<StorageEnv>()
     const { owner, repo } = c.req.param();
     const scope = scopeFor(owner, repo);
     const by = `admin:${c.var.admin}`;
-    const res = await Alerts.global(c.env).decideOrRaise(scope, 'purge', 'approve', by);
+    const res = await Alerts.global(c.env).recordDecision(scope, 'purge', 'approve', by);
     if (!res.ok) return c.json({ error: res.reason }, res.reason === 'not_found' ? 404 : 409);
     await wakePurge(c.env, scope, 'approve', by);
     return c.json({ status: 'confirmed' });
@@ -208,17 +208,19 @@ const app = new Hono<StorageEnv>()
     const cur = c.var.storage;
     const { owner, repo } = c.req.param();
     const scope = scopeFor(owner, repo);
-    // Records the hold and refreshes the Slack message to "cancelled" (best-effort).
-    await Alerts.global(c.env).decideOrRaise(scope, 'purge', 'cancel', `admin:${c.var.admin}`);
+    // Audit who cancelled + flip the Slack message to "cancelled" (chat.update in place). The run
+    // itself is stopped below by terminate(); this is only the human-facing/audit side.
+    await Alerts.global(c.env).recordDecision(scope, 'purge', 'cancel', `admin:${c.var.admin}`);
     const store = Storage.byPrefix(c.env, cur.prefix);
-    await store.requestCancel();
-    const id = purgeInstanceId(cur.prefix);
-    try {
-      (await c.env.PURGE_WORKFLOW.get(id)).terminate();
-    } catch {
-      // workflow already finished/terminated — nothing to stop
+    const id = await store.activeInstanceId('purge');
+    if (id) {
+      try {
+        (await c.env.PURGE_WORKFLOW.get(id)).terminate();
+      } catch {
+        // workflow already finished/terminated — nothing to stop
+      }
+      await store.endOp(cur.prefix, id, 'terminated', cur.status);
     }
-    await store.endOp(cur.prefix, id, 'terminated', cur.status);
     return c.json({ status: 'cancelled' });
   });
 

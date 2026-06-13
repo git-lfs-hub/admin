@@ -2,7 +2,6 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { BackupWorkflow, startBackup } from '@/workflows/backup';
-import { workflowInstanceId } from '@/workflows/instanceId';
 
 // copyObject + the stores are covered by their own units (s3/copy.spec, s3/backup.spec) — stub them
 // so the test drives the workflow's own logic: the start-capture of `archivedAt`, the R2 cursor-walk,
@@ -121,7 +120,7 @@ describe('BackupWorkflow.run', () => {
 });
 
 describe('startBackup', () => {
-  test('reserves the op then creates the instance with the deterministic id', async () => {
+  test('reserves the op then creates the instance with a fresh id', async () => {
     const beginOp = vi.fn(async () => {});
     const create = vi.fn(async () => {});
     const env = {
@@ -130,9 +129,22 @@ describe('startBackup', () => {
     } as unknown as CloudflareBindings;
     const params = { prefix: 'a/r' };
     const id = await startBackup(env, params);
-    const expected = workflowInstanceId('backup', 'a/r');
-    expect(id).toBe(expected);
-    expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'backup');
-    expect(create).toHaveBeenCalledWith({ id: expected, params });
+    expect(id).toMatch(/^backup-[0-9a-f-]{36}$/);
+    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'backup');
+    expect(create).toHaveBeenCalledWith({ id, params });
+  });
+
+  // A rerun on the same prefix must get a fresh id — a deterministic id collides with the prior
+  // (completed) instance, which Cloudflare keeps forever and refuses to recreate.
+  test('reruns on the same prefix get distinct ids', async () => {
+    const create = vi.fn(async () => {});
+    const env = {
+      STORAGE: { getByName: () => ({ beginOp: async () => {} }) },
+      BACKUP_WORKFLOW: { create },
+    } as unknown as CloudflareBindings;
+    const params = { prefix: 'a/r' };
+    const first = await startBackup(env, params);
+    const second = await startBackup(env, params);
+    expect(second).not.toBe(first);
   });
 });

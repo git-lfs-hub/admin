@@ -2,7 +2,6 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { ClearWorkflow, startClear } from '@/workflows/clear';
-import { workflowInstanceId } from '@/workflows/instanceId';
 
 // Drives ClearWorkflow.run's own logic: the eligibility re-read, the start-of-run `markCleared`,
 // the R2 cursor-walk delete loop, and the finish handoff (status untouched).
@@ -126,7 +125,7 @@ describe('ClearWorkflow.run', () => {
 });
 
 describe('startClear', () => {
-  test('reserves the op then creates the instance with the deterministic id', async () => {
+  test('reserves the op then creates the instance with a fresh id', async () => {
     const beginOp = vi.fn(async () => {});
     const create = vi.fn(async () => {});
     const env = {
@@ -135,9 +134,8 @@ describe('startClear', () => {
     } as unknown as CloudflareBindings;
     const params = { prefix: 'a/r' };
     const id = await startClear(env, params);
-    const expected = workflowInstanceId('clear', 'a/r');
-    expect(id).toBe(expected);
-    expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'clear');
-    expect(create).toHaveBeenCalledWith({ id: expected, params });
+    expect(id).toMatch(/^clear-[0-9a-f-]{36}$/);
+    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'clear');
+    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });

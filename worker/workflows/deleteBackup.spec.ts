@@ -2,7 +2,6 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { DeleteBackupWorkflow, startDeleteBackup } from '@/workflows/deleteBackup';
-import { workflowInstanceId } from '@/workflows/instanceId';
 
 // s3DeleteObject + listS3Page are covered by their own units — stub them so the test drives the
 // workflow's own logic: the eligibility re-read, the cold-storage cursor-walk, and the finish handoff.
@@ -93,7 +92,7 @@ describe('DeleteBackupWorkflow.run', () => {
 });
 
 describe('startDeleteBackup', () => {
-  test('reserves the op then creates the instance with the deterministic id', async () => {
+  test('reserves the op then creates the instance with a fresh id', async () => {
     const beginOp = vi.fn(async () => {});
     const create = vi.fn(async () => {});
     const env = {
@@ -102,9 +101,8 @@ describe('startDeleteBackup', () => {
     } as unknown as CloudflareBindings;
     const params = { prefix: 'a/r' };
     const id = await startDeleteBackup(env, params);
-    const expected = workflowInstanceId('deleteBackup', 'a/r');
-    expect(id).toBe(expected);
-    expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'deleteBackup');
-    expect(create).toHaveBeenCalledWith({ id: expected, params });
+    expect(id).toMatch(/^deleteBackup-[0-9a-f-]{36}$/);
+    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'deleteBackup');
+    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });

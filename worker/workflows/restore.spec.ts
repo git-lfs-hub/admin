@@ -1,7 +1,6 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { workflowInstanceId } from '@/workflows/instanceId';
 import { RestoreWorkflow, startRestore } from '@/workflows/restore';
 
 // The S3 / RPC / DO units are covered on their own — stub them so the test drives the workflow's
@@ -252,7 +251,7 @@ describe('RestoreWorkflow.run', () => {
 });
 
 describe('startRestore', () => {
-  test('reserves the op then creates the instance with the deterministic id', async () => {
+  test('reserves the op then creates the instance with a fresh id', async () => {
     const beginOp = vi.fn(async () => {});
     const create = vi.fn(async () => {});
     const env = {
@@ -261,9 +260,8 @@ describe('startRestore', () => {
     } as unknown as CloudflareBindings;
     const params = { prefix: 'a/r' };
     const id = await startRestore(env, params);
-    const expected = workflowInstanceId('restore', 'a/r');
-    expect(id).toBe(expected);
-    expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'restore');
-    expect(create).toHaveBeenCalledWith({ id: expected, params });
+    expect(id).toMatch(/^restore-[0-9a-f-]{36}$/);
+    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'restore');
+    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });

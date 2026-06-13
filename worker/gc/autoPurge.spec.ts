@@ -6,13 +6,12 @@ import { isoAddDays, isoNow } from '@/lib/time';
 const startPurge = vi.fn(async (..._a: unknown[]) => 'purge-id');
 vi.mock('@/workflows/purge', () => ({
   startPurge: (env: unknown, params: unknown) => startPurge(env, params),
-  purgeInstanceId: (prefix: string) => `purge-${prefix}`,
 }));
 
-const requestCancel = vi.fn(async () => 1);
 const endOp = vi.fn(async () => {});
+const activeInstanceId = vi.fn(async () => 'purge-a/r');
 vi.mock('@/db/storage', () => ({
-  Storage: { byPrefix: () => ({ requestCancel, endOp }) },
+  Storage: { byPrefix: () => ({ endOp, activeInstanceId }) },
 }));
 
 const clearAlert = vi.fn(async () => {});
@@ -95,7 +94,6 @@ describe('autoPurge', () => {
   test('reappearance (unblocked) with in-flight purge → terminated, op ended, alert cleared', async () => {
     const registry = fakeRegistry([row({ archivedAt: null, status: 'used', activeOp: 'purge' })]);
     await autoPurge(env, registry);
-    expect(requestCancel).toHaveBeenCalled();
     expect(terminate).toHaveBeenCalled();
     expect(endOp).toHaveBeenCalledWith('a/r', 'purge-a/r', 'terminated', 'used');
     expect(clearAlert).toHaveBeenCalledWith('storage:a/r', 'purge');

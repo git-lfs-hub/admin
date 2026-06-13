@@ -135,9 +135,10 @@ export class Alerts extends DurableObject<CloudflareBindings> {
     return { ok: true, row: updated };
   }
 
-  // Decide, but if the alert row is gone (local dev / DO reset / deliver lag), recreate it and
-  // decide again. The caller still wakes the workflow.
-  async decideOrRaise(
+  // Like `decide`, but self-healing: if the alert row is gone (local dev / DO reset / deliver lag),
+  // re-raise it (so the decision lands and the Slack message — one per scope — can `chat.update` in
+  // place) and decide again. The caller still wakes/terminates the workflow.
+  async recordDecision(
     scope: string,
     kind: ConfirmKind,
     decision: Decision,

@@ -8,7 +8,6 @@ import { Storage } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
 import { purgeServer } from '@/server/operations';
 import { runConfirmation } from '@/workflows/confirm';
-import { workflowInstanceId } from '@/workflows/instanceId';
 import { startWorkflow, walkR2Pages } from '@/workflows/lifecycle';
 
 export type PurgeParams = {
@@ -54,12 +53,6 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
   }
 }
 
-// Deterministic id — `create()` throws on a live duplicate (idempotent trigger); approve/cancel + the
-// cron repair reconstruct it from the prefix to wake/heal the instance.
-export function purgeInstanceId(prefix: string): string {
-  return workflowInstanceId('purge', prefix);
-}
-
 // Reserve the op (409 if the prefix is already busy) then create the workflow instance.
 export function startPurge(env: CloudflareBindings, params: PurgeParams): Promise<string> {
   return startWorkflow(env, 'purge', env.PURGE_WORKFLOW, params);
@@ -76,8 +69,10 @@ export async function wakePurge(
   const [owner, repo] = scopeLabel(scope).split('/');
   const row = await Registry.global(env).storageForRepo(owner, repo);
   if (!row) return;
+  const id = await Storage.byPrefix(env, row.prefix).activeInstanceId('purge');
+  if (!id) return;
   try {
-    const instance = await env.PURGE_WORKFLOW.get(purgeInstanceId(row.prefix));
+    const instance = await env.PURGE_WORKFLOW.get(id);
     await instance.sendEvent({ type: 'alert_purge', payload: { decision, by } });
   } catch {
     // instance already finished/terminated — nothing to wake

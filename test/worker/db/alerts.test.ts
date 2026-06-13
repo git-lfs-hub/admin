@@ -158,11 +158,11 @@ describe('sendConfirmation / decide', () => {
   });
 });
 
-describe('decideOrRaise', () => {
+describe('recordDecision', () => {
   const scope = 'storage:alice/repo';
 
   test('absent alert → recreates the confirmation then records the decision', async () => {
-    const res = await a().decideOrRaise(scope, 'purge', 'approve', 'admin:dev');
+    const res = await a().recordDecision(scope, 'purge', 'approve', 'admin:dev');
     expect(res).toMatchObject({ ok: true });
     const row = await a().getAlert(scope, 'purge');
     expect(row).toMatchObject({ kind: 'purge', decision: 'approve', decidedBy: 'admin:dev' });
@@ -170,7 +170,7 @@ describe('decideOrRaise', () => {
 
   test('existing alert → decides without raising a duplicate row', async () => {
     await a().sendConfirmation({ kind: 'purge', scope });
-    const res = await a().decideOrRaise(scope, 'purge', 'cancel', 'admin:dev');
+    const res = await a().recordDecision(scope, 'purge', 'cancel', 'admin:dev');
     expect(res).toMatchObject({ ok: true });
     expect(await a().listAlerts()).toHaveLength(1);
     expect((await a().getAlert(scope, 'purge'))?.decision).toBe('cancel');
@@ -179,7 +179,7 @@ describe('decideOrRaise', () => {
   test('duplicate decision → already (no recreate)', async () => {
     await a().sendConfirmation({ kind: 'purge', scope });
     await a().decide(scope, 'purge', 'approve', 'admin:dev');
-    expect(await a().decideOrRaise(scope, 'purge', 'approve', 'admin:dev')).toEqual({
+    expect(await a().recordDecision(scope, 'purge', 'approve', 'admin:dev')).toEqual({
       ok: false,
       reason: 'already',
     });

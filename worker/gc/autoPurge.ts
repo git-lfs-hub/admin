@@ -4,7 +4,7 @@ import type { Registry, StorageRow } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
 import { isoAddDays } from '@/lib/time';
-import { purgeInstanceId, startPurge } from '@/workflows/purge';
+import { startPurge } from '@/workflows/purge';
 
 const MAX_PER_TICK = 10; // account-concurrency cap
 
@@ -46,18 +46,19 @@ export async function autoPurge(
   return started;
 }
 
-/** Stop a no-longer-eligible purge: cancel + terminate, close the op (resting status unchanged —
+/** Stop a no-longer-eligible purge: terminate the instance, close the op (resting status unchanged —
  *  nothing was deleted), drop the stale purge confirmation. */
 async function terminatePurge(env: CloudflareBindings, r: StorageRow): Promise<void> {
   const store = Storage.byPrefix(env, r.prefix);
-  await store.requestCancel();
-  const id = purgeInstanceId(r.prefix);
-  try {
-    (await env.PURGE_WORKFLOW.get(id)).terminate();
-  } catch {
-    // already finished/terminated
+  const id = await store.activeInstanceId('purge');
+  if (id) {
+    try {
+      (await env.PURGE_WORKFLOW.get(id)).terminate();
+    } catch {
+      // already finished/terminated
+    }
+    await store.endOp(r.prefix, id, 'terminated', r.status);
   }
-  await store.endOp(r.prefix, id, 'terminated', r.status);
   const [owner, repo] = r.prefix.split('/');
   await Alerts.global(env).clearAlert(scopeFor(owner, repo), 'purge');
 }
