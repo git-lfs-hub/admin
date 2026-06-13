@@ -1,7 +1,7 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { RestoreWorkflow, startRestore } from '@/workflows/restore';
+import { RestoreWorkflow } from '@/workflows/restore';
 
 // The S3 / RPC / DO units are covered on their own — stub them so the test drives the workflow's
 // own logic: the eligibility re-read, the list cursor-walk, the per-tier thaw loop, and the
@@ -92,7 +92,14 @@ describe('RestoreWorkflow.run', () => {
     expect(copyObject).toHaveBeenCalledWith('A/R/o2', 'S3', 'R2');
     expect(unblockServer).toHaveBeenCalledWith(env, 'A/R');
     expect(endRestoreOp).toHaveBeenCalledWith('A/R', 'restore-abc');
-    expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
+    expect(calls).toEqual([
+      'begin',
+      'thaw:0',
+      'poll-thawed:0:0',
+      'restore-obj:0',
+      'unblock',
+      'finish',
+    ]);
   });
 
   test('STANDARD page: no thaw/poll, pull immediately (legacy or missing StorageClass)', async () => {
@@ -108,7 +115,14 @@ describe('RestoreWorkflow.run', () => {
     expect(s3RestoreObject).not.toHaveBeenCalled();
     expect(s3Ready).not.toHaveBeenCalled();
     expect(copyObject).toHaveBeenCalledWith('A/R/o1', 'S3', 'R2');
-    expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
+    expect(calls).toEqual([
+      'begin',
+      'thaw:0',
+      'poll-thawed:0:0',
+      'restore-obj:0',
+      'unblock',
+      'finish',
+    ]);
   });
 
   test('colder tier → thaw all → poll/sleep until ready → pull all', async () => {
@@ -131,10 +145,10 @@ describe('RestoreWorkflow.run', () => {
     expect(calls).toEqual([
       'begin',
       'thaw:0',
-      'poll:0:0',
+      'poll-thawed:0:0',
       'sleep:wait:0',
-      'poll:1:0',
-      'pull:0',
+      'poll-thawed:1:0',
+      'restore-obj:0',
       'unblock',
       'finish',
     ]);
@@ -164,10 +178,10 @@ describe('RestoreWorkflow.run', () => {
       'begin',
       'thaw:0',
       'thaw:1',
-      'poll:0:0',
-      'poll:0:1',
-      'pull:0',
-      'pull:1',
+      'poll-thawed:0:0',
+      'poll-thawed:0:1',
+      'restore-obj:0',
+      'restore-obj:1',
       'unblock',
       'finish',
     ]);
@@ -196,7 +210,7 @@ describe('RestoreWorkflow.run', () => {
     await run(env, step);
 
     expect(calls).toContain('sleep:wait:0');
-    expect(calls.filter((c) => c.startsWith('poll:')).length).toBe(2); // poll:0:0, poll:1:0
+    expect(calls.filter((c) => c.startsWith('poll-thawed:')).length).toBe(2); // poll:0:0, poll:1:0
   });
 
   test('INTELLIGENT_TIERING archive → thaw with IT body → poll until restored', async () => {
@@ -234,7 +248,14 @@ describe('RestoreWorkflow.run', () => {
       storageClass: 'INTELLIGENT_TIERING',
     });
     expect(s3Ready).toHaveBeenCalledTimes(1); // poll only
-    expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
+    expect(calls).toEqual([
+      'begin',
+      'thaw:0',
+      'poll-thawed:0:0',
+      'restore-obj:0',
+      'unblock',
+      'finish',
+    ]);
   });
 
   test.each([
@@ -247,21 +268,5 @@ describe('RestoreWorkflow.run', () => {
     const { step } = fakeStep();
     await expect(run(env, step)).rejects.toThrow('restore no longer eligible');
     expect(listS3Page).not.toHaveBeenCalled();
-  });
-});
-
-describe('startRestore', () => {
-  test('reserves the op then creates the instance with a fresh id', async () => {
-    const beginOp = vi.fn(async () => {});
-    const create = vi.fn(async () => {});
-    const env = {
-      STORAGE: { getByName: () => ({ beginOp }) },
-      RESTORE_WORKFLOW: { create },
-    } as unknown as CloudflareBindings;
-    const params = { prefix: 'a/r' };
-    const id = await startRestore(env, params);
-    expect(id).toMatch(/^restore-[0-9a-f-]{36}$/);
-    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'restore');
-    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });

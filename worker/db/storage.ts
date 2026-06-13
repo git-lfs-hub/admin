@@ -281,6 +281,12 @@ export class Storage extends DurableObject<CloudflareBindings> {
     if (last) await Registry.global(this.env).endDeleteBackup(prefix);
   }
 
+  /** Close a completed Purge: resting status → `purged`. Success-only (a terminated purge goes
+   *  through `endOp`). */
+  async endPurgeOp(prefix: string, instanceId: string): Promise<void> {
+    await this.endOp(prefix, instanceId, 'complete', 'purged');
+  }
+
   /** Mark one instance's row ended; returns true when no active row remains for the prefix. */
   private async closeRow(
     instanceId: string,

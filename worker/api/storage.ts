@@ -7,14 +7,11 @@ import { Alerts } from '@/db/alerts';
 import { Registry, type StorageRow } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
+import { dueAt, purgeConfirmDueAt } from '@/gc/deadlines';
 import { isLocal } from '@/lib/host';
-import { isoAddDays } from '@/lib/time';
 import { archive, restore } from '@/server/operations';
-import { startBackup } from '@/workflows/backup';
-import { startClear } from '@/workflows/clear';
-import { startDeleteBackup } from '@/workflows/deleteBackup';
-import { startPurge, wakePurge } from '@/workflows/purge';
-import { startRestore } from '@/workflows/restore';
+import { wakeConfirmation } from '@/workflows/confirm';
+import { startWorkflow, terminateWorkflow } from '@/workflows/lifecycle';
 
 // `:owner/:repo` routes carry the resolved storage row in `c.var.storage`.
 type StorageEnv = {
@@ -29,10 +26,6 @@ const app = new Hono<StorageEnv>()
     // Prefix ⇔ git repo inferred 1:1 by lowercased path, not `.lfsconfig`.
     const reposByKey = new Map(repos.map((r) => [`${r.owner}/${r.repo}`, r]));
     const gc = gcConfig(c.env);
-    const archiveDays = gc.autoArchiveDays;
-    const retentionDays = gc.coldStorage
-      ? gc.coldStorageRetentionDays
-      : gc.liveStorageRetentionDays;
     const result = await Promise.all(
       rows.map(async (row) => {
         const store = Storage.byPrefix(c.env, row.prefix);
@@ -49,16 +42,9 @@ const app = new Hono<StorageEnv>()
           gitRepo: gitRepo
             ? { owner: gitRepo.owner, repo: gitRepo.repo, status: gitRepo.status }
             : null,
-          // Only an `unused`, not-yet-blocked prefix has an auto-archive deadline.
-          willArchiveAt:
-            row.status === 'unused' && !row.archivedAt && row.unusedAt
-              ? isoAddDays(row.unusedAt, archiveDays)
-              : null,
-          willPurgeAt: row.archivedAt ? isoAddDays(row.archivedAt, retentionDays) : null,
-          // Purge confirm deadline = op-start (`updatedAt`) + `purgeConfirmDays`. Computed here
-          // for the UI countdown to avoid a STORAGE DO fan-out.
-          purgeConfirmBy:
-            row.activeOp === 'purge' ? isoAddDays(row.updatedAt, gc.purgeConfirmDays) : null,
+          willArchiveAt: dueAt.archive(row, gc),
+          willPurgeAt: dueAt.purge(row, gc),
+          purgeConfirmBy: purgeConfirmDueAt(row, gc),
         };
       }),
     );
@@ -99,7 +85,9 @@ const app = new Hono<StorageEnv>()
     if (cur.clearedAt) {
       if (cur.activeOp) return c.json({ error: 'busy' }, 409);
       try {
-        const id = await startRestore(c.env, { prefix: cur.prefix });
+        const id = await startWorkflow(c.env, 'restore', {
+          prefix: cur.prefix,
+        });
         return c.json({ status: 'restoring', workflow: id }, 202);
       } catch {
         return c.json({ error: 'busy' }, 409);
@@ -124,7 +112,9 @@ const app = new Hono<StorageEnv>()
     const cur = c.var.storage;
     if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
     try {
-      const id = await startBackup(c.env, { prefix: cur.prefix });
+      const id = await startWorkflow(c.env, 'backup', {
+        prefix: cur.prefix,
+      });
       return c.json({ status: 'backing_up', workflow: id }, 202);
     } catch {
       return c.json({ error: 'busy' }, 409);
@@ -139,7 +129,9 @@ const app = new Hono<StorageEnv>()
     if (!cur.backedUpAt) return c.json({ error: 'no_backup' }, 409);
     if (cur.clearedAt) return c.json({ error: 'cleared' }, 409);
     try {
-      const id = await startDeleteBackup(c.env, { prefix: cur.prefix });
+      const id = await startWorkflow(c.env, 'deleteBackup', {
+        prefix: cur.prefix,
+      });
       return c.json({ status: 'deleting_backup', workflow: id }, 202);
     } catch {
       return c.json({ error: 'busy' }, 409);
@@ -156,7 +148,7 @@ const app = new Hono<StorageEnv>()
     if (!cur.backupComplete) return c.json({ error: 'not_backed_up' }, 409);
     if (cur.clearedAt) return c.json({ error: 'already_cleared' }, 409);
     try {
-      const id = await startClear(c.env, { prefix: cur.prefix });
+      const id = await startWorkflow(c.env, 'clear', { prefix: cur.prefix });
       return c.json({ status: 'clearing', workflow: id }, 202);
     } catch {
       return c.json({ error: 'busy' }, 409);
@@ -178,7 +170,7 @@ const app = new Hono<StorageEnv>()
     if (!(await validateToken(c, cur))) return c.json({ error: 'stale_token' }, 409);
     const { owner, repo } = c.req.param();
     try {
-      const id = await startPurge(c.env, {
+      const id = await startWorkflow(c.env, 'purge', {
         prefix: cur.prefix,
         scope: scopeFor(owner, repo),
         triggeredBy: 'admin',
@@ -198,7 +190,7 @@ const app = new Hono<StorageEnv>()
     const by = `admin:${c.var.admin}`;
     const res = await Alerts.global(c.env).recordDecision(scope, 'purge', 'approve', by);
     if (!res.ok) return c.json({ error: res.reason }, res.reason === 'not_found' ? 404 : 409);
-    await wakePurge(c.env, scope, 'approve', by);
+    await wakeConfirmation(c.env, scope, 'purge', 'approve', by);
     return c.json({ status: 'confirmed' });
   })
 
@@ -211,16 +203,7 @@ const app = new Hono<StorageEnv>()
     // Audit who cancelled + flip the Slack message to "cancelled" (chat.update in place). The run
     // itself is stopped below by terminate(); this is only the human-facing/audit side.
     await Alerts.global(c.env).recordDecision(scope, 'purge', 'cancel', `admin:${c.var.admin}`);
-    const store = Storage.byPrefix(c.env, cur.prefix);
-    const id = await store.activeInstanceId('purge');
-    if (id) {
-      try {
-        (await c.env.PURGE_WORKFLOW.get(id)).terminate();
-      } catch {
-        // workflow already finished/terminated — nothing to stop
-      }
-      await store.endOp(cur.prefix, id, 'terminated', cur.status);
-    }
+    await terminateWorkflow(c.env, 'purge', cur.prefix, cur.status);
     return c.json({ status: 'cancelled' });
   });
 

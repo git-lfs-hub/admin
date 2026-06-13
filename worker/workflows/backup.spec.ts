@@ -1,7 +1,7 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { BackupWorkflow, startBackup } from '@/workflows/backup';
+import { BackupWorkflow } from '@/workflows/backup';
 
 // copyObject + the stores are covered by their own units (s3/copy.spec, s3/backup.spec) — stub them
 // so the test drives the workflow's own logic: the start-capture of `archivedAt`, the R2 cursor-walk,
@@ -77,7 +77,7 @@ describe('BackupWorkflow.run', () => {
     expect(copyObject).toHaveBeenCalledWith('A/R/o1', 'R2', 'S3:GLACIER_IR');
     expect(copyObject).toHaveBeenCalledWith('A/R/o2', 'R2', 'S3:GLACIER_IR');
     expect(endBackupOp).toHaveBeenCalledWith('A/R', 'backup-abc', blocked.archivedAt);
-    expect(calls).toEqual(['begin', 'copy:0', 'finish']);
+    expect(calls).toEqual(['begin', 'backup-obj:0', 'finish']);
   });
 
   test('walks the cursor across pages until exhausted', async () => {
@@ -89,7 +89,7 @@ describe('BackupWorkflow.run', () => {
 
     expect(b.list).toHaveBeenNthCalledWith(2, { prefix: 'A/R/', cursor: 'c1' });
     expect(copyObject).toHaveBeenCalledTimes(2);
-    expect(calls).toContain('copy:1');
+    expect(calls).toContain('backup-obj:1');
   });
 
   test('started unblocked → finishes with archivedAt null (incomplete copy)', async () => {
@@ -116,35 +116,5 @@ describe('BackupWorkflow.run', () => {
     const { env } = envWith(bucket([]), null);
     const { step } = fakeStep();
     await expect(run(env, step)).rejects.toThrow('backup no longer eligible');
-  });
-});
-
-describe('startBackup', () => {
-  test('reserves the op then creates the instance with a fresh id', async () => {
-    const beginOp = vi.fn(async () => {});
-    const create = vi.fn(async () => {});
-    const env = {
-      STORAGE: { getByName: () => ({ beginOp }) },
-      BACKUP_WORKFLOW: { create },
-    } as unknown as CloudflareBindings;
-    const params = { prefix: 'a/r' };
-    const id = await startBackup(env, params);
-    expect(id).toMatch(/^backup-[0-9a-f-]{36}$/);
-    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'backup');
-    expect(create).toHaveBeenCalledWith({ id, params });
-  });
-
-  // A rerun on the same prefix must get a fresh id — a deterministic id collides with the prior
-  // (completed) instance, which Cloudflare keeps forever and refuses to recreate.
-  test('reruns on the same prefix get distinct ids', async () => {
-    const create = vi.fn(async () => {});
-    const env = {
-      STORAGE: { getByName: () => ({ beginOp: async () => {} }) },
-      BACKUP_WORKFLOW: { create },
-    } as unknown as CloudflareBindings;
-    const params = { prefix: 'a/r' };
-    const first = await startBackup(env, params);
-    const second = await startBackup(env, params);
-    expect(second).not.toBe(first);
   });
 });

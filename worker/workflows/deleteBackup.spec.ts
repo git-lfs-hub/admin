@@ -1,7 +1,7 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { DeleteBackupWorkflow, startDeleteBackup } from '@/workflows/deleteBackup';
+import { DeleteBackupWorkflow } from '@/workflows/deleteBackup';
 
 // s3DeleteObject + listS3Page are covered by their own units — stub them so the test drives the
 // workflow's own logic: the eligibility re-read, the cold-storage cursor-walk, and the finish handoff.
@@ -62,7 +62,7 @@ describe('DeleteBackupWorkflow.run', () => {
     expect(s3DeleteObject).toHaveBeenCalledWith(env, 'A/R/o1');
     expect(s3DeleteObject).toHaveBeenCalledWith(env, 'A/R/o2');
     expect(endDeleteBackupOp).toHaveBeenCalledWith('A/R', 'deleteBackup-abc');
-    expect(calls).toEqual(['begin', 'delete:0', 'finish']);
+    expect(calls).toEqual(['begin', 's3-delete:0', 'finish']);
   });
 
   test('walks the cursor across pages until exhausted', async () => {
@@ -76,33 +76,18 @@ describe('DeleteBackupWorkflow.run', () => {
 
     expect(listS3Page).toHaveBeenNthCalledWith(2, env, 'A/R/', 'c1');
     expect(s3DeleteObject).toHaveBeenCalledTimes(2);
-    expect(calls).toContain('delete:1');
+    expect(calls).toContain('s3-delete:1');
   });
 
   test.each([
     ['no backup', { status: 'unused', backedUpAt: null, clearedAt: null }],
     ['cleared (cold is only copy)', { status: 'unused', backedUpAt: 'x', clearedAt: 'y' }],
+    ['purged', { status: 'purged', backedUpAt: 'x', clearedAt: null }],
     ['row gone', null],
   ])('ineligible (%s) → throws, nothing listed', async (_label, row) => {
     const { env } = envWith(row);
     const { step } = fakeStep();
     await expect(run(env, step)).rejects.toThrow('delete-backup no longer eligible');
     expect(listS3Page).not.toHaveBeenCalled();
-  });
-});
-
-describe('startDeleteBackup', () => {
-  test('reserves the op then creates the instance with a fresh id', async () => {
-    const beginOp = vi.fn(async () => {});
-    const create = vi.fn(async () => {});
-    const env = {
-      STORAGE: { getByName: () => ({ beginOp }) },
-      DELETE_BACKUP_WORKFLOW: { create },
-    } as unknown as CloudflareBindings;
-    const params = { prefix: 'a/r' };
-    const id = await startDeleteBackup(env, params);
-    expect(id).toMatch(/^deleteBackup-[0-9a-f-]{36}$/);
-    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'deleteBackup');
-    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });

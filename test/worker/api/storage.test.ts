@@ -184,7 +184,7 @@ describe('GET /api/storage', () => {
     const row = body.storage.find((r) => r.repo === 'gone')!;
     expect(row.unusedAt).toBe(unused!.unusedAt);
 
-    const archiveDays = env.GC.autoArchiveDays;
+    const archiveDays = env.GC.autoDays.archive;
     const expected = new Date(row.unusedAt!).getTime() + archiveDays * 24 * 60 * 60 * 1000;
     expect(new Date(row.willArchiveAt!).getTime()).toBe(expected);
   });
@@ -201,7 +201,7 @@ describe('GET /api/storage', () => {
     const row = body.storage.find((r) => r.repo === 'gone')!;
     expect(row.archivedAt).toBe(archived!.archivedAt);
 
-    const retentionDays = env.GC.liveStorageRetentionDays;
+    const retentionDays = env.GC.retentionDays.live;
     const expected = new Date(row.archivedAt!).getTime() + retentionDays * 24 * 60 * 60 * 1000;
     expect(new Date(row.willPurgeAt!).getTime()).toBe(expected);
   });
@@ -663,7 +663,7 @@ async function seedActivePurge(prefix: string) {
 }
 
 describe('in-flight purge workflow', () => {
-  test('GET surfaces activeOp + purgeConfirmBy = updatedAt + GC.purgeConfirmDays', async () => {
+  test('GET surfaces activeOp + purgeConfirmBy = updatedAt + GC.confirmDays', async () => {
     await seedActivePurge('alice/r');
     const res = await exports.default.fetch('http://localhost/api/storage');
     const body = (await res.json()) as {
@@ -676,8 +676,7 @@ describe('in-flight purge workflow', () => {
     };
     const row = body.storage.find((r) => r.repo === 'r')!;
     expect(row.activeOp).toBe('purge');
-    const expected =
-      new Date(row.updatedAt).getTime() + env.GC.purgeConfirmDays * 24 * 60 * 60 * 1000;
+    const expected = new Date(row.updatedAt).getTime() + env.GC.confirmDays * 24 * 60 * 60 * 1000;
     expect(new Date(row.purgeConfirmBy!).getTime()).toBe(expected);
   });
 

@@ -16,6 +16,11 @@ export function scopeFor(owner: string, repo: string): string {
   return `${STORAGE_SCOPE_PREFIX}${owner.toLowerCase()}/${repo.toLowerCase()}`;
 }
 
+/** Scope for a canonical `Owner/Repo` storage prefix (already `/`-joined). */
+export function scopeForPrefix(prefix: string): string {
+  return `${STORAGE_SCOPE_PREFIX}${prefix.toLowerCase()}`;
+}
+
 /** The display id without its namespace (e.g. `storage:acme/app` → `acme/app`). */
 export function scopeLabel(scope: string): string {
   return scope.slice(scope.indexOf(':') + 1);
@@ -29,6 +34,7 @@ const stateOfKind: Record<AlertKind, LifecycleState> = {
   reappeared: 'used',
   archived: 'archived',
   restored: 'used',
+  clear: 'clearing',
   purge: 'purging',
 };
 

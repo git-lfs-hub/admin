@@ -19,10 +19,9 @@ vi.mock('@/db/storage', () => ({ Storage: { byPrefix: () => storageMock } }));
 vi.mock('@/gc/config', () => ({
   gcConfig: () => ({
     coldStorage: '',
-    autoArchiveDays: 7,
-    liveStorageRetentionDays: 30,
-    coldStorageRetentionDays: 365,
-    purgeConfirmDays: 3,
+    autoDays: { archive: 7, clear: 30 },
+    retentionDays: { live: 30, cold: 365 },
+    confirmDays: 3,
   }),
 }));
 

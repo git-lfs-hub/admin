@@ -1,6 +1,6 @@
 import type { Registry, StorageRow } from '@/db/registry';
 import { gcConfig } from '@/gc/config';
-import { startBackup } from '@/workflows/backup';
+import { startWorkflow } from '@/workflows/lifecycle';
 
 const MAX_PER_TICK = 10; // account-concurrency cap
 
@@ -21,7 +21,7 @@ export async function autoBackup(
     if (r.activeOp) continue;
     if (started.length >= MAX_PER_TICK) break;
     try {
-      await startBackup(env, { prefix: r.prefix });
+      await startWorkflow(env, 'backup', { prefix: r.prefix });
       started.push(r);
     } catch (e) {
       console.error(`[auto-backup] failed for ${r.prefix}:`, e);

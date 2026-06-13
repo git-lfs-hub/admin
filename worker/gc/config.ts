@@ -1,13 +1,11 @@
-type GcConfig = CloudflareBindings['GC'];
+export type GcConfig = CloudflareBindings['GC'];
 
 // Every GC tunable has a safe default so a config that omits any key (or the whole GC var) can't
-// crash a consumer — e.g. a missing `purgeConfirmDays` makes `isoAddDays` produce an Invalid Date.
+// crash a consumer — e.g. a missing `confirmDays` makes `isoAddDays` produce an Invalid Date.
 const GC_DEFAULTS: GcConfig = {
-  autoArchiveDays: 7,
-  autoClearDays: 30,
-  purgeConfirmDays: 3,
-  liveStorageRetentionDays: 30,
-  coldStorageRetentionDays: 365,
+  autoDays: { archive: 7, clear: 30 },
+  confirmDays: 3,
+  retentionDays: { live: 30, cold: 365 },
   coldStorage: '',
 };
 

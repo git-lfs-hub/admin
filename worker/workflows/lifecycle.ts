@@ -1,10 +1,34 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 
+import type { StorageStatus } from '@/db/registry-schema';
 import { Storage } from '@/db/storage';
 import type { WorkflowOp } from '@/db/storage-schema';
 import { listS3Page, type S3Object } from '@/s3/list';
 
 // Shared scaffolding for the lifecycle workflows (backup / purge / restore).
+
+// op → its Workflow binding name on env. Keeps the op string the single source of truth so call
+// sites never repeat the `'purge', env.PURGE_WORKFLOW` pair.
+const WORKFLOW_BINDING = {
+  backup: 'BACKUP_WORKFLOW',
+  clear: 'CLEAR_WORKFLOW',
+  restore: 'RESTORE_WORKFLOW',
+  purge: 'PURGE_WORKFLOW',
+  deleteBackup: 'DELETE_BACKUP_WORKFLOW',
+} as const satisfies Record<WorkflowOp, keyof CloudflareBindings>;
+
+// Params accepted by the workflow bound to op O.
+type WorkflowParams<O extends WorkflowOp> =
+  CloudflareBindings[(typeof WORKFLOW_BINDING)[O]] extends Workflow<infer P> ? P : never;
+
+// Look up the Workflow binding for an op (purge → env.PURGE_WORKFLOW, …). The cast narrows the
+// indexed-access type to a concrete `Workflow<P>` so callers' `create`/`get` resolve over generic O.
+export function workflowFor<O extends WorkflowOp>(
+  env: CloudflareBindings,
+  op: O,
+): Workflow<WorkflowParams<O>> {
+  return env[WORKFLOW_BINDING[op]] as Workflow<WorkflowParams<O>>;
+}
 
 // `<op>-<uuid>` — fresh per run so a rerun never collides with a prior (completed) instance.
 export function workflowInstanceId(op: string): string {
@@ -14,16 +38,37 @@ export function workflowInstanceId(op: string): string {
 // Reserve the op on the STORAGE DO (409 if the prefix is busy with a *different* op), then create
 // the instance under a fresh `<op>-<uuid>` id (recorded in the `workflows` table). A later
 // approve/cancel reads the id back via `Storage.activeInstanceId`, not from the prefix.
-export async function startWorkflow<P extends { prefix: string }>(
+export async function startWorkflow<O extends WorkflowOp>(
+  env: CloudflareBindings,
+  op: O,
+  params: WorkflowParams<O>,
+): Promise<string> {
+  const prefix = (params as { prefix: string }).prefix;
+  const store = Storage.byPrefix(env, prefix);
+  const id = workflowInstanceId(op);
+  await store.beginOp(prefix, id, op);
+  await workflowFor(env, op).create({ id, params });
+  return id;
+}
+
+// Stop the active `op` instance on `prefix` (if any), then close the op so `activeOp` clears — a
+// terminated run never reaches its own `finish` step. Resting `status` is left unchanged (nothing
+// was deleted). Slack/alert side-effects are the caller's.
+export async function terminateWorkflow(
   env: CloudflareBindings,
   op: WorkflowOp,
-  workflow: Workflow<P>,
-  params: P,
-): Promise<string> {
-  const id = workflowInstanceId(op);
-  await Storage.byPrefix(env, params.prefix).beginOp(params.prefix, id, op);
-  await workflow.create({ id, params });
-  return id;
+  prefix: string,
+  status: StorageStatus,
+): Promise<void> {
+  const store = Storage.byPrefix(env, prefix);
+  const id = await store.activeInstanceId(op);
+  if (!id) return;
+  try {
+    (await workflowFor(env, op).get(id)).terminate();
+  } catch {
+    // workflow already finished/terminated — nothing to stop
+  }
+  await store.endOp(prefix, id, 'terminated', status);
 }
 
 // Walk every R2 object page under `{prefix}/`, applying `perPage` to each. List + work share one

@@ -6,6 +6,7 @@ export const alertModes = {
   reappeared: 'notify',
   archived: 'notify',
   restored: 'notify',
+  clear: 'confirm',
   purge: 'confirm',
 } as const;
 
@@ -30,6 +31,7 @@ export const alertSeverity: Record<AlertKind, AlertSeverity> = {
   reappeared: 'info',
   archived: 'info',
   restored: 'info',
+  clear: 'warning',
   purge: 'warning',
 };
 

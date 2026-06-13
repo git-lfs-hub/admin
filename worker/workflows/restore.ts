@@ -8,7 +8,7 @@ import { r2Store } from '@/s3/r2-store';
 import { s3NeedsThaw, s3Ready, s3RestoreObject } from '@/s3/restore';
 import { s3Store } from '@/s3/s3-store';
 import { unblockServer } from '@/server/operations';
-import { startWorkflow, walkS3Pages } from '@/workflows/lifecycle';
+import { walkS3Pages } from '@/workflows/lifecycle';
 
 export type RestoreParams = {
   prefix: string; // STORAGE DO key + R2/S3 key root (canonical OwnerCase/RepoCase)
@@ -39,7 +39,8 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     // 2. Wait until every page's colder objects are retrievable — one shared retrieval window. The
     // first scan of a `GLACIER_IR`-only restore finds nothing colder, so it's ready at once, no sleep.
     for (let t = 0; ; t++) {
-      const allReady = await walkS3Pages(step, this.env, prefix, `poll:${t}`, async (objects) => {
+      const label = `poll-thawed:${t}`;
+      const allReady = await walkS3Pages(step, this.env, prefix, label, async (objects) => {
         const states = await Promise.all(
           objects.filter(s3NeedsThaw).map((o) => s3Ready(this.env, o)),
         );
@@ -52,7 +53,7 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     // 3. Pull every (now-retrievable) object back into live R2.
     const src = s3Store(this.env);
     const dst = r2Store(this.env);
-    await walkS3Pages(step, this.env, prefix, 'pull', async (objects) => {
+    await walkS3Pages(step, this.env, prefix, 'restore-obj', async (objects) => {
       await Promise.all(objects.map((o) => copyObject(o.key, src, dst)));
     });
 
@@ -62,9 +63,4 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
       Storage.byPrefix(this.env, prefix).endRestoreOp(prefix, event.instanceId),
     );
   }
-}
-
-// Reserve the op (409 if the prefix is already busy) then create the workflow instance.
-export function startRestore(env: CloudflareBindings, params: RestoreParams): Promise<string> {
-  return startWorkflow(env, 'restore', env.RESTORE_WORKFLOW, params);
 }

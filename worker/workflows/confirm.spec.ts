@@ -1,10 +1,12 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { describe, expect, test, vi } from 'vitest';
 
+import type { ConfirmKind } from '@/db/alerts-schema';
 import {
   ConfirmAborted,
   readConfirmGate,
   runConfirmation,
+  wakeConfirmation,
   type ConfirmCtx,
 } from '@/workflows/confirm';
 
@@ -28,8 +30,7 @@ const ctx = (env: CloudflareBindings, over: Partial<ConfirmCtx> = {}): ConfirmCt
   scope: 'storage:a/r',
   prefix: 'A/R',
   kind: 'purge',
-  proceedOnTimeout: true,
-  timeout: '3 days',
+  triggeredBy: 'admin',
   ...over,
 });
 
@@ -94,15 +95,13 @@ describe('runConfirmation', () => {
   test('admin path: undecided at deadline → proceeds (timeout)', async () => {
     const { step, env } = fakeStep(['wait'], [deadline]);
     await expect(
-      runConfirmation(step, ctx(env, { proceedOnTimeout: true })),
+      runConfirmation(step, ctx(env, { triggeredBy: 'admin' })),
     ).resolves.toBeUndefined();
   });
 
   test('cron path: undecided at deadline → loops (never auto-proceeds), proceeds on later approve', async () => {
     const { step, env } = fakeStep(['wait', 'proceed'], [deadline, fire]);
-    await expect(
-      runConfirmation(step, ctx(env, { proceedOnTimeout: false })),
-    ).resolves.toBeUndefined();
+    await expect(runConfirmation(step, ctx(env, { triggeredBy: 'auto' }))).resolves.toBeUndefined();
   });
 
   test('a non-timeout waitForEvent error propagates', async () => {
@@ -115,5 +114,54 @@ describe('runConfirmation', () => {
       ],
     );
     await expect(runConfirmation(step, ctx(env))).rejects.toThrow('boom');
+  });
+});
+
+describe('wakeConfirmation', () => {
+  function wakeEnv(kind: ConfirmKind, prefix: string | null, sendEvent = vi.fn(async () => {})) {
+    const binding = kind === 'purge' ? 'PURGE_WORKFLOW' : 'CLEAR_WORKFLOW';
+    return {
+      env: {
+        REGISTRY: {
+          getByName: () => ({ storageForRepo: async () => (prefix ? { prefix } : null) }),
+        },
+        STORAGE: { getByName: () => ({ activeInstanceId: async () => `${kind}-abc123` }) },
+        [binding]: { get: async () => ({ sendEvent }) },
+      } as unknown as CloudflareBindings,
+      sendEvent,
+    };
+  }
+
+  test.each(['purge', 'clear'] as ConfirmKind[])(
+    '%s: maps scope → prefix and sends alert_%s to the instance',
+    async (kind) => {
+      const { env: e, sendEvent } = wakeEnv(kind, 'Alice/Repo');
+      await wakeConfirmation(e, 'storage:alice/repo', kind, 'approve', 'slack:u');
+      expect(sendEvent).toHaveBeenCalledWith({
+        type: `alert_${kind}`,
+        payload: { decision: 'approve', by: 'slack:u' },
+      });
+    },
+  );
+
+  test('no matching storage row → no-op', async () => {
+    const { env: e, sendEvent } = wakeEnv('purge', null);
+    await wakeConfirmation(e, 'storage:alice/repo', 'purge', 'cancel', 'slack:u');
+    expect(sendEvent).not.toHaveBeenCalled();
+  });
+
+  test('gone instance (get throws) is swallowed', async () => {
+    const e = {
+      REGISTRY: { getByName: () => ({ storageForRepo: async () => ({ prefix: 'a/r' }) }) },
+      STORAGE: { getByName: () => ({ activeInstanceId: async () => 'purge-abc123' }) },
+      PURGE_WORKFLOW: {
+        get: async () => {
+          throw new Error('not found');
+        },
+      },
+    } as unknown as CloudflareBindings;
+    await expect(
+      wakeConfirmation(e, 'storage:a/r', 'purge', 'approve', 'u'),
+    ).resolves.toBeUndefined();
   });
 });

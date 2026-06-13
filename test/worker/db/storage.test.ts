@@ -192,6 +192,19 @@ describe('Storage workflows (one-active-op guard)', () => {
     expect(row?.purgedAt).not.toBeNull();
   });
 
+  test('endPurgeOp sets resting status purged + clears activeOp', async () => {
+    const registry = env.REGISTRY.getByName('global');
+    await registry.upsertStorage('alice/thing');
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.beginOp('alice/thing', 'inst-1', 'purge');
+
+    await store.endPurgeOp('alice/thing', 'inst-1');
+    expect(await store.activeOp()).toBeNull();
+    const row = await registry.getStorage('alice/thing');
+    expect(row?.status).toBe('purged');
+    expect(row?.activeOp).toBeNull();
+  });
+
   test('endBackupOp lands backedUpAt/backupComplete (not status) when last shard ends', async () => {
     const registry = env.REGISTRY.getByName('global');
     await registry.upsertStorage('alice/thing');

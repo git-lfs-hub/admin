@@ -4,7 +4,7 @@ import { autoArchive } from '@/gc/autoArchive';
 import { isoNow, isoAddDays } from '@/lib/time';
 
 const blockRepo = vi.fn(async () => {});
-const env = { GC: { autoArchiveDays: 7 }, LFS_SERVER: { blockRepo } } as any;
+const env = { GC: { autoDays: { archive: 7 } }, LFS_SERVER: { blockRepo } } as any;
 
 function fakeRegistry(unused: unknown[]) {
   return {
@@ -25,7 +25,7 @@ beforeEach(() => blockRepo.mockReset());
 
 describe('autoArchive', () => {
   test('grace elapsed → blockRepo then block (status untouched)', async () => {
-    const registry = fakeRegistry([row({ unusedAt: daysAgo(8) })]); // 8 > autoArchiveDays 7
+    const registry = fakeRegistry([row({ unusedAt: daysAgo(8) })]); // 8 > autoDays.archive 7
     const out = await autoArchive(env, registry);
     expect(blockRepo).toHaveBeenCalledWith('a', 'r');
     expect(registry.block).toHaveBeenCalledWith('a/r');

@@ -11,12 +11,10 @@
   "github": { "org": "test-org", "adminHome": "https://lfs-admin-test.example.com" },
   "admin": { "slack": { "channel": "" } },
   "gc": {
-    "autoArchiveDays": 7,
-    "autoClearDays": 30,
-    "liveStorageRetentionDays": 30,
-    "coldStorageRetentionDays": 365,
+    "autoDays": { "archive": 7, "clear": 30 },
+    "retentionDays": { "live": 30, "cold": 365 },
     "coldStorage": "",
-    "purgeConfirmDays": 3
+    "confirmDays": 3
   },
   "env": "test"
 }

@@ -10,7 +10,7 @@ import { slackVerify } from '@/middleware/slackVerify';
 import { archive, restore } from '@/server/operations';
 import { handleInstallation, handleInstallationRepositories } from '@/webhooks/installation';
 import { handleRepository } from '@/webhooks/repository';
-import { wakePurge } from '@/workflows/purge';
+import { wakeConfirmation } from '@/workflows/confirm';
 
 // Routes mount outside `auth` — the request signature is the only gate.
 const app = new Hono<AppEnv>();
@@ -30,11 +30,10 @@ app.post('/slack/interactions', slackVerify, async (c) => {
   const by = `slack:${payload.user?.username ?? payload.user?.id ?? 'unknown'}`;
 
   // Confirmation decision → record + wake the waiting workflow only when it actually changed
-  // (idempotent re-clicks already woke it). One confirm kind today; generalize the wake when more
-  // land.
+  // (idempotent re-clicks already woke it). The wake dispatches per kind (purge / clear).
   if (isDecision(verb) && isConfirmKind(decoded.kind)) {
     const res = await Alerts.global(c.env).decide(decoded.scope, decoded.kind, verb, by);
-    if (res.ok) await wakePurge(c.env, decoded.scope, verb, by);
+    if (res.ok) await wakeConfirmation(c.env, decoded.scope, decoded.kind, verb, by);
     return c.body(null, 200);
   }
 

@@ -1,10 +1,13 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { ClearWorkflow, startClear } from '@/workflows/clear';
+import { ClearWorkflow } from '@/workflows/clear';
+import { runConfirmation } from '@/workflows/confirm';
 
-// Drives ClearWorkflow.run's own logic: the eligibility re-read, the start-of-run `markCleared`,
-// the R2 cursor-walk delete loop, and the finish handoff (status untouched).
+// Gate is covered by confirm.spec — stub it so these drive ClearWorkflow.run's own logic: the
+// eligibility re-read, the start-of-run `markCleared`, the R2 cursor-walk delete loop, and the
+// finish handoff (status untouched).
+vi.mock('@/workflows/confirm', () => ({ runConfirmation: vi.fn(async () => {}) }));
 
 const event = { payload: { prefix: 'A/R' }, instanceId: 'clear-abc123' };
 
@@ -80,7 +83,30 @@ describe('ClearWorkflow.run', () => {
     expect(b.delete).toHaveBeenCalledWith(['A/R/o1', 'A/R/o2']);
     expect(endClearOp).toHaveBeenCalledWith('A/R', 'clear-abc123');
     // `mark` (stamp clearedAt) runs BEFORE any delete.
-    expect(calls).toEqual(['begin', 'mark', 'delete:0', 'finish']);
+    expect(calls).toEqual(['begin', 'mark', 'r2-delete:0', 'finish']);
+  });
+
+  test('inline (no triggeredBy) → skips the confirmation gate', async () => {
+    const { env } = envWith(bucket([{ keys: [] }]), eligible);
+    await run(env, fakeStep().step);
+    expect(runConfirmation).not.toHaveBeenCalled();
+  });
+
+  test('auto path → runs the wait-only gate (kind clear) before begin', async () => {
+    const autoEvent = {
+      payload: { prefix: 'A/R', triggeredBy: 'auto', scope: 'storage:a/r' },
+      instanceId: 'clear-abc123',
+    };
+    const { env } = envWith(bucket([{ keys: [] }]), eligible);
+    const { step, calls } = fakeStep();
+
+    await new ClearWorkflow({} as never, env).run(autoEvent as never, step);
+
+    expect(runConfirmation).toHaveBeenCalledWith(
+      step,
+      expect.objectContaining({ kind: 'clear', scope: 'storage:a/r', triggeredBy: 'auto' }),
+    );
+    expect(calls).toEqual(['begin', 'mark', 'r2-delete:0', 'finish']); // gate steps are stubbed
   });
 
   test('walks the cursor across pages until exhausted', async () => {
@@ -92,7 +118,7 @@ describe('ClearWorkflow.run', () => {
 
     expect(b.list).toHaveBeenNthCalledWith(2, { prefix: 'A/R/', cursor: 'c1' });
     expect(b.delete).toHaveBeenCalledTimes(2);
-    expect(calls).toContain('delete:1');
+    expect(calls).toContain('r2-delete:1');
   });
 
   test('empty bucket → no delete, still marks cleared + ends op', async () => {
@@ -121,21 +147,5 @@ describe('ClearWorkflow.run', () => {
     await expect(run(env, step)).rejects.toThrow('clear no longer eligible');
     expect(markCleared).not.toHaveBeenCalled();
     expect(b.list).not.toHaveBeenCalled();
-  });
-});
-
-describe('startClear', () => {
-  test('reserves the op then creates the instance with a fresh id', async () => {
-    const beginOp = vi.fn(async () => {});
-    const create = vi.fn(async () => {});
-    const env = {
-      STORAGE: { getByName: () => ({ beginOp }) },
-      CLEAR_WORKFLOW: { create },
-    } as unknown as CloudflareBindings;
-    const params = { prefix: 'a/r' };
-    const id = await startClear(env, params);
-    expect(id).toMatch(/^clear-[0-9a-f-]{36}$/);
-    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'clear');
-    expect(create).toHaveBeenCalledWith({ id, params });
   });
 });

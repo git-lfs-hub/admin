@@ -2,7 +2,7 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { purgeServer } from '@/server/operations';
-import { PurgeWorkflow, startPurge, wakePurge } from '@/workflows/purge';
+import { PurgeWorkflow } from '@/workflows/purge';
 
 // Gate + RPC cleanup are covered by their own units (confirm.spec, operations.spec) — stub them so
 // the test drives PurgeWorkflow.run's own logic: the guard re-read and the R2 cursor-walk delete loop.
@@ -10,7 +10,8 @@ vi.mock('@/workflows/confirm', () => ({ runConfirmation: vi.fn(async () => {}) }
 vi.mock('@/server/operations', () => ({ purgeServer: vi.fn(async () => {}) }));
 
 // Cold-storage S3 pass — stubbed so the cold test drives only the walk + delete wiring.
-const listS3Page = vi.fn<(...a: unknown[]) => Promise<{ objects: { key: string }[]; cursor?: string }>>();
+const listS3Page =
+  vi.fn<(...a: unknown[]) => Promise<{ objects: { key: string }[]; cursor?: string }>>();
 const s3DeleteObject = vi.fn<(...a: unknown[]) => Promise<void>>();
 vi.mock('@/s3/list', () => ({
   listS3Page: (env: unknown, prefix: unknown, cursor: unknown) => listS3Page(env, prefix, cursor),
@@ -41,12 +42,16 @@ function bucket(pages: Array<{ keys: string[]; cursor?: string }>) {
   };
 }
 
-function envWith(b: ReturnType<typeof bucket>, storageRow: unknown, endOp = vi.fn(async () => {})) {
+function envWith(
+  b: ReturnType<typeof bucket>,
+  storageRow: unknown,
+  endPurgeOp = vi.fn(async () => {}),
+) {
   return {
     LFS_BUCKET: b,
-    GC: { purgeConfirmDays: 3 }, // read into runConfirmation's args before the (mocked) call
+    GC: { confirmDays: 3 }, // read into runConfirmation's args before the (mocked) call
     REGISTRY: { getByName: () => ({ getStorage: vi.fn(async () => storageRow) }) },
-    STORAGE: { getByName: () => ({ endOp }) },
+    STORAGE: { getByName: () => ({ endPurgeOp }) },
   } as unknown as CloudflareBindings;
 }
 
@@ -72,8 +77,8 @@ describe('PurgeWorkflow.run', () => {
 
   test('eligible → deletes one page, cleans server, ends op purged (in order)', async () => {
     const b = bucket([{ keys: ['A/R/o1', 'A/R/o2'] }]);
-    const endOp = vi.fn(async () => {});
-    const env = envWith(b, archived, endOp);
+    const endPurgeOp = vi.fn(async () => {});
+    const env = envWith(b, archived, endPurgeOp);
     const { step, calls } = fakeStep();
 
     await run(env, step);
@@ -81,8 +86,8 @@ describe('PurgeWorkflow.run', () => {
     expect(b.list).toHaveBeenCalledWith({ prefix: 'A/R/' });
     expect(b.delete).toHaveBeenCalledWith(['A/R/o1', 'A/R/o2']);
     expect(purgeServer).toHaveBeenCalledWith(env, 'A/R');
-    expect(endOp).toHaveBeenCalledWith('A/R', 'purge-abc123', 'complete', 'purged');
-    expect(calls).toEqual(['guard', 'delete:0', 'server-cleanup', 'finish']);
+    expect(endPurgeOp).toHaveBeenCalledWith('A/R', 'purge-abc123');
+    expect(calls).toEqual(['begin', 'r2-delete:0', 'server-cleanup', 'finish']);
   });
 
   test('walks the cursor across pages until exhausted', async () => {
@@ -94,34 +99,34 @@ describe('PurgeWorkflow.run', () => {
     expect(b.list).toHaveBeenNthCalledWith(1, { prefix: 'A/R/' });
     expect(b.list).toHaveBeenNthCalledWith(2, { prefix: 'A/R/', cursor: 'c1' });
     expect(b.delete).toHaveBeenCalledTimes(2);
-    expect(calls).toContain('delete:1');
+    expect(calls).toContain('r2-delete:1');
   });
 
   test('empty bucket → no delete, still cleans server + ends op', async () => {
     const b = bucket([{ keys: [] }]);
-    const endOp = vi.fn(async () => {});
-    const env = envWith(b, archived, endOp);
+    const endPurgeOp = vi.fn(async () => {});
+    const env = envWith(b, archived, endPurgeOp);
     const { step } = fakeStep();
 
     await run(env, step);
 
     expect(b.delete).not.toHaveBeenCalled();
     expect(purgeServer).toHaveBeenCalledWith(env, 'A/R');
-    expect(endOp).toHaveBeenCalledWith('A/R', 'purge-abc123', 'complete', 'purged');
+    expect(endPurgeOp).toHaveBeenCalledWith('A/R', 'purge-abc123');
   });
 
   test('cold storage on → also deletes the cold S3 copy, between R2 delete and server-cleanup', async () => {
     listS3Page.mockResolvedValue({ objects: [{ key: 'A/R/o1' }, { key: 'A/R/o2' }] });
     const b = bucket([{ keys: ['A/R/o1'] }]);
     const env = envWith(b, archived);
-    (env as { GC: unknown }).GC = { purgeConfirmDays: 3, coldStorage: 's3.backup' };
+    (env as { GC: unknown }).GC = { confirmDays: 3, coldStorage: 's3.backup' };
     const { step, calls } = fakeStep();
 
     await run(env, step);
 
     expect(s3DeleteObject).toHaveBeenCalledWith(env, 'A/R/o1');
     expect(s3DeleteObject).toHaveBeenCalledWith(env, 'A/R/o2');
-    expect(calls).toEqual(['guard', 'delete:0', 's3-delete:0', 'server-cleanup', 'finish']);
+    expect(calls).toEqual(['begin', 'r2-delete:0', 's3-delete:0', 'server-cleanup', 'finish']);
   });
 
   test('cold storage off → no S3 pass', async () => {
@@ -143,64 +148,5 @@ describe('PurgeWorkflow.run', () => {
     await expect(run(env, step)).rejects.toThrow('purge no longer eligible');
     expect(b.list).not.toHaveBeenCalled();
     expect(purgeServer).not.toHaveBeenCalled();
-  });
-});
-
-describe('startPurge', () => {
-  test('reserves the op then creates the instance with a fresh id', async () => {
-    const beginOp = vi.fn(async () => {});
-    const create = vi.fn(async () => {});
-    const env = {
-      STORAGE: { getByName: () => ({ beginOp }) },
-      PURGE_WORKFLOW: { create },
-    } as any;
-    const params = { prefix: 'a/r', scope: 'storage:a/r', triggeredBy: 'admin' as const };
-    const id = await startPurge(env, params);
-    expect(id).toMatch(/^purge-[0-9a-f-]{36}$/);
-    expect(beginOp).toHaveBeenCalledWith('a/r', id, 'purge');
-    expect(create).toHaveBeenCalledWith({ id, params });
-  });
-});
-
-describe('wakePurge', () => {
-  function wakeEnv(prefix: string | null, sendEvent = vi.fn(async () => {})) {
-    return {
-      env: {
-        REGISTRY: {
-          getByName: () => ({ storageForRepo: async () => (prefix ? { prefix } : null) }),
-        },
-        STORAGE: { getByName: () => ({ activeInstanceId: async () => 'purge-abc123' }) },
-        PURGE_WORKFLOW: { get: async () => ({ sendEvent }) },
-      } as any,
-      sendEvent,
-    };
-  }
-
-  test('maps scope → prefix and sends alert_purge to the instance', async () => {
-    const { env: e, sendEvent } = wakeEnv('Alice/Repo');
-    await wakePurge(e, 'storage:alice/repo', 'approve', 'slack:u');
-    expect(sendEvent).toHaveBeenCalledWith({
-      type: 'alert_purge',
-      payload: { decision: 'approve', by: 'slack:u' },
-    });
-  });
-
-  test('no matching storage row → no-op', async () => {
-    const { env: e, sendEvent } = wakeEnv(null);
-    await wakePurge(e, 'storage:alice/repo', 'cancel', 'slack:u');
-    expect(sendEvent).not.toHaveBeenCalled();
-  });
-
-  test('gone instance (get throws) is swallowed', async () => {
-    const e = {
-      REGISTRY: { getByName: () => ({ storageForRepo: async () => ({ prefix: 'a/r' }) }) },
-      STORAGE: { getByName: () => ({ activeInstanceId: async () => 'purge-abc123' }) },
-      PURGE_WORKFLOW: {
-        get: async () => {
-          throw new Error('not found');
-        },
-      },
-    } as any;
-    await expect(wakePurge(e, 'storage:a/r', 'approve', 'u')).resolves.toBeUndefined();
   });
 });

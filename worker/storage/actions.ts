@@ -16,7 +16,7 @@ export function lifecycleState(row: LifecycleRow): LifecycleState {
 // The lifecycle states a storage prefix moves through. Slack events (AlertKind) and the UI's row
 // status both reduce to one of these. `action` is the default one-click verb a non-terminal state
 // offers (unused → Archive, archived → Restore); recovery/terminal states carry none.
-export type LifecycleState = 'used' | 'unused' | 'archived' | 'purging' | 'purged';
+export type LifecycleState = 'used' | 'unused' | 'archived' | 'clearing' | 'purging' | 'purged';
 
 type StateMeta = { emoji: string; line: string; description?: string; action?: StorageAction };
 
@@ -37,6 +37,10 @@ export const STORAGE_STATES: Record<LifecycleState, StateMeta> = {
     line: 'storage archived — serving blocked',
     description: 'This storage no longer serves Git LFS.\nFiles are kept; nothing is deleted.',
     action: 'restore',
+  },
+  clearing: {
+    emoji: '🧹',
+    line: 'storage pending clear — confirm to delete the live copy (cold backup kept)',
   },
   purging: {
     emoji: '🔥',

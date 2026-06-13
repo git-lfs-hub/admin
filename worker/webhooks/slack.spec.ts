@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { decide, wakePurge, storageForRepo, archive, restore } = vi.hoisted(() => ({
+const { decide, wakeConfirmation, storageForRepo, archive, restore } = vi.hoisted(() => ({
   decide: vi.fn(async () => ({ ok: true })),
-  wakePurge: vi.fn(async () => {}),
+  wakeConfirmation: vi.fn(async () => {}),
   storageForRepo: vi.fn(async () => null as any),
   archive: vi.fn(async () => ({})),
   restore: vi.fn(async () => ({})),
@@ -11,7 +11,7 @@ vi.mock('@/db/alerts', () => ({
   Alerts: { global: () => ({ decide }) },
   isDecision: (s: string) => s === 'approve' || s === 'cancel',
 }));
-vi.mock('@/workflows/purge', () => ({ wakePurge }));
+vi.mock('@/workflows/confirm', () => ({ wakeConfirmation }));
 vi.mock('@/db/registry', () => ({ Registry: { global: () => ({ storageForRepo }) } }));
 vi.mock('@/server/operations', () => ({ archive, restore }));
 
@@ -54,7 +54,7 @@ async function post(body: string, opts: { ts?: string; sig?: string } = {}) {
 
 beforeEach(() => {
   decide.mockClear();
-  wakePurge.mockClear();
+  wakeConfirmation.mockClear();
   storageForRepo.mockReset();
   archive.mockClear();
   restore.mockClear();
@@ -65,9 +65,10 @@ describe('POST /webhooks/slack/interactions', () => {
     const res = await post(payload('approve', 'storage:alice/repo#purge'));
     expect(res.status).toBe(200);
     expect(decide).toHaveBeenCalledWith('storage:alice/repo', 'purge', 'approve', 'slack:dana');
-    expect(wakePurge).toHaveBeenCalledWith(
+    expect(wakeConfirmation).toHaveBeenCalledWith(
       expect.anything(),
       'storage:alice/repo',
+      'purge',
       'approve',
       'slack:dana',
     );

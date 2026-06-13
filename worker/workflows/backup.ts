@@ -6,7 +6,7 @@ import { Storage } from '@/db/storage';
 import { copyObject } from '@/s3/copy';
 import { r2Store } from '@/s3/r2-store';
 import { s3Store } from '@/s3/s3-store';
-import { startWorkflow, walkR2Pages } from '@/workflows/lifecycle';
+import { walkR2Pages } from '@/workflows/lifecycle';
 
 export type BackupParams = {
   prefix: string; // STORAGE DO key + R2 key root (canonical OwnerCase/RepoCase)
@@ -29,7 +29,7 @@ export class BackupWorkflow extends WorkflowEntrypoint<CloudflareBindings, Backu
     // Per-object HEAD-skip (in `copyObject`) makes a retried page redo no completed work.
     const src = r2Store(this.env);
     const dst = s3Store(this.env, 'GLACIER_IR');
-    await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'copy', async (objects) => {
+    await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'backup-obj', async (objects) => {
       await Promise.all(objects.map((o) => copyObject(o.key, src, dst)));
     });
 
@@ -37,9 +37,4 @@ export class BackupWorkflow extends WorkflowEntrypoint<CloudflareBindings, Backu
       Storage.byPrefix(this.env, prefix).endBackupOp(prefix, event.instanceId, archivedAtAtStart),
     );
   }
-}
-
-// Reserve the op (409 if the prefix is already busy) then create the workflow instance.
-export function startBackup(env: CloudflareBindings, params: BackupParams): Promise<string> {
-  return startWorkflow(env, 'backup', env.BACKUP_WORKFLOW, params);
 }

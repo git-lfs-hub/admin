@@ -4,7 +4,7 @@ import { NonRetryableError } from 'cloudflare:workflows';
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { s3DeleteObject } from '@/s3/delete';
-import { startWorkflow, walkS3Pages } from '@/workflows/lifecycle';
+import { walkS3Pages } from '@/workflows/lifecycle';
 
 export type DeleteBackupParams = {
   prefix: string; // STORAGE DO key + R2/S3 key root (canonical OwnerCase/RepoCase)
@@ -23,12 +23,12 @@ export class DeleteBackupWorkflow extends WorkflowEntrypoint<
     // Re-read guard: only a backed-up, not-cleared prefix is eligible at execution time.
     await step.do('begin', async () => {
       const row = await Registry.global(this.env).getStorage(prefix);
-      if (!row || !row.backedUpAt || row.clearedAt)
+      if (!row || row.status === 'purged' || !row.backedUpAt || row.clearedAt)
         throw new NonRetryableError('delete-backup no longer eligible');
     });
 
     // Per-object delete is idempotent, so a retried page is safe.
-    await walkS3Pages(step, this.env, prefix, 'delete', async (objects) => {
+    await walkS3Pages(step, this.env, prefix, 's3-delete', async (objects) => {
       await Promise.all(objects.map((o) => s3DeleteObject(this.env, o.key)));
     });
 
@@ -36,12 +36,4 @@ export class DeleteBackupWorkflow extends WorkflowEntrypoint<
       Storage.byPrefix(this.env, prefix).endDeleteBackupOp(prefix, event.instanceId),
     );
   }
-}
-
-// Reserve the op (409 if the prefix is already busy) then create the workflow instance.
-export function startDeleteBackup(
-  env: CloudflareBindings,
-  params: DeleteBackupParams,
-): Promise<string> {
-  return startWorkflow(env, 'deleteBackup', env.DELETE_BACKUP_WORKFLOW, params);
 }

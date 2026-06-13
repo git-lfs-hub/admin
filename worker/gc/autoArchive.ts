@@ -1,9 +1,9 @@
 import type { Registry, StorageRow } from '@/db/registry';
 import { gcConfig } from '@/gc/config';
-import { isoAddDays } from '@/lib/time';
+import { dueAt, isDue } from '@/gc/deadlines';
 import { archive } from '@/server/operations';
 
-/** Cron: block `unused` prefixes past their grace window (`unusedAt + autoArchiveDays`).
+/** Cron: block `unused` prefixes past their grace window (`unusedAt + autoDays.archive`).
  *  Status untouched (block is orthogonal). RPC before the DB write, so a failure retries
  *  next tick. Caller gates on the cold-start guard (`reconcileAll`). */
 export async function autoArchive(
@@ -11,10 +11,10 @@ export async function autoArchive(
   registry: DurableObjectStub<Registry>,
 ): Promise<StorageRow[]> {
   const now = Date.now();
+  const gc = gcConfig(env);
   const archived: StorageRow[] = [];
   for (const r of await registry.listStorageByStatus('unused')) {
-    if (r.archivedAt || !r.unusedAt) continue;
-    if (Date.parse(isoAddDays(r.unusedAt, gcConfig(env).autoArchiveDays)) > now) continue;
+    if (!isDue(dueAt.archive(r, gc), now)) continue;
     try {
       const row = await archive(env, registry, r.prefix);
       if (row) archived.push(row);

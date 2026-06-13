@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { autoBackup } from '@/gc/autoBackup';
 
-const startBackup = vi.fn(async (..._a: unknown[]) => 'backup-id');
-vi.mock('@/workflows/backup', () => ({
-  startBackup: (env: unknown, params: unknown) => startBackup(env, params),
+const startWorkflow = vi.fn(async (..._a: unknown[]) => 'backup-id');
+vi.mock('@/workflows/lifecycle', () => ({
+  startWorkflow: (...a: unknown[]) => startWorkflow(...a),
 }));
 
 const cold = { GC: { coldStorage: 's3.backup' } } as unknown as CloudflareBindings;
@@ -29,12 +29,14 @@ beforeEach(() => vi.clearAllMocks());
 describe('autoBackup', () => {
   test('cold storage off → no-op', async () => {
     expect(await autoBackup(off, fakeRegistry([row({})]))).toEqual([]);
-    expect(startBackup).not.toHaveBeenCalled();
+    expect(startWorkflow).not.toHaveBeenCalled();
   });
 
   test('blocked + no complete cold copy → starts a backup', async () => {
     const out = await autoBackup(cold, fakeRegistry([row({})]));
-    expect(startBackup).toHaveBeenCalledWith(cold, { prefix: 'a/r' });
+    expect(startWorkflow).toHaveBeenCalledWith(cold, 'backup', {
+      prefix: 'a/r',
+    });
     expect(out).toHaveLength(1);
   });
 
@@ -46,13 +48,13 @@ describe('autoBackup', () => {
     ['purged', { status: 'purged' }],
   ])('skips: %s', async (_label, over) => {
     await autoBackup(cold, fakeRegistry([row(over)]));
-    expect(startBackup).not.toHaveBeenCalled();
+    expect(startWorkflow).not.toHaveBeenCalled();
   });
 
   test('caps instances started per tick', async () => {
     const rows = Array.from({ length: 15 }, (_, i) => row({ prefix: `a/r${i}` }));
     const out = await autoBackup(cold, fakeRegistry(rows));
     expect(out).toHaveLength(10);
-    expect(startBackup).toHaveBeenCalledTimes(10);
+    expect(startWorkflow).toHaveBeenCalledTimes(10);
   });
 });
