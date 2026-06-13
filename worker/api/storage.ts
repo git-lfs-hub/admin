@@ -7,6 +7,7 @@ import { Alerts } from '@/db/alerts';
 import { Registry, type StorageRow } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
+import { isLocal } from '@/lib/host';
 import { isoAddDays } from '@/lib/time';
 import { archive, restore } from '@/server/operations';
 import { purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
@@ -61,9 +62,13 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: result });
   })
 
+  // Gate + resolve the row for every per-repo mutation, once (guard first — cross-owner
+  // writes 403 before the lookup). GET `/` above stays global.
+  .use('/:owner/:repo/*', requireOwnerAdmin, withStorage)
+
   // Serve-block. RPC before the DB write so a failure leaves the row unchanged. `unused`-only:
   // reconcile would auto-unblock a `used` (live) prefix until block-reason tracking exists.
-  .post('/:owner/:repo/archive', withStorage, async (c) => {
+  .post('/:owner/:repo/archive', async (c) => {
     const cur = c.var.storage;
     if (cur.status !== 'unused') return c.json({ error: 'invalid_state', status: cur.status }, 409);
     if (cur.archivedAt) return c.json({ error: 'already_blocked' }, 409);
@@ -80,7 +85,7 @@ const app = new Hono<StorageEnv>()
 
   // Clear the serve-block. Status untouched — link state is reconcile's call. RPC before the
   // DB write. Cold restore (clearedAt set → Glacier) is not yet wired.
-  .post('/:owner/:repo/restore', withStorage, async (c) => {
+  .post('/:owner/:repo/restore', async (c) => {
     const cur = c.var.storage;
     // Purged objects are gone; an in-flight purge is mid-delete — neither serves, so unblocking
     // is meaningless. Gate both before the block check (a purged row keeps its `archivedAt`).
@@ -98,13 +103,13 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: row });
   })
 
-  // Cold-storage ops not yet implemented. No `withStorage` — pure stubs.
+  // Cold-storage ops not yet implemented.
   .post('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .delete('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .post('/:owner/:repo/clear', (c) => c.json({ error: 'not_implemented' }, 501))
 
   // Preview impact + a state-bound token; the token gates the matching POST below.
-  .post('/:owner/:repo/purge/preview', withStorage, purgeable, async (c) => {
+  .post('/:owner/:repo/purge/preview', purgeable, async (c) => {
     const cur = c.var.storage;
     const present = (await Storage.byPrefix(c.env, cur.prefix).usage()).present;
     return c.json({
@@ -113,7 +118,7 @@ const app = new Hono<StorageEnv>()
     });
   })
 
-  .post('/:owner/:repo/purge', withStorage, purgeable, async (c) => {
+  .post('/:owner/:repo/purge', purgeable, async (c) => {
     const cur = c.var.storage;
     if (!(await validateToken(c, cur))) return c.json({ error: 'stale_token' }, 409);
     const { owner, repo } = c.req.param();
@@ -132,7 +137,7 @@ const app = new Hono<StorageEnv>()
 
   // UI analogue of the Slack Confirm button: record the approve, wake the waiting workflow so
   // it deletes now instead of at the deadline.
-  .post('/:owner/:repo/workflow/confirm', withStorage, activePurge, async (c) => {
+  .post('/:owner/:repo/workflow/confirm', activePurge, async (c) => {
     const { owner, repo } = c.req.param();
     const scope = scopeFor(owner, repo);
     const by = `admin:${c.var.admin}`;
@@ -144,7 +149,7 @@ const app = new Hono<StorageEnv>()
 
   // Cancel an in-flight Purge. A terminated instance never reaches its `finish` step, so `endOp`
   // must run here to clear `activeOp`; resting status is left unchanged (nothing was deleted).
-  .post('/:owner/:repo/workflow/cancel', withStorage, activePurge, async (c) => {
+  .post('/:owner/:repo/workflow/cancel', activePurge, async (c) => {
     const cur = c.var.storage;
     const { owner, repo } = c.req.param();
     const scope = scopeFor(owner, repo);
@@ -161,6 +166,16 @@ const app = new Hono<StorageEnv>()
     await store.endOp(cur.prefix, id, 'terminated', cur.status);
     return c.json({ status: 'cancelled' });
   });
+
+// The gate admits an admin of *any* configured org, so re-check the caller against this
+// `:owner` (cached `orgRole`). Local dev (`api` unset) has full access.
+async function requireOwnerAdmin(c: Context<StorageEnv>, next: Next) {
+  // StorageEnv only widens AppEnv's Variables; isLocal reads url/env, never `storage`.
+  if (isLocal(c as unknown as Context<AppEnv>)) return next();
+  if ((await c.var.api.orgRole(c.req.param('owner')!)) !== 'admin')
+    return c.json({ error: 'forbidden' }, 403);
+  await next();
+}
 
 // Resolve the storage row for `:owner/:repo` into `c.var.storage`, or 404.
 async function withStorage(c: Context<StorageEnv>, next: Next) {

@@ -62,6 +62,17 @@
       "entrypoint": "AdminEntrypoint",
     },
   ],
+  {{!-- Omitted until a namespace id is set, so `wrangler kv namespace create
+  GITHUB_CACHE` can run before the binding exists. No id → org-role cache disabled
+  (orgRole still works, just uncached). Reuses lfs-server's namespace id. --}}
+  {{#if cloudflare.kv.githubCacheId}}
+  "kv_namespaces": [
+    {
+      "binding": "GITHUB_CACHE",
+      "id": "{{cloudflare.kv.githubCacheId}}",
+    },
+  ],
+  {{/if}}
   "queues": {
     "consumers": [
       {
@@ -81,6 +92,8 @@
   },
   "vars": {
     "GITHUB_ORG": "{{github.org}}",
+    // Optional: one or more owner/org slugs (alternative to GITHUB_ORG for multi-org setups).
+    "GITHUB_ORGS": "{{github.orgs}}",
     "GC": {{{json gc}}},
     // Admin-side notification config (non-secret). `slack.channel` empty → Slack delivery
     // no-ops; `url` is the admin base for deep links in alerts. The Slack bot token is a

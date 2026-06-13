@@ -1,16 +1,16 @@
 import { Hono } from 'hono';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockResolveSession, mockRequireOrgRole } = vi.hoisted(() => ({
-  mockResolveSession: vi.fn(),
-  mockRequireOrgRole: vi.fn(),
-}));
+const { mockResolveSession } = vi.hoisted(() => ({ mockResolveSession: vi.fn() }));
 
+// Only resolveSession is mocked; the org-role gate (authorizeOrgRole) runs for real against
+// the per-org `api.orgRole` stub below, so adminOrgs is exercised end-to-end.
 vi.mock('@git-lfs-hub/lib/auth', async (orig) => ({
   ...(await orig<typeof import('@git-lfs-hub/lib/auth')>()),
   resolveSession: mockResolveSession,
-  requireOrgRole: mockRequireOrgRole,
 }));
+
+import { GithubError } from '@git-lfs-hub/lib/github';
 
 import auth from '@/middleware/auth';
 
@@ -23,40 +23,48 @@ const ENV = {
 
 const COOKIE = { Cookie: 'gh_session_v2=anything' };
 
+// `api.orgRole` answers per-org from this map; default makes the caller admin everywhere.
+function sessionWithRoles(roles: Record<string, 'admin' | 'member' | null>) {
+  return {
+    api: { orgRole: async (org: string) => roles[org] ?? null },
+    username: 'alice',
+  };
+}
+
 function createApp() {
   const app = new Hono();
   app.use('*', auth as any);
-  app.get('/test', (c) => c.json({ admin: (c as any).var.admin }));
-  app.get('/api/test', (c) => c.json({ admin: (c as any).var.admin }));
+  const handler = (c: any) => c.json({ admin: c.var.admin, adminOrgs: c.var.adminOrgs });
+  app.get('/test', handler);
+  app.get('/api/test', handler);
   return app;
 }
 
-function req(path: string, host = 'example.com', init: RequestInit = {}) {
+function req(path: string, host = 'example.com', init: RequestInit = {}, env = ENV) {
   return createApp().request(
     `http://${host}${path}`,
     { ...init, headers: { ...COOKIE, ...(init.headers ?? {}) } },
-    ENV,
+    env,
   );
 }
 
 describe('auth middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockResolveSession.mockResolvedValue({ api: {}, username: 'alice' });
-    mockRequireOrgRole.mockResolvedValue(null);
+    mockResolveSession.mockResolvedValue(sessionWithRoles({ 'test-org': 'admin' }));
   });
 
   describe('localhost bypass', () => {
-    test('sets admin to "dev" for localhost', async () => {
+    test('sets admin to "dev" and adminOrgs to all configured orgs', async () => {
       const res = await req('/test', 'localhost');
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ admin: 'dev' });
+      expect(await res.json()).toEqual({ admin: 'dev', adminOrgs: ['test-org'] });
     });
 
     test('sets admin to "dev" for 127.0.0.1', async () => {
       const res = await req('/test', '127.0.0.1');
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ admin: 'dev' });
+      expect(await res.json()).toEqual({ admin: 'dev', adminOrgs: ['test-org'] });
     });
 
     test('does not call resolveSession', async () => {
@@ -71,7 +79,7 @@ describe('auth middleware', () => {
         { ...ENV, ENV: 'local' },
       );
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ admin: 'dev' });
+      expect(await res.json()).toEqual({ admin: 'dev', adminOrgs: ['test-org'] });
       expect(mockResolveSession).not.toHaveBeenCalled();
     });
   });
@@ -106,15 +114,35 @@ describe('auth middleware', () => {
   });
 
   describe('production — valid session', () => {
-    test('sets admin to GitHub login', async () => {
-      mockResolveSession.mockResolvedValue({ api: {}, username: 'alice' });
-      const res = await req('/test');
+    test('admits an admin and records the orgs they own', async () => {
+      mockResolveSession.mockResolvedValue(
+        sessionWithRoles({ 'org-a': 'admin', 'org-b': 'member', 'org-c': 'admin' }),
+      );
+      const env = { ...ENV, GITHUB_ORG: '', GITHUB_ORGS: 'org-a org-b org-c' };
+      const res = await req('/test', 'example.com', {}, env);
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ admin: 'alice' });
+      expect(await res.json()).toEqual({ admin: 'alice', adminOrgs: ['org-a', 'org-c'] });
     });
 
-    test('returns forbidden when org role check fails', async () => {
-      mockRequireOrgRole.mockResolvedValue(new Response('Forbidden', { status: 403 }));
+    test('a forbidden org (App not installed) is dropped, not fatal', async () => {
+      const forbidden = new GithubError('forbidden', 'membership: 403', 403);
+      mockResolveSession.mockResolvedValue({
+        api: {
+          orgRole: async (org: string) => {
+            if (org === 'org-a') throw forbidden;
+            return 'admin';
+          },
+        },
+        username: 'alice',
+      });
+      const env = { ...ENV, GITHUB_ORG: '', GITHUB_ORGS: 'org-a org-b' };
+      const res = await req('/test', 'example.com', {}, env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ admin: 'alice', adminOrgs: ['org-b'] });
+    });
+
+    test('admin of none → 403', async () => {
+      mockResolveSession.mockResolvedValue(sessionWithRoles({ 'test-org': 'member' }));
       const res = await req('/test');
       expect(res.status).toBe(403);
     });

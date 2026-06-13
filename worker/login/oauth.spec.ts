@@ -5,16 +5,16 @@ vi.mock('@git-lfs-hub/lib/auth', async (importOriginal) => {
   return {
     ...actual,
     oauthCallback: vi.fn(),
-    requireOrgRole: vi.fn(),
+    authorizeOrgRole: vi.fn(),
   };
 });
 
-import { oauthCallback, requireOrgRole } from '@git-lfs-hub/lib/auth';
+import { oauthCallback, authorizeOrgRole } from '@git-lfs-hub/lib/auth';
 
 import app from '@/login/oauth';
 
 const mockProcessOAuth = vi.mocked(oauthCallback);
-const mockRequireOrgRole = vi.mocked(requireOrgRole);
+const mockAuthorizeOrgRole = vi.mocked(authorizeOrgRole);
 
 const LOGIN_SECRET = 'a'.repeat(64);
 const ENV = {
@@ -87,7 +87,7 @@ describe('GET /callback', () => {
     expect(location).toContain('error=bad_verification_code');
   });
 
-  test('returns 403 when requireOrgRole rejects', async () => {
+  test('returns 403 when authorizeOrgRole rejects', async () => {
     const signedState = await makeSignedState();
     mockProcessOAuth.mockResolvedValue({
       ok: true,
@@ -98,7 +98,7 @@ describe('GET /callback', () => {
         scopes: 'read:org',
       },
     });
-    mockRequireOrgRole.mockResolvedValue(
+    mockAuthorizeOrgRole.mockResolvedValue(
       new Response('Forbidden: org admin required', { status: 403 }),
     );
     const res = await get(`/callback?code=gh_code&state=${encodeURIComponent(signedState)}`);
@@ -116,7 +116,7 @@ describe('GET /callback', () => {
         scopes: 'read:org',
       },
     });
-    mockRequireOrgRole.mockResolvedValue(null);
+    mockAuthorizeOrgRole.mockResolvedValue(['test-org']);
 
     const res = await get(`/callback?code=gh_code&state=${encodeURIComponent(signedState)}`);
     expect(res.status).toBe(302);

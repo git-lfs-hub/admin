@@ -1,8 +1,9 @@
 import {
+  authorizeOrgRole,
   githubOAuthUrl,
   oauthCallback,
   oauthErrorUrl,
-  requireOrgRole,
+  orgsFromEnv,
   setSessionCookie,
 } from '@git-lfs-hub/lib/auth';
 import { GithubApi } from '@git-lfs-hub/lib/github';
@@ -13,7 +14,7 @@ import type { AppEnv } from '@/_env';
 const app = new Hono<AppEnv>();
 
 // First-party browser login. `GITHUB_CLIENT_ID/SECRET` are the GitHub App's user-to-server
-// OAuth creds; `scopes` are ignored by Apps — the org-admin gate (requireOrgRole) uses the
+// OAuth creds; `scopes` are ignored by Apps — the org-admin gate (authorizeOrgRole) uses the
 // App's org "Members: read" permission instead.
 
 // GET /login/oauth/authorize — start
@@ -51,8 +52,8 @@ app.get('/callback', async (c) => {
   }
 
   const api = new GithubApi(result.tokens.access);
-  const forbidden = await requireOrgRole(api, c.env.GITHUB_ORG, 'admin');
-  if (forbidden) return forbidden;
+  const authorized = await authorizeOrgRole(api, orgsFromEnv(c.env), 'admin');
+  if (authorized instanceof Response) return authorized;
 
   await setSessionCookie(c, result.tokens, c.env.LOGIN_SECRET);
 

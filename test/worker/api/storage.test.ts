@@ -352,6 +352,7 @@ describe('cold-storage ops → 501 (not yet implemented)', () => {
     ['DELETE', '/alice/r/backup'],
     ['POST', '/alice/r/clear'],
   ])('%s %s', async (method, path) => {
+    await seedUnused('alice/r'); // row resolved by the shared middleware; stub then 501s
     const { env: e } = appEnv();
     const res = await storageApp.request(path, { method }, e);
     expect(res.status).toBe(501);
