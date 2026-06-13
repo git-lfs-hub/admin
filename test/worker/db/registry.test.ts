@@ -356,6 +356,25 @@ describe('endBackup (cold copy outcome)', () => {
   });
 });
 
+describe('endDeleteBackup (cold copy dropped)', () => {
+  test('clears backedUpAt/backupComplete/activeOp, status + archivedAt untouched', async () => {
+    await reg().upsertStorage('alice/a');
+    await reg().markUnused('alice/a');
+    const blocked = await reg().block('alice/a');
+    await reg().endBackup('alice/a', blocked!.archivedAt); // backedUpAt + backupComplete set
+    await reg().setActiveOp('alice/a', 'deleteBackup');
+
+    await reg().endDeleteBackup('alice/a');
+
+    const row = await reg().getStorage('alice/a');
+    expect(row?.backedUpAt).toBeNull();
+    expect(row?.backupComplete).toBe(false);
+    expect(row?.activeOp).toBeNull();
+    expect(row?.status).toBe('unused'); // Delete Backup never moves resting status
+    expect(row?.archivedAt).toBe(blocked!.archivedAt); // live R2 untouched, still blocked
+  });
+});
+
 describe('endRestore (cold restore outcome)', () => {
   test('clears archivedAt/clearedAt/backupComplete/activeOp, keeps backedUpAt, status untouched', async () => {
     await reg().upsertStorage('alice/a');

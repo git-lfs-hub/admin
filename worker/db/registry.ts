@@ -443,6 +443,17 @@ export class Registry extends DurableObject<CloudflareBindings> {
     });
   }
 
+  /** Land a finished Delete Backup (cross-DO from the STORAGE DO): the cold copy is gone, so clear
+   *  `backedUpAt`/`backupComplete`. Live R2 + status untouched (Delete Backup never moves them). */
+  async endDeleteBackup(prefix: string): Promise<void> {
+    await this.updateStorage(prefix, {
+      backedUpAt: null,
+      backupComplete: false,
+      activeOp: null,
+      updatedAt: isoNow(),
+    });
+  }
+
   /** Bump `lastChangeAt` + reset `backupComplete` on an upload event (cold copy may have diverged). */
   async recordUpload(prefix: string): Promise<void> {
     const now = isoNow();

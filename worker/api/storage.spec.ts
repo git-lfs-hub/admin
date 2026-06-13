@@ -48,6 +48,10 @@ function post(path: string, host = 'admin.example.com') {
   return createApp().request(`http://${host}${path}`, { method: 'POST' }, {});
 }
 
+function del(path: string, host = 'admin.example.com') {
+  return createApp().request(`http://${host}${path}`, { method: 'DELETE' }, {});
+}
+
 describe('storage mutation scoping', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,6 +81,14 @@ describe('storage mutation scoping', () => {
     registryMock.storageForRepo.mockResolvedValue({ prefix: 'org-a/repo' }); // row exists
     const ok = await post('/api/storage/org-a/repo/clear');
     expect(ok.status).toBe(501); // guard + withStorage passed, then the stub
+  });
+
+  test('delete-backup is guarded + resolved, then gated on cold storage', async () => {
+    expect((await del('/api/storage/org-b/repo/backup')).status).toBe(403); // guard blocks
+    registryMock.storageForRepo.mockResolvedValue({ prefix: 'org-a/repo', backedUpAt: 'x' });
+    const res = await del('/api/storage/org-a/repo/backup');
+    expect(res.status).toBe(409); // guard + withStorage passed; cold storage off in this mock
+    expect(await res.json()).toEqual({ error: 'cold_storage_disabled' });
   });
 
   test('local dev bypasses the owner check', async () => {

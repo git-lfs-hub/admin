@@ -62,6 +62,11 @@
       "name": "lfs-admin-restore",
       "class_name": "RestoreWorkflow",
     },
+    {
+      "binding": "DELETE_BACKUP_WORKFLOW",
+      "name": "lfs-admin-delete-backup",
+      "class_name": "DeleteBackupWorkflow",
+    },
   ],
   // RPC into lfs-server (block/unblock/purge). In prod this targets the
   // lfs-server worker; in dev the same-named auxiliary worker (vite.config.ts).

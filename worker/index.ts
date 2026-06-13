@@ -17,6 +17,7 @@ export { Registry } from '@/db/registry';
 export { Storage } from '@/db/storage';
 export { Alerts } from '@/db/alerts';
 export { BackupWorkflow } from '@/workflows/backup';
+export { DeleteBackupWorkflow } from '@/workflows/deleteBackup';
 export { PurgeWorkflow } from '@/workflows/purge';
 export { RestoreWorkflow } from '@/workflows/restore';
 

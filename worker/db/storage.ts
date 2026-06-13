@@ -277,6 +277,16 @@ export class Storage extends DurableObject<CloudflareBindings> {
     if (last) await Registry.global(this.env).endRestore(prefix);
   }
 
+  /**
+   * Close a completed Delete Backup. Leaves the resting `status` alone (live R2 untouched) and
+   * clears the cold-copy flags (`backedUpAt`/`backupComplete`) via `Registry.endDeleteBackup`.
+   * Success-only — a cancelled Delete Backup goes through `endOp` with status unchanged.
+   */
+  async endDeleteBackupOp(prefix: string, instanceId: string): Promise<void> {
+    const last = await this.closeRow(instanceId, 'complete', null);
+    if (last) await Registry.global(this.env).endDeleteBackup(prefix);
+  }
+
   /** Mark one instance's row ended; returns true when no active row remains for the prefix. */
   private async closeRow(
     instanceId: string,

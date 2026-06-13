@@ -11,6 +11,7 @@ import { isLocal } from '@/lib/host';
 import { isoAddDays } from '@/lib/time';
 import { archive, restore } from '@/server/operations';
 import { startBackup } from '@/workflows/backup';
+import { startDeleteBackup } from '@/workflows/deleteBackup';
 import { purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
 import { startRestore } from '@/workflows/restore';
 
@@ -132,8 +133,23 @@ const app = new Hono<StorageEnv>()
     }
   })
 
+  // Delete the cold copy, leaving live R2. Admin-only, no auto-trigger. Cold-storage only; 409
+  // unless a cold copy exists (`backedUpAt`) and live is still present (`clearedAt` null — once
+  // cleared the cold copy is the only copy).
+  .delete('/:owner/:repo/backup', async (c) => {
+    if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
+    const cur = c.var.storage;
+    if (!cur.backedUpAt) return c.json({ error: 'no_backup' }, 409);
+    if (cur.clearedAt) return c.json({ error: 'cleared' }, 409);
+    try {
+      const id = await startDeleteBackup(c.env, { prefix: cur.prefix });
+      return c.json({ status: 'deleting_backup', workflow: id }, 202);
+    } catch {
+      return c.json({ error: 'busy' }, 409);
+    }
+  })
+
   // Cold-storage ops not yet implemented.
-  .delete('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .post('/:owner/:repo/clear', (c) => c.json({ error: 'not_implemented' }, 501))
 
   // Preview impact + a state-bound token; the token gates the matching POST below.
