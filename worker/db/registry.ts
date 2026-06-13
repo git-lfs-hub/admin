@@ -286,6 +286,16 @@ export class Registry extends DurableObject<CloudflareBindings> {
     return this.updateStorage(prefix, { status: 'unused', unusedAt: now, updatedAt: now });
   }
 
+  /** Stamp `clearedAt` at a ClearWorkflow's start. Only a blocked, not-yet-cleared prefix. */
+  async markCleared(prefix: string): Promise<StorageRow | null> {
+    const now = isoNow();
+    return this.updateStorage(
+      prefix,
+      { clearedAt: now, updatedAt: now },
+      and(isNotNull(storage.archivedAt), isNull(storage.clearedAt)),
+    );
+  }
+
   /** Purge: only a blocked prefix is purgeable. */
   async markPurged(prefix: string): Promise<StorageRow | null> {
     const now = isoNow();
@@ -441,6 +451,12 @@ export class Registry extends DurableObject<CloudflareBindings> {
       activeOp: null,
       updatedAt: isoNow(),
     });
+  }
+
+  /** Land a finished Clear: cold copy + block remain, so only drop `activeOp` (`clearedAt` was
+   *  stamped at the workflow's start). */
+  async endClear(prefix: string): Promise<void> {
+    await this.updateStorage(prefix, { activeOp: null, updatedAt: isoNow() });
   }
 
   /** Land a finished Delete Backup (cross-DO from the STORAGE DO): the cold copy is gone, so clear

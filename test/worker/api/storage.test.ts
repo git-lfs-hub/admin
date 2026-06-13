@@ -45,6 +45,7 @@ function appEnv(
   const BACKUP_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   const RESTORE_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   const DELETE_BACKUP_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
+  const CLEAR_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   return {
     env: {
       REGISTRY: env.REGISTRY,
@@ -58,11 +59,13 @@ function appEnv(
       BACKUP_WORKFLOW,
       RESTORE_WORKFLOW,
       DELETE_BACKUP_WORKFLOW,
+      CLEAR_WORKFLOW,
     } as unknown as CloudflareBindings & {
       PURGE_WORKFLOW: typeof PURGE_WORKFLOW;
       BACKUP_WORKFLOW: typeof BACKUP_WORKFLOW;
       RESTORE_WORKFLOW: typeof RESTORE_WORKFLOW;
       DELETE_BACKUP_WORKFLOW: typeof DELETE_BACKUP_WORKFLOW;
+      CLEAR_WORKFLOW: typeof CLEAR_WORKFLOW;
     },
     blockRepo: LFS_SERVER.blockRepo,
     unblockRepo: LFS_SERVER.unblockRepo,
@@ -71,6 +74,7 @@ function appEnv(
     BACKUP_WORKFLOW,
     RESTORE_WORKFLOW,
     DELETE_BACKUP_WORKFLOW,
+    CLEAR_WORKFLOW,
   };
 }
 const post = (path: string, e: CloudflareBindings) =>
@@ -400,14 +404,74 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
   });
 });
 
-describe('cold-storage ops not yet implemented → 501', () => {
-  // Clear (F5) is a genuine stub. BackUp / Delete Backup are implemented — when cold storage is off
-  // they're config-disabled (409), not 501 (see their describes).
-  test('POST /alice/r/clear', async () => {
-    await seedUnused('alice/r'); // row resolved by the shared middleware; stub then 501s
-    const { env: e } = appEnv();
-    const res = await storageApp.request('/alice/r/clear', { method: 'POST' }, e);
-    expect(res.status).toBe(501);
+describe('POST /api/storage/:o/:r/clear (cold storage on)', () => {
+  const cold = { coldStorage: 's3.backup' };
+
+  // Stamp a complete cold copy on a blocked prefix — the clearable state.
+  async function seedBackupComplete(prefix: string) {
+    await seedArchived(prefix);
+    await reg().endBackup(prefix, (await reg().getStorage(prefix))!.archivedAt); // backupComplete=true
+  }
+
+  test('complete backup, blocked → reserves the op (beginOp) + creates the instance → 202', async () => {
+    await seedBackupComplete('alice/r');
+    const { env: e, CLEAR_WORKFLOW } = appEnv({}, cold);
+    const res = await post('/alice/r/clear', e);
+    expect(res.status).toBe(202);
+    expect(CLEAR_WORKFLOW.create).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.stringMatching(/^clear-[0-9A-Za-z_]{1,64}$/) }),
+    );
+    expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('clear');
+  });
+
+  test('not blocked → 409 not_blocked', async () => {
+    await seedUnused('alice/r');
+    await reg().endBackup('alice/r', null); // backedUpAt set but never blocked → backupComplete false
+    const { env: e } = appEnv({}, cold);
+    const res = await post('/alice/r/clear', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'not_blocked' });
+  });
+
+  test('blocked but backup incomplete → 409 not_backed_up', async () => {
+    await seedArchived('alice/r'); // blocked, no backup
+    const { env: e } = appEnv({}, cold);
+    const res = await post('/alice/r/clear', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'not_backed_up' });
+  });
+
+  test('already cleared → 409 already_cleared', async () => {
+    await seedBackupComplete('alice/r');
+    await reg().markCleared('alice/r');
+    const { env: e } = appEnv({}, cold);
+    const res = await post('/alice/r/clear', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'already_cleared' });
+  });
+
+  test('purged → 409 already_purged', async () => {
+    await seedBackupComplete('alice/r');
+    await reg().markPurged('alice/r');
+    const { env: e } = appEnv({}, cold);
+    const res = await post('/alice/r/clear', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'already_purged' });
+  });
+
+  test('busy (an op already in flight) → 409', async () => {
+    await seedBackupComplete('alice/r');
+    await env.STORAGE.getByName('alice/r').beginOp('alice/r', 'purge-x', 'purge');
+    const { env: e } = appEnv({}, cold);
+    expect((await post('/alice/r/clear', e)).status).toBe(409);
+  });
+
+  test('cold storage off → 409 cold_storage_disabled (config, not unimplemented)', async () => {
+    await seedBackupComplete('alice/r');
+    const { env: e } = appEnv(); // default: coldStorage ""
+    const res = await post('/alice/r/clear', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'cold_storage_disabled' });
   });
 });
 

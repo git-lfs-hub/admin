@@ -226,6 +226,20 @@ describe('markUsed / markUnused / markPurged', () => {
   });
 });
 
+describe('markCleared', () => {
+  test('stamps clearedAt only on a blocked, not-yet-cleared prefix', async () => {
+    await reg().upsertStorage('alice/a');
+    await reg().markUnused('alice/a');
+    expect(await reg().markCleared('alice/a')).toBeNull(); // not blocked
+    await reg().block('alice/a');
+    const row = await reg().markCleared('alice/a');
+    expect(row?.clearedAt).toMatch(ISO_RE);
+    expect(row?.status).toBe('unused'); // status + block untouched
+    expect(row?.archivedAt).toMatch(ISO_RE);
+    expect(await reg().markCleared('alice/a')).toBeNull(); // already cleared → no-op
+  });
+});
+
 describe('reconcileStorage (link state from repos, same-key)', () => {
   test('matching repo missing → prefix becomes unused', async () => {
     await reg().upsertRepo('alice', 'a');
@@ -392,6 +406,27 @@ describe('endRestore (cold restore outcome)', () => {
     expect(row?.backupComplete).toBe(false);
     expect(row?.activeOp).toBeNull();
     expect(row?.backedUpAt).toMatch(ISO_RE); // cold copy still exists
+  });
+});
+
+describe('endClear (live cleared, cold copy kept)', () => {
+  test('clears activeOp only; status/archivedAt/clearedAt/backupComplete untouched', async () => {
+    await reg().upsertStorage('alice/a');
+    await reg().markUnused('alice/a');
+    const blocked = await reg().block('alice/a');
+    await reg().endBackup('alice/a', blocked!.archivedAt); // backedUpAt + backupComplete set
+    const cleared = await reg().markCleared('alice/a'); // clearedAt stamped at workflow start
+    await reg().setActiveOp('alice/a', 'clear');
+
+    await reg().endClear('alice/a');
+
+    const row = await reg().getStorage('alice/a');
+    expect(row?.activeOp).toBeNull();
+    expect(row?.status).toBe('unused'); // Clear never moves resting status
+    expect(row?.archivedAt).toBe(blocked!.archivedAt); // still blocked
+    expect(row?.clearedAt).toBe(cleared!.clearedAt); // stamped at start, untouched
+    expect(row?.backupComplete).toBe(true); // cold copy intact
+    expect(row?.backedUpAt).toMatch(ISO_RE);
   });
 });
 

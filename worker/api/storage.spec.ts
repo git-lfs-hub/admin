@@ -76,11 +76,12 @@ describe('storage mutation scoping', () => {
     expect(res.status).toBe(403);
   });
 
-  test('501 stubs sit behind the guard + row resolution', async () => {
+  test('clear is guarded + resolved, then gated on cold storage', async () => {
     expect((await post('/api/storage/org-b/repo/clear')).status).toBe(403); // guard blocks
     registryMock.storageForRepo.mockResolvedValue({ prefix: 'org-a/repo' }); // row exists
-    const ok = await post('/api/storage/org-a/repo/clear');
-    expect(ok.status).toBe(501); // guard + withStorage passed, then the stub
+    const res = await post('/api/storage/org-a/repo/clear');
+    expect(res.status).toBe(409); // guard + withStorage passed; cold storage off in this mock
+    expect(await res.json()).toEqual({ error: 'cold_storage_disabled' });
   });
 
   test('delete-backup is guarded + resolved, then gated on cold storage', async () => {

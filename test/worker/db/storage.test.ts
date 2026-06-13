@@ -258,6 +258,26 @@ describe('Storage workflows (one-active-op guard)', () => {
     expect(row?.activeOp).toBeNull();
   });
 
+  test('endClearOp clears activeOp on REGISTRY; status/block/clearedAt/backup untouched', async () => {
+    const registry = env.REGISTRY.getByName('global');
+    await registry.upsertStorage('alice/thing');
+    await registry.markUnused('alice/thing');
+    const blocked = await registry.block('alice/thing');
+    await registry.endBackup('alice/thing', blocked!.archivedAt); // backupComplete set
+    const cleared = await registry.markCleared('alice/thing'); // clearedAt stamped at workflow start
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.beginOp('alice/thing', 'inst-1', 'clear');
+
+    await store.endClearOp('alice/thing', 'inst-1');
+    expect(await store.activeOp()).toBeNull();
+    const row = await registry.getStorage('alice/thing');
+    expect(row?.status).toBe('unused'); // Clear never moves resting status
+    expect(row?.archivedAt).toBe(blocked!.archivedAt); // still blocked
+    expect(row?.clearedAt).toBe(cleared!.clearedAt); // stamped at start, untouched
+    expect(row?.backupComplete).toBe(true); // cold copy intact
+    expect(row?.activeOp).toBeNull();
+  });
+
   test('listWorkflows returns every row, active and closed', async () => {
     const registry = env.REGISTRY.getByName('global');
     await registry.upsertStorage('alice/thing');

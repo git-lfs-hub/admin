@@ -11,6 +11,7 @@ import { isLocal } from '@/lib/host';
 import { isoAddDays } from '@/lib/time';
 import { archive, restore } from '@/server/operations';
 import { startBackup } from '@/workflows/backup';
+import { startClear } from '@/workflows/clear';
 import { startDeleteBackup } from '@/workflows/deleteBackup';
 import { purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
 import { startRestore } from '@/workflows/restore';
@@ -149,8 +150,22 @@ const app = new Hono<StorageEnv>()
     }
   })
 
-  // Cold-storage ops not yet implemented.
-  .post('/:owner/:repo/clear', (c) => c.json({ error: 'not_implemented' }, 501))
+  // Clear live R2, keep the cold copy. Cold-storage only; gated on a complete backup, still blocked,
+  // not already cleared/purged. Stays blocked; Restore brings live back from cold.
+  .post('/:owner/:repo/clear', async (c) => {
+    if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
+    const cur = c.var.storage;
+    if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
+    if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
+    if (!cur.backupComplete) return c.json({ error: 'not_backed_up' }, 409);
+    if (cur.clearedAt) return c.json({ error: 'already_cleared' }, 409);
+    try {
+      const id = await startClear(c.env, { prefix: cur.prefix });
+      return c.json({ status: 'clearing', workflow: id }, 202);
+    } catch {
+      return c.json({ error: 'busy' }, 409);
+    }
+  })
 
   // Preview impact + a state-bound token; the token gates the matching POST below.
   .post('/:owner/:repo/purge/preview', purgeable, async (c) => {
