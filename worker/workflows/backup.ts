@@ -29,7 +29,7 @@ export class BackupWorkflow extends WorkflowEntrypoint<CloudflareBindings, Backu
     // Per-object HEAD-skip (in `copyObject`) makes a retried page redo no completed work.
     const src = r2Store(this.env);
     const dst = s3Store(this.env, 'GLACIER_IR');
-    await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'backup-obj', async (objects) => {
+    await walkR2Pages(this.env.LFS_BUCKET, prefix, step, 'backup-obj', async (objects) => {
       await Promise.all(objects.map((o) => copyObject(o.key, src, dst)));
     });
 

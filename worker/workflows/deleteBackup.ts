@@ -28,7 +28,7 @@ export class DeleteBackupWorkflow extends WorkflowEntrypoint<
     });
 
     // Per-object delete is idempotent, so a retried page is safe.
-    await walkS3Pages(step, this.env, prefix, 's3-delete', async (objects) => {
+    await walkS3Pages(this.env, prefix, step, 's3-delete', async (objects) => {
       await Promise.all(objects.map((o) => s3DeleteObject(this.env, o.key)));
     });
 

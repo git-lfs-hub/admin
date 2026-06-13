@@ -32,7 +32,7 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     // over pages). Each sub-step re-lists its page, so no key list persists across the sleeps.
 
     // 1. Initiate the async retrieval for every colder object (no-op for `GLACIER_IR`; idempotent)
-    await walkS3Pages(step, this.env, prefix, 'thaw', async (objects) => {
+    await walkS3Pages(this.env, prefix, step, 'thaw', async (objects) => {
       await Promise.all(objects.filter(s3NeedsThaw).map((o) => s3RestoreObject(this.env, o)));
     });
 
@@ -40,7 +40,7 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     // first scan of a `GLACIER_IR`-only restore finds nothing colder, so it's ready at once, no sleep.
     for (let t = 0; ; t++) {
       const label = `poll-thawed:${t}`;
-      const allReady = await walkS3Pages(step, this.env, prefix, label, async (objects) => {
+      const allReady = await walkS3Pages(this.env, prefix, step, label, async (objects) => {
         const states = await Promise.all(
           objects.filter(s3NeedsThaw).map((o) => s3Ready(this.env, o)),
         );
@@ -53,7 +53,7 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     // 3. Pull every (now-retrievable) object back into live R2.
     const src = s3Store(this.env);
     const dst = r2Store(this.env);
-    await walkS3Pages(step, this.env, prefix, 'restore-obj', async (objects) => {
+    await walkS3Pages(this.env, prefix, step, 'restore-obj', async (objects) => {
       await Promise.all(objects.map((o) => copyObject(o.key, src, dst)));
     });
 

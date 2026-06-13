@@ -74,9 +74,9 @@ export async function terminateWorkflow(
 // Walk every R2 object page under `{prefix}/`, applying `perPage` to each. List + work share one
 // step, so per-object work must be idempotent (backup HEAD-skip, delete naturally).
 export async function walkR2Pages(
-  step: WorkflowStep,
   bucket: R2Bucket,
   prefix: string,
+  step: WorkflowStep,
   label: string,
   perPage: (objects: R2Object[]) => Promise<void>,
 ): Promise<void> {
@@ -92,9 +92,9 @@ export async function walkR2Pages(
 // `step.sleep`s sit between walks. `perPage` may return a per-page readiness bool (default ready);
 // the walk ANDs them — poll uses the result to decide whether to sleep again.
 export function walkS3Pages(
-  step: WorkflowStep,
   env: CloudflareBindings,
   prefix: string,
+  step: WorkflowStep,
   label: string,
   perPage: (objects: S3Object[]) => Promise<boolean | void>,
 ): Promise<boolean> {

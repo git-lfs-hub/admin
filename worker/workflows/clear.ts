@@ -48,7 +48,7 @@ export class ClearWorkflow extends WorkflowEntrypoint<CloudflareBindings, ClearP
     });
 
     // Bulk delete is idempotent, so a retried page is safe.
-    await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'r2-delete', async (objects) => {
+    await walkR2Pages(this.env.LFS_BUCKET, prefix, step, 'r2-delete', async (objects) => {
       if (objects.length > 0) await this.env.LFS_BUCKET.delete(objects.map((o) => o.key));
     });
 
