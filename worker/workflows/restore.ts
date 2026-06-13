@@ -25,8 +25,7 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
         throw new NonRetryableError('restore no longer eligible');
     });
 
-    // Three passes, NOT thaw→wait→pull per page: a colder tier's retrieval takes hours-to-days, so
-    // thaw EVERY page first — S3 then retrieves them concurrently — and wait ONCE for the whole set,
+    // Thaw EVERY page first — S3 then retrieves them concurrently — and wait ONCE for the whole set,
     // else page N's wait stacks on page N-1's (total = sum of waits, not the slowest). Each sub-step
     // re-lists its page via the `list()` thunk, so no key list is persisted across the sleeps
     // (instance state stays cursor-sized regardless of object count).
