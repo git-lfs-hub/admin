@@ -429,6 +429,20 @@ export class Registry extends DurableObject<CloudflareBindings> {
     });
   }
 
+  /** Land a finished cold Restore (cross-DO from the STORAGE DO): live R2 holds every object again,
+   *  so clear the block (`archivedAt`) and `clearedAt`, and drop `backupComplete` (the prefix is no
+   *  longer blocked-throughout). `backedUpAt` stays — the cold copy still exists. Status untouched
+   *  (presence is reconcile's call). */
+  async endRestore(prefix: string): Promise<void> {
+    await this.updateStorage(prefix, {
+      archivedAt: null,
+      clearedAt: null,
+      backupComplete: false,
+      activeOp: null,
+      updatedAt: isoNow(),
+    });
+  }
+
   /** Bump `lastChangeAt` + reset `backupComplete` on an upload event (cold copy may have diverged). */
   async recordUpload(prefix: string): Promise<void> {
     const now = isoNow();

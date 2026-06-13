@@ -12,6 +12,7 @@ import { isoAddDays } from '@/lib/time';
 import { archive, restore } from '@/server/operations';
 import { startBackup } from '@/workflows/backup';
 import { purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
+import { startRestore } from '@/workflows/restore';
 
 // `:owner/:repo` routes carry the resolved storage row in `c.var.storage`.
 type StorageEnv = {
@@ -84,8 +85,9 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: row });
   })
 
-  // Clear the serve-block. Status untouched — link state is reconcile's call. RPC before the
-  // DB write. Cold restore (clearedAt set → Glacier) is not yet wired.
+  // Clear the serve-block. Status untouched — link state is reconcile's call. Live still present
+  // (`clearedAt` null) → inline `unblockRepo`, RPC before the DB write. Live cleared (`clearedAt`
+  // set) → durable cold-retrieval workflow (Glacier), which unblocks on completion.
   .post('/:owner/:repo/restore', async (c) => {
     const cur = c.var.storage;
     // Purged objects are gone; an in-flight purge is mid-delete — neither serves, so unblocking
@@ -93,6 +95,18 @@ const app = new Hono<StorageEnv>()
     if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
     if (cur.activeOp === 'purge') return c.json({ error: 'busy' }, 409);
     if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
+
+    // Cold path: live was cleared → durable Glacier retrieval, repo stays blocked until it lands.
+    if (cur.clearedAt) {
+      if (cur.activeOp) return c.json({ error: 'busy' }, 409);
+      try {
+        const id = await startRestore(c.env, { prefix: cur.prefix });
+        return c.json({ status: 'restoring', workflow: id }, 202);
+      } catch {
+        return c.json({ error: 'busy' }, 409);
+      }
+    }
+
     let row: StorageRow | null;
     try {
       row = await restore(c.env, Registry.global(c.env), cur.prefix);

@@ -267,6 +267,16 @@ export class Storage extends DurableObject<CloudflareBindings> {
     if (last) await Registry.global(this.env).endBackup(prefix, archivedAtAtStart);
   }
 
+  /**
+   * Close a completed cold Restore. Like `endBackupOp` it leaves the resting `status` alone, but
+   * clears the block (`archivedAt`/`clearedAt`) + `backupComplete` via `Registry.endRestore`.
+   * Success-only — a cancelled Restore goes through `endOp` with status unchanged.
+   */
+  async endRestoreOp(prefix: string, instanceId: string): Promise<void> {
+    const last = await this.closeRow(instanceId, 'complete', null);
+    if (last) await Registry.global(this.env).endRestore(prefix);
+  }
+
   /** Mark one instance's row ended; returns true when no active row remains for the prefix. */
   private async closeRow(
     instanceId: string,

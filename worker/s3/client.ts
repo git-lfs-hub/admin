@@ -24,3 +24,10 @@ export function s3ObjectUrl(env: CloudflareBindings, key: string): string {
   );
   return `https://s3.${region}.amazonaws.com/${segments.join('/')}`;
 }
+
+// Bucket-root URL `https://s3.{region}.amazonaws.com/{bucket}` (no trailing slash) — callers append
+// the operation query (`?list-type=2&…`). Path-style, like `s3ObjectUrl`.
+export function s3BucketUrl(env: CloudflareBindings): string {
+  const { region, bucket } = env.S3.backup;
+  return `https://s3.${region}.amazonaws.com/${encodeURIComponent(bucket)}`;
+}

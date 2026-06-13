@@ -18,6 +18,7 @@ export { Storage } from '@/db/storage';
 export { Alerts } from '@/db/alerts';
 export { BackupWorkflow } from '@/workflows/backup';
 export { PurgeWorkflow } from '@/workflows/purge';
+export { RestoreWorkflow } from '@/workflows/restore';
 
 let devReconcileFired = false;
 

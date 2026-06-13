@@ -1,7 +1,8 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { BackupWorkflow, backupInstanceId, startBackup } from '@/workflows/backup';
+import { BackupWorkflow, startBackup } from '@/workflows/backup';
+import { workflowInstanceId } from '@/workflows/instanceId';
 
 // copyR2toS3 is covered by its own unit (s3/backup.spec) — stub it so the test drives the workflow's
 // own logic: the start-capture of `archivedAt`, the R2 cursor-walk, and the finish handoff.
@@ -116,14 +117,6 @@ describe('BackupWorkflow.run', () => {
   });
 });
 
-describe('backupInstanceId', () => {
-  test('deterministic, valid-charset id from the prefix', () => {
-    const id = backupInstanceId('Alice/Repo.git');
-    expect(id).toMatch(/^backup-[0-9A-Za-z_]{1,64}$/);
-    expect(id).toBe(backupInstanceId('Alice/Repo.git'));
-  });
-});
-
 describe('startBackup', () => {
   test('reserves the op then creates the instance with the deterministic id', async () => {
     const beginOp = vi.fn(async () => {});
@@ -134,7 +127,7 @@ describe('startBackup', () => {
     } as unknown as CloudflareBindings;
     const params = { prefix: 'a/r' };
     const id = await startBackup(env, params);
-    const expected = backupInstanceId('a/r');
+    const expected = workflowInstanceId('backup', 'a/r');
     expect(id).toBe(expected);
     expect(beginOp).toHaveBeenCalledWith('a/r', expected, 'backup');
     expect(create).toHaveBeenCalledWith({ id: expected, params });

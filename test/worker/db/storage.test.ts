@@ -222,6 +222,23 @@ describe('Storage workflows (one-active-op guard)', () => {
     expect((await registry.getStorage('alice/thing'))?.backedUpAt).not.toBeNull();
   });
 
+  test('endRestoreOp clears the block (archivedAt/clearedAt) on REGISTRY, status untouched', async () => {
+    const registry = env.REGISTRY.getByName('global');
+    await registry.upsertStorage('alice/thing');
+    await registry.markUnused('alice/thing');
+    await registry.block('alice/thing');
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.beginOp('alice/thing', 'inst-1', 'restore');
+
+    await store.endRestoreOp('alice/thing', 'inst-1');
+    expect(await store.activeOp()).toBeNull();
+    const row = await registry.getStorage('alice/thing');
+    expect(row?.status).toBe('unused'); // Restore never moves resting status
+    expect(row?.archivedAt).toBeNull();
+    expect(row?.clearedAt).toBeNull();
+    expect(row?.activeOp).toBeNull();
+  });
+
   test('listWorkflows returns every row, active and closed', async () => {
     const registry = env.REGISTRY.getByName('global');
     await registry.upsertStorage('alice/thing');

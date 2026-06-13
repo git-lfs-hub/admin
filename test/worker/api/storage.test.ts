@@ -1,10 +1,12 @@
-import { reset } from 'cloudflare:test';
+import { reset, runInDurableObject } from 'cloudflare:test';
 import { env, exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { describe, test, expect, afterEach, vi } from 'vitest';
 
 import type { AppEnv } from '@/_env';
 import storageApp from '@/api/storage';
+import type { Registry } from '@/db/registry';
+import { workflowInstanceId } from '@/workflows/instanceId';
 import { purgeInstanceId } from '@/workflows/purge';
 
 // The real worker gates `/api/*` with `auth`, which sets `c.var.admin`. Driving the sub-app
@@ -41,6 +43,7 @@ function appEnv(
   // exercisable.
   const PURGE_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   const BACKUP_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
+  const RESTORE_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   return {
     env: {
       REGISTRY: env.REGISTRY,
@@ -52,15 +55,18 @@ function appEnv(
       LFS_SERVER,
       PURGE_WORKFLOW,
       BACKUP_WORKFLOW,
+      RESTORE_WORKFLOW,
     } as unknown as CloudflareBindings & {
       PURGE_WORKFLOW: typeof PURGE_WORKFLOW;
       BACKUP_WORKFLOW: typeof BACKUP_WORKFLOW;
+      RESTORE_WORKFLOW: typeof RESTORE_WORKFLOW;
     },
     blockRepo: LFS_SERVER.blockRepo,
     unblockRepo: LFS_SERVER.unblockRepo,
     purgeRepo: LFS_SERVER.purgeRepo,
     PURGE_WORKFLOW,
     BACKUP_WORKFLOW,
+    RESTORE_WORKFLOW,
   };
 }
 const post = (path: string, e: CloudflareBindings) =>
@@ -274,6 +280,19 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     await reg().block(prefix);
   }
 
+  // Blocked + live cleared (the cold-restore state). No `markCleared` setter until F5, so stamp
+  // `cleared_at` directly on the registry DO.
+  async function seedCleared(prefix: string) {
+    await seedBlocked(prefix);
+    await runInDurableObject(reg(), (instance: Registry) => {
+      (instance as unknown as { ctx: DurableObjectState }).ctx.storage.sql.exec(
+        'UPDATE storage SET cleared_at = ? WHERE prefix = ?',
+        '2026-02-01T00:00:00Z',
+        prefix,
+      );
+    });
+  }
+
   test('blocked prefix, repo still gone → unblockRepo + archivedAt cleared, status unused, emits missing', async () => {
     await seedBlocked('alice/gone');
     const { env: e, unblockRepo } = appEnv();
@@ -300,6 +319,30 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
     expect(
       await env.ALERTS.getByName('global').getAlert('storage:alice/gone', 'archived'),
     ).toBeNull();
+  });
+
+  test('cleared prefix (cold) → starts the RestoreWorkflow (beginOp restore + create) → 202', async () => {
+    await seedCleared('alice/cold');
+    const { env: e, RESTORE_WORKFLOW, unblockRepo } = appEnv();
+
+    const res = await post('/alice/cold/restore', e);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: 'restoring' });
+    expect(RESTORE_WORKFLOW.create).toHaveBeenCalledWith(
+      expect.objectContaining({ id: workflowInstanceId('restore', 'alice/cold') }),
+    );
+    expect(await env.STORAGE.getByName('alice/cold').activeOp()).toBe('restore');
+    expect(unblockRepo).not.toHaveBeenCalled(); // unblock is the workflow's finish step, not inline
+  });
+
+  test('cleared prefix already has an op in flight → 409 busy', async () => {
+    await seedCleared('alice/cold');
+    await env.STORAGE.getByName('alice/cold').beginOp('alice/cold', 'backup-x', 'backup');
+    const { env: e, RESTORE_WORKFLOW } = appEnv();
+
+    const res = await post('/alice/cold/restore', e);
+    expect(res.status).toBe(409);
+    expect(RESTORE_WORKFLOW.create).not.toHaveBeenCalled();
   });
 
   test('not-blocked prefix → 409, no unblock', async () => {

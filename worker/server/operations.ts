@@ -47,6 +47,14 @@ export function purgeServer(env: CloudflareBindings, prefix: string): Promise<vo
   return lfsServer(env).purgeRepo(owner, repo);
 }
 
+// RPC-only unblock for the cold-restore workflow — the admin REGISTRY write (`endRestore`) is a
+// separate, durable workflow step on the STORAGE DO. RPC before that write so a failure retries
+// without leaving the row inconsistent. Idempotent. Mirrors `purgeServer`.
+export function unblockServer(env: CloudflareBindings, prefix: string): Promise<void> {
+  const [owner, repo] = splitPrefix(prefix);
+  return lfsServer(env).unblockRepo(owner, repo);
+}
+
 // The seam: today a prefix is exactly `owner/repo`; replace with a repo⇄storage link lookup.
 function splitPrefix(prefix: string): [owner: string, repo: string] {
   const [owner, repo] = prefix.split('/');

@@ -356,6 +356,26 @@ describe('endBackup (cold copy outcome)', () => {
   });
 });
 
+describe('endRestore (cold restore outcome)', () => {
+  test('clears archivedAt/clearedAt/backupComplete/activeOp, keeps backedUpAt, status untouched', async () => {
+    await reg().upsertStorage('alice/a');
+    await reg().markUnused('alice/a');
+    const blocked = await reg().block('alice/a');
+    await reg().endBackup('alice/a', blocked!.archivedAt); // backedUpAt + backupComplete set
+    await reg().setActiveOp('alice/a', 'restore');
+
+    await reg().endRestore('alice/a');
+
+    const row = await reg().getStorage('alice/a');
+    expect(row?.status).toBe('unused'); // Restore never moves resting status
+    expect(row?.archivedAt).toBeNull();
+    expect(row?.clearedAt).toBeNull();
+    expect(row?.backupComplete).toBe(false);
+    expect(row?.activeOp).toBeNull();
+    expect(row?.backedUpAt).toMatch(ISO_RE); // cold copy still exists
+  });
+});
+
 // ---------------------------------------------------------------------------
 // orgs
 // ---------------------------------------------------------------------------
