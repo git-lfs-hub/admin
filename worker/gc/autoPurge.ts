@@ -33,7 +33,11 @@ export async function autoPurge(
     if (started.length >= MAX_PER_TICK) break;
     try {
       const [owner, repo] = r.prefix.split('/');
-      await startPurge(env, { prefix: r.prefix, scope: scopeFor(owner, repo), triggeredBy: 'auto' });
+      await startPurge(env, {
+        prefix: r.prefix,
+        scope: scopeFor(owner, repo),
+        triggeredBy: 'auto',
+      });
       started.push(r);
     } catch (e) {
       console.error(`[auto-purge] failed for ${r.prefix}:`, e);
