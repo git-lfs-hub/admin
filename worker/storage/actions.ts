@@ -54,10 +54,15 @@ export const STORAGE_STATES: Record<LifecycleState, StateMeta> = {
 };
 
 // `consequence`/`description` are plain text with `\n` line breaks: Slack mrkdwn renders them
-// directly; the UI renders them under `whitespace-pre-line`.
-export type StorageAction = 'archive' | 'restore' | 'purge';
+// directly; the UI renders them under `whitespace-pre-line`. The cold-storage verbs (backup /
+// clear / deleteBackup) only surface in the UI when `env.GC.coldStorage` is set.
+export type StorageAction = 'archive' | 'restore' | 'purge' | 'backup' | 'clear' | 'deleteBackup';
 
 export const STORAGE_ACTIONS = {
+  backup: {
+    label: 'Back up',
+    consequence: 'Copies every live file to cold storage. Nothing is deleted.',
+  },
   archive: {
     label: 'Archive',
     consequence:
@@ -66,6 +71,15 @@ export const STORAGE_ACTIONS = {
   restore: {
     label: 'Restore',
     consequence: 'Unarchives this storage so it serves Git LFS again.',
+  },
+  clear: {
+    label: 'Clear',
+    consequence:
+      'Deletes the live copy of every file; the cold backup is kept.\nRestore brings them back from cold storage.',
+  },
+  deleteBackup: {
+    label: 'Delete backup',
+    consequence: 'Deletes the cold backup copy. The live files stay.\nYou can back up again later.',
   },
   purge: {
     label: 'Purge',

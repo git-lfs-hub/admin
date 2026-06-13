@@ -138,15 +138,21 @@ const app = new Hono<StorageEnv>()
     }
   })
 
+  // Preview the live impact + a state-bound token gating the matching Clear POST below.
+  .post('/:owner/:repo/clear/preview', clearable, async (c) => {
+    const cur = c.var.storage;
+    const present = (await Storage.byPrefix(c.env, cur.prefix).usage()).present;
+    return c.json({
+      token: await createToken(cur),
+      impact: { objects: present.count, bytes: present.size },
+    });
+  })
+
   // Clear live R2, keep the cold copy. Cold-storage only; gated on a complete backup, still blocked,
   // not already cleared/purged. Stays blocked; Restore brings live back from cold.
-  .post('/:owner/:repo/clear', async (c) => {
-    if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
+  .post('/:owner/:repo/clear', clearable, async (c) => {
     const cur = c.var.storage;
-    if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
-    if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
-    if (!cur.backupComplete) return c.json({ error: 'not_backed_up' }, 409);
-    if (cur.clearedAt) return c.json({ error: 'already_cleared' }, 409);
+    if (!(await validateToken(c, cur))) return c.json({ error: 'stale_token' }, 409);
     try {
       const id = await startWorkflow(c.env, 'clear', { prefix: cur.prefix });
       return c.json({ status: 'clearing', workflow: id }, 202);
@@ -225,6 +231,18 @@ async function withStorage(c: Context<StorageEnv>, next: Next) {
   );
   if (!row) return c.json({ error: 'not_found' }, 404);
   c.set('storage', row);
+  await next();
+}
+
+// Clear gate (cold-storage only): blocked with a complete cold copy, not already cleared/purged.
+// Shared by preview + POST so both agree before a token is minted or spent.
+async function clearable(c: Context<StorageEnv>, next: Next) {
+  if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
+  const cur = c.var.storage;
+  if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
+  if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
+  if (!cur.backupComplete) return c.json({ error: 'not_backed_up' }, 409);
+  if (cur.clearedAt) return c.json({ error: 'already_cleared' }, 409);
   await next();
 }
 

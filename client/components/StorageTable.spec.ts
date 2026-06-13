@@ -16,13 +16,13 @@ function makeRouter() {
   });
 }
 
-async function mountTable(storage: StorageRow[], highlight?: string) {
+async function mountTable(storage: StorageRow[], highlight?: string, coldStorage?: boolean) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = makeRouter();
   router.push('/storage');
   await router.isReady();
   return mount(StorageTable, {
-    props: { storage, highlight },
+    props: { storage, highlight, coldStorage },
     global: { plugins: [router, [VueQueryPlugin, { queryClient }]] },
   });
 }
@@ -328,6 +328,76 @@ describe('StorageTable', () => {
       .find((b) => b.text() === 'Purge');
     expect(action).toBeTruthy();
     expect(action!.attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  // Cold-storage gating (F8): the BackUp / Clear / Delete Backup surface only renders when the
+  // `coldStorage` capability flag is set.
+  const backedUp = {
+    ...archived,
+    backedUpAt: '2026-05-25T06:00:00Z',
+    backupComplete: true,
+  };
+  const cleared = { ...backedUp, clearedAt: '2026-05-26T00:00:00Z' };
+
+  const openMore = async (cell: ReturnType<ReturnType<typeof mount>['find']>) => {
+    await moreTrigger(cell)!.trigger('click');
+    await flushPromises();
+    return menuItemEls().map((el) => el.textContent?.trim());
+  };
+
+  it('hides the Backup column + cold actions when cold storage is off', async () => {
+    const wrapper = await mountTable([backedUp]); // coldStorage undefined
+    expect(wrapper.find('[data-slot="backup"]').exists()).toBe(false);
+    expect(await openMore(wrapper.find('[data-slot="lifecycle"]'))).toEqual(['Purge…']);
+    wrapper.unmount();
+  });
+
+  it('shows the Backup column with the cold-copy state when cold storage is on', async () => {
+    const wrapper = await mountTable([backedUp], undefined, true);
+    const chip = wrapper.find('[data-slot="backup"]');
+    expect(chip.exists()).toBe(true);
+    expect(chip.text()).toContain('Backup');
+    // backedUpAt present + not cleared → a relative timestamp, not "live cleared" / dash.
+    expect(chip.text()).not.toContain('live cleared');
+    expect(chip.text()).not.toContain('—');
+
+    const dash = await mountTable([archived], undefined, true); // no backup yet
+    expect(dash.find('[data-slot="backup"]').text()).toContain('—');
+
+    const clearedW = await mountTable([cleared], undefined, true);
+    expect(clearedW.find('[data-slot="backup"]').text()).toContain('live cleared');
+    wrapper.unmount();
+  });
+
+  it('offers Back up / Clear / Delete backup in the overflow, gated by cold state', async () => {
+    // Backed-up + blocked + not cleared → all three plus Purge.
+    const backed = await mountTable([backedUp], undefined, true);
+    expect(await openMore(backed.find('[data-slot="lifecycle"]'))).toEqual([
+      'Back up',
+      'Clear…',
+      'Delete backup…',
+      'Purge…',
+    ]);
+    backed.unmount();
+
+    // Archived but no backup yet → Clear/Delete hidden (need a complete backup), Back up offered.
+    const noBackup = await mountTable([archived], undefined, true);
+    expect(await openMore(noBackup.find('[data-slot="lifecycle"]'))).toEqual(['Back up', 'Purge…']);
+    noBackup.unmount();
+
+    // Cleared → live is gone, so neither Back up nor Delete backup; cold copy is the only copy.
+    const clearedW = await mountTable([cleared], undefined, true);
+    expect(await openMore(clearedW.find('[data-slot="lifecycle"]'))).toEqual(['Purge…']);
+    clearedW.unmount();
+  });
+
+  it('shows a progress badge (and no action buttons) for an in-flight cold op', async () => {
+    const backingUp = { ...archived, activeOp: 'backup' as const };
+    const wrapper = await mountTable([backingUp], undefined, true);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    expect(cell.text()).toContain('backing up');
+    expect(moreTrigger(cell)).toBeUndefined(); // no overflow → no way to start a second op
     wrapper.unmount();
   });
 

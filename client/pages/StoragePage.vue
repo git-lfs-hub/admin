@@ -5,10 +5,12 @@ import { useRoute } from 'vue-router';
 import StorageTable from '@/components/StorageTable.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useColdStorage } from '@/composables/useColdStorage';
 import { useLiveUpdates } from '@/composables/useLiveUpdates';
 import { useStorage } from '@/composables/useStorage';
 
 const { data: storage, isLoading, error } = useStorage();
+const coldStorage = useColdStorage();
 // Storage lifecycle shifts both the rows and their derived alerts.
 useLiveUpdates({ storage: [['storage'], ['alerts']] });
 
@@ -33,6 +35,6 @@ const highlight = computed(() =>
       No storage discovered yet.
     </p>
 
-    <StorageTable v-else :storage="storage" :highlight="highlight" />
+    <StorageTable v-else :storage="storage" :highlight="highlight" :cold-storage="coldStorage" />
   </section>
 </template>

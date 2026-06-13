@@ -410,10 +410,53 @@ describe('POST /api/storage/:o/:r/clear (cold storage on)', () => {
     await reg().endBackup(prefix, (await reg().getStorage(prefix))!.archivedAt); // backupComplete=true
   }
 
-  test('complete backup, blocked → reserves the op (beginOp) + creates the instance → 202', async () => {
+  // Preview → state-bound token → POST with that token (mirrors the purge confirm flow).
+  const clearWithToken = async (e: CloudflareBindings) => {
+    const prev = (await (
+      await storageApp.request('/alice/r/clear/preview', { method: 'POST' }, e)
+    ).json()) as { token?: string };
+    return storageApp.request(
+      '/alice/r/clear',
+      {
+        method: 'POST',
+        body: JSON.stringify({ token: prev.token }),
+        headers: { 'content-type': 'application/json' },
+      },
+      e,
+    );
+  };
+
+  test('preview returns impact + a confirm token for a clearable prefix', async () => {
+    await seedBackupComplete('alice/r');
+    await env.STORAGE.getByName('alice/r').recordObject('oid1', 10, 'verify');
+    const { env: e } = appEnv({}, cold);
+    const res = await storageApp.request('/alice/r/clear/preview', { method: 'POST' }, e);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { token: string; impact: { objects: number } };
+    expect(body.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.impact.objects).toBe(1);
+  });
+
+  test('stale/missing token → 409', async () => {
+    await seedBackupComplete('alice/r');
+    const { env: e } = appEnv({}, cold);
+    const res = await storageApp.request(
+      '/alice/r/clear',
+      {
+        method: 'POST',
+        body: JSON.stringify({ token: 'nope' }),
+        headers: { 'content-type': 'application/json' },
+      },
+      e,
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'stale_token' });
+  });
+
+  test('complete backup, blocked, valid token → reserves the op (beginOp) + creates the instance → 202', async () => {
     await seedBackupComplete('alice/r');
     const { env: e, CLEAR_WORKFLOW } = appEnv({}, cold);
-    const res = await post('/alice/r/clear', e);
+    const res = await clearWithToken(e);
     expect(res.status).toBe(202);
     expect(CLEAR_WORKFLOW.create).toHaveBeenCalledWith(
       expect.objectContaining({ id: expect.stringMatching(/^clear-[0-9a-f-]{36}$/) }),
@@ -460,7 +503,7 @@ describe('POST /api/storage/:o/:r/clear (cold storage on)', () => {
     await seedBackupComplete('alice/r');
     await env.STORAGE.getByName('alice/r').beginOp('alice/r', 'purge-x', 'purge');
     const { env: e } = appEnv({}, cold);
-    expect((await post('/alice/r/clear', e)).status).toBe(409);
+    expect((await clearWithToken(e)).status).toBe(409);
   });
 
   test('cold storage off → 409 cold_storage_disabled (config, not unimplemented)', async () => {

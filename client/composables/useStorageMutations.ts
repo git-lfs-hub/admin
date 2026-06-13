@@ -63,6 +63,50 @@ export function useStorageMutations() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Cold-storage ops (only surfaced when `env.GC.coldStorage` is set). Backup/Delete Backup are
+  // single POST/DELETE; Clear mirrors Purge's preview → state-bound token → POST.
+  const backup = useMutation({
+    mutationFn: ({ owner, repo }: PrefixRef) =>
+      api.api.storage[':owner'][':repo'].backup.$post({ param: { owner, repo } }),
+    onSuccess: (_res, { owner, repo }) => {
+      toast.success(`Backup started for ${owner}/${repo}`);
+      return invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteBackup = useMutation({
+    mutationFn: ({ owner, repo }: PrefixRef) =>
+      api.api.storage[':owner'][':repo'].backup.$delete({ param: { owner, repo } }),
+    onSuccess: (_res, { owner, repo }) => {
+      toast.success(`Deleting backup for ${owner}/${repo}`);
+      return invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const clear = useMutation({
+    mutationFn: async ({ owner, repo }: PrefixRef) => {
+      const res = await api.api.storage[':owner'][':repo'].clear.preview.$post({
+        param: { owner, repo },
+      });
+      const prev = (await res.json()) as { token?: string };
+      if (!prev.token) throw new Error('preview failed');
+      return api.api.storage[':owner'][':repo'].clear.$post(
+        { param: { owner, repo } },
+        {
+          headers: { 'content-type': 'application/json' },
+          init: { body: JSON.stringify({ token: prev.token }) },
+        },
+      );
+    },
+    onSuccess: (_res, { owner, repo }) => {
+      toast.success(`Clear started for ${owner}/${repo}`);
+      return invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   // Confirm/Cancel the in-flight Purge workflow (non-blocking quick actions, no preview).
   const confirmWorkflow = useMutation({
     mutationFn: ({ owner, repo }: PrefixRef) =>
@@ -84,5 +128,5 @@ export function useStorageMutations() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { archive, restore, purge, confirmWorkflow, cancelWorkflow };
+  return { archive, restore, purge, backup, deleteBackup, clear, confirmWorkflow, cancelWorkflow };
 }

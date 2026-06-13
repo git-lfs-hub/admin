@@ -115,6 +115,62 @@ describe('useStorageMutations', () => {
     wrapper.unmount();
   });
 
+  it('backup POSTs, toasts, invalidates', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'backing_up' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper, invalidate } = mountWithQuery();
+    await wrapper.vm.backup.mutateAsync({ owner: 'alice', repo: 'gone' });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/storage/alice/gone/backup',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('Backup started for alice/gone');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    wrapper.unmount();
+  });
+
+  it('deleteBackup DELETEs, toasts, invalidates', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'deleting_backup' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper, invalidate } = mountWithQuery();
+    await wrapper.vm.deleteBackup.mutateAsync({ owner: 'alice', repo: 'gone' });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/storage/alice/gone/backup',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('Deleting backup for alice/gone');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    wrapper.unmount();
+  });
+
+  it('clear previews then POSTs the confirm token, toasts, invalidates', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ token: 'tok', impact: { objects: 1 } }));
+    fetchMock.mockResolvedValueOnce(okJson({ status: 'clearing' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper, invalidate } = mountWithQuery();
+    await wrapper.vm.clear.mutateAsync({ owner: 'alice', repo: 'gone' });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/storage/alice/gone/clear/preview',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(url).toBe('/api/storage/alice/gone/clear');
+    expect(JSON.parse(init.body)).toEqual({ token: 'tok' });
+    expect(toast.success).toHaveBeenCalledWith('Clear started for alice/gone');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['storage'] });
+    wrapper.unmount();
+  });
+
   it('confirmWorkflow POSTs to workflow/confirm', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ status: 'confirmed' }));
     vi.stubGlobal('fetch', fetchMock);

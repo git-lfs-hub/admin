@@ -27,9 +27,18 @@ import type { StorageRow } from '@/composables/useStorage';
 import { useStorageMutations } from '@/composables/useStorageMutations';
 import { formatSize, formatTime, formatRelative, formatUntil } from '@/lib/format';
 
-const props = defineProps<{ storage: StorageRow[]; highlight?: string }>();
+const props = defineProps<{ storage: StorageRow[]; highlight?: string; coldStorage?: boolean }>();
 
-const { archive, restore, purge, confirmWorkflow, cancelWorkflow } = useStorageMutations();
+const { archive, restore, purge, backup, deleteBackup, clear, confirmWorkflow, cancelWorkflow } =
+  useStorageMutations();
+
+// In-flight cold-storage ops (purge keeps its own countdown UI below) — a plain progress badge.
+const OP_LABELS: Record<string, string> = {
+  backup: 'backing up',
+  clear: 'clearing',
+  deleteBackup: 'deleting backup',
+  restore: 'restoring',
+};
 
 // Deep-link target from a notification (`?highlight=lc(owner/repo)`): ring the matching row and
 // scroll it into view. Prefix may be cased, so match case-insensitively.
@@ -76,7 +85,7 @@ const confirm = (
 ) => mutation.mutate({ owner: r.owner, repo: r.repo });
 
 const runConfirm = (r: StorageRow) => {
-  confirm({ archive, restore, purge }[confirmFor.value!.action], r);
+  confirm({ archive, restore, purge, backup, deleteBackup, clear }[confirmFor.value!.action], r);
   confirmFor.value = null;
 };
 </script>
@@ -225,6 +234,37 @@ const runConfirm = (r: StorageRow) => {
                   </HoverCard>
                 </span>
               </template>
+
+              <!-- Backup state — only when a cold-storage backend is configured. -->
+              <template v-if="coldStorage">
+                <span class="text-muted-foreground/50">·</span>
+                <span data-slot="backup" class="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <span>Backup</span>
+                  <HoverCard v-if="r.backedUpAt">
+                    <HoverCardTrigger as-child>
+                      <span class="text-foreground">{{
+                        r.clearedAt ? 'live cleared' : formatRelative(r.backedUpAt)
+                      }}</span>
+                    </HoverCardTrigger>
+                    <HoverCardContent class="w-auto">
+                      <p class="font-medium">
+                        {{ r.backupComplete ? 'Backed up' : 'Backup incomplete' }}
+                        {{ formatTime(r.backedUpAt) }}
+                      </p>
+                      <p class="text-muted-foreground">
+                        {{
+                          r.clearedAt
+                            ? 'Live copy cleared — cold storage holds the only copy.'
+                            : r.backupComplete
+                              ? 'A complete cold copy exists.'
+                              : 'A partial cold copy exists; back up again to complete it.'
+                        }}
+                      </p>
+                    </HoverCardContent>
+                  </HoverCard>
+                  <span v-else class="text-foreground">—</span>
+                </span>
+              </template>
             </ItemDescription>
 
             <div data-slot="lifecycle" class="flex shrink-0 flex-col items-end gap-2">
@@ -266,6 +306,18 @@ const runConfirm = (r: StorageRow) => {
                   @click="confirm(cancelWorkflow, r)"
                   >Cancel</Button
                 >
+              </div>
+
+              <!-- Any other in-flight op (backup/clear/delete-backup/restore): a progress badge.
+                   Suppresses the action buttons so a second op can't be started under it. -->
+              <div
+                v-else-if="r.activeOp"
+                data-slot="actions"
+                class="inline-flex items-center justify-end"
+              >
+                <Badge variant="secondary" class="h-6">{{
+                  OP_LABELS[r.activeOp] ?? r.activeOp
+                }}</Badge>
               </div>
 
               <!-- Unused: archived rows offer Restore, not-yet-archived rows offer Archive. Purge is
@@ -316,6 +368,25 @@ const runConfirm = (r: StorageRow) => {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <!-- Cold-storage backup management — only when a backend is configured. -->
+                      <template v-if="coldStorage">
+                        <DropdownMenuItem v-if="!r.clearedAt" @select="confirm(backup, r)">
+                          {{ STORAGE_ACTIONS.backup.label }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          v-if="r.archivedAt && r.backupComplete && !r.clearedAt"
+                          @select="startConfirm(r, 'clear')"
+                        >
+                          {{ STORAGE_ACTIONS.clear.label }}…
+                        </DropdownMenuItem>
+                        <!-- Hidden once cleared: the cold copy is then the only copy. -->
+                        <DropdownMenuItem
+                          v-if="r.backedUpAt && !r.clearedAt"
+                          @select="startConfirm(r, 'deleteBackup')"
+                        >
+                          {{ STORAGE_ACTIONS.deleteBackup.label }}…
+                        </DropdownMenuItem>
+                      </template>
                       <DropdownMenuItem variant="destructive" @select="startConfirm(r, 'purge')">
                         {{ STORAGE_ACTIONS.purge.label }}…
                       </DropdownMenuItem>
