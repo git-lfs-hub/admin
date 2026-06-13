@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { copyS3toR2, s3HeadRestored, s3RestoreObject } from '@/s3/restore';
+import { copyObject } from '@/s3/copy';
+import { r2Store } from '@/s3/r2-store';
+import { s3HeadRestored, s3RestoreObject } from '@/s3/restore';
+import { s3Store } from '@/s3/s3-store';
+
+// The restore direction (S3 → R2) of `copyObject`, exercised through the real stores so this covers
+// the S3 store's reads + the R2 store's write/multipart paths (the inlined `copyS3toR2` workflow call).
+const copyS3toR2 = (env: CloudflareBindings, key: string) =>
+  copyObject(key, s3Store(env), r2Store(env));
 
 const GiB = 1024 ** 3;
 

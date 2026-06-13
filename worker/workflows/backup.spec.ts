@@ -4,12 +4,15 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { BackupWorkflow, startBackup } from '@/workflows/backup';
 import { workflowInstanceId } from '@/workflows/instanceId';
 
-// copyR2toS3 is covered by its own unit (s3/backup.spec) — stub it so the test drives the workflow's
-// own logic: the start-capture of `archivedAt`, the R2 cursor-walk, and the finish handoff.
-const copyR2toS3 = vi.fn(async (..._a: unknown[]) => {});
-vi.mock('@/s3/backup', () => ({
-  copyR2toS3: (env: unknown, key: unknown, cls: unknown) => copyR2toS3(env, key, cls),
+// copyObject + the stores are covered by their own units (s3/copy.spec, s3/backup.spec) — stub them
+// so the test drives the workflow's own logic: the start-capture of `archivedAt`, the R2 cursor-walk,
+// and the finish handoff. The s3Store stub encodes its storage class so the assertion can check it.
+const copyObject = vi.fn(async (..._a: unknown[]) => {});
+vi.mock('@/s3/copy', () => ({
+  copyObject: (key: unknown, src: unknown, dst: unknown) => copyObject(key, src, dst),
 }));
+vi.mock('@/s3/r2-store', () => ({ r2Store: () => 'R2' }));
+vi.mock('@/s3/s3-store', () => ({ s3Store: (_env: unknown, cls: unknown) => `S3:${cls}` }));
 
 const event = { payload: { prefix: 'A/R' }, instanceId: 'backup-abc' };
 
@@ -72,8 +75,8 @@ describe('BackupWorkflow.run', () => {
     await run(env, step);
 
     expect(b.list).toHaveBeenCalledWith({ prefix: 'A/R/' });
-    expect(copyR2toS3).toHaveBeenCalledWith(env, 'A/R/o1', 'GLACIER_IR');
-    expect(copyR2toS3).toHaveBeenCalledWith(env, 'A/R/o2', 'GLACIER_IR');
+    expect(copyObject).toHaveBeenCalledWith('A/R/o1', 'R2', 'S3:GLACIER_IR');
+    expect(copyObject).toHaveBeenCalledWith('A/R/o2', 'R2', 'S3:GLACIER_IR');
     expect(endBackupOp).toHaveBeenCalledWith('A/R', 'backup-abc', blocked.archivedAt);
     expect(calls).toEqual(['begin', 'copy:0', 'finish']);
   });
@@ -86,7 +89,7 @@ describe('BackupWorkflow.run', () => {
     await run(env, step);
 
     expect(b.list).toHaveBeenNthCalledWith(2, { prefix: 'A/R/', cursor: 'c1' });
-    expect(copyR2toS3).toHaveBeenCalledTimes(2);
+    expect(copyObject).toHaveBeenCalledTimes(2);
     expect(calls).toContain('copy:1');
   });
 
@@ -97,7 +100,7 @@ describe('BackupWorkflow.run', () => {
 
     await run(env, step);
 
-    expect(copyR2toS3).not.toHaveBeenCalled();
+    expect(copyObject).not.toHaveBeenCalled();
     expect(endBackupOp).toHaveBeenCalledWith('A/R', 'backup-abc', null);
   });
 

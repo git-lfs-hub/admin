@@ -3,7 +3,10 @@ import { NonRetryableError } from 'cloudflare:workflows';
 
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
-import { copyS3toR2, s3HeadRestored, s3RestoreObject } from '@/s3/restore';
+import { copyObject } from '@/s3/copy';
+import { r2Store } from '@/s3/r2-store';
+import { s3HeadRestored, s3RestoreObject } from '@/s3/restore';
+import { s3Store } from '@/s3/s3-store';
 import { unblockServer } from '@/server/operations';
 import { startWorkflow, walkS3Pages } from '@/workflows/lifecycle';
 
@@ -49,11 +52,14 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
     }
 
     // 3. Pull every (now-retrievable) object back into live R2.
+    const src = s3Store(this.env);
+    const dst = r2Store(this.env);
     await walkS3Pages(step, this.env, prefix, 'pull', async (objects) => {
-      await Promise.all(objects.map((o) => copyS3toR2(this.env, o.key)));
+      await Promise.all(objects.map((o) => copyObject(o.key, src, dst)));
     });
 
     await step.do('unblock', () => unblockServer(this.env, prefix));
+
     await step.do('finish', () =>
       Storage.byPrefix(this.env, prefix).endRestoreOp(prefix, event.instanceId),
     );

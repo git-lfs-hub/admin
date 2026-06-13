@@ -3,7 +3,9 @@ import { NonRetryableError } from 'cloudflare:workflows';
 
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
-import { copyR2toS3 } from '@/s3/backup';
+import { copyObject } from '@/s3/copy';
+import { r2Store } from '@/s3/r2-store';
+import { s3Store } from '@/s3/s3-store';
 import { startWorkflow, walkR2Pages } from '@/workflows/lifecycle';
 
 export type BackupParams = {
@@ -24,9 +26,11 @@ export class BackupWorkflow extends WorkflowEntrypoint<CloudflareBindings, Backu
       return row.archivedAt;
     });
 
-    // Per-object HEAD-skip makes a retried page re-do no completed work.
+    // Per-object HEAD-skip (in `copyObject`) makes a retried page re-do no completed work.
+    const src = r2Store(this.env);
+    const dst = s3Store(this.env, 'GLACIER_IR');
     await walkR2Pages(step, this.env.LFS_BUCKET, prefix, 'copy', async (objects) => {
-      await Promise.all(objects.map((o) => copyR2toS3(this.env, o.key, 'GLACIER_IR')));
+      await Promise.all(objects.map((o) => copyObject(o.key, src, dst)));
     });
 
     await step.do('finish', () =>

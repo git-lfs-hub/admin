@@ -9,14 +9,18 @@ import { RestoreWorkflow, startRestore } from '@/workflows/restore';
 // unblock → finish handoff.
 type S3Page = { prefix: string; objects: { key: string; storageClass: string }[]; cursor?: string };
 const listS3Page = vi.fn<(...a: unknown[]) => Promise<S3Page>>();
-const copyS3toR2 = vi.fn<(...a: unknown[]) => Promise<void>>();
+const copyObject = vi.fn<(...a: unknown[]) => Promise<void>>();
 const s3RestoreObject = vi.fn<(...a: unknown[]) => Promise<void>>();
 const s3HeadRestored = vi.fn<(...a: unknown[]) => Promise<boolean>>();
 vi.mock('@/s3/list', () => ({
   listS3Page: (env: unknown, prefix: unknown, cursor: unknown) => listS3Page(env, prefix, cursor),
 }));
+vi.mock('@/s3/copy', () => ({
+  copyObject: (key: unknown, src: unknown, dst: unknown) => copyObject(key, src, dst),
+}));
+vi.mock('@/s3/s3-store', () => ({ s3Store: () => 'S3' }));
+vi.mock('@/s3/r2-store', () => ({ r2Store: () => 'R2' }));
 vi.mock('@/s3/restore', () => ({
-  copyS3toR2: (env: unknown, key: unknown) => copyS3toR2(env, key),
   s3RestoreObject: (env: unknown, key: unknown) => s3RestoreObject(env, key),
   s3HeadRestored: (env: unknown, key: unknown) => s3HeadRestored(env, key),
 }));
@@ -78,8 +82,8 @@ describe('RestoreWorkflow.run', () => {
     expect(listS3Page).toHaveBeenCalledWith(env, 'A/R/', undefined); // re-listed per sub-step
     expect(s3RestoreObject).not.toHaveBeenCalled(); // GLACIER_IR needs no thaw
     expect(s3HeadRestored).not.toHaveBeenCalled(); // poll filters colder → empty → ready, no sleep
-    expect(copyS3toR2).toHaveBeenCalledWith(env, 'A/R/o1');
-    expect(copyS3toR2).toHaveBeenCalledWith(env, 'A/R/o2');
+    expect(copyObject).toHaveBeenCalledWith('A/R/o1', 'S3', 'R2');
+    expect(copyObject).toHaveBeenCalledWith('A/R/o2', 'S3', 'R2');
     expect(unblockServer).toHaveBeenCalledWith(env, 'A/R');
     expect(endRestoreOp).toHaveBeenCalledWith('A/R', 'restore-abc');
     expect(calls).toEqual(['begin', 'thaw:0', 'poll:0:0', 'pull:0', 'unblock', 'finish']);
@@ -98,7 +102,7 @@ describe('RestoreWorkflow.run', () => {
 
     expect(s3RestoreObject).toHaveBeenCalledWith(env, 'A/R/cold');
     expect(s3HeadRestored).toHaveBeenCalledTimes(2); // not-ready, then ready
-    expect(copyS3toR2).toHaveBeenCalledWith(env, 'A/R/cold');
+    expect(copyObject).toHaveBeenCalledWith('A/R/cold', 'S3', 'R2');
     expect(calls).toEqual([
       'begin',
       'thaw:0',
@@ -144,7 +148,7 @@ describe('RestoreWorkflow.run', () => {
     ]);
     expect(s3RestoreObject).toHaveBeenCalledWith(env, 'A/R/o1');
     expect(s3RestoreObject).toHaveBeenCalledWith(env, 'A/R/o2');
-    expect(copyS3toR2).toHaveBeenCalledTimes(2);
+    expect(copyObject).toHaveBeenCalledTimes(2);
     expect(listS3Page).toHaveBeenCalledWith(env, 'A/R/', 'c1'); // page 2 re-listed from the cursor
   });
 
