@@ -24,6 +24,7 @@ export type RepoCounts = {
 export type ReconcileSummary = {
   orgs: OrgsByStatus;
   repos: RepoCounts;
+  fullScan: boolean; // every installed org enumerated cleanly (no transient_error)
 };
 
 export async function reconcileRepos(
@@ -77,11 +78,8 @@ export async function reconcileRepos(
   );
   warnAnomalies(orgs);
 
-  // Cold-start guard: a `transient_error` org means its repos couldn't be listed, so the
-  // link state is unreliable — don't certify the pass. Definitive non-active answers
-  // (missing/forbidden/no_installation) are real and don't block certification.
-  if (orgs.transient_error.length === 0) await registry.markFullScan();
-
+  // `transient_error` = an org's repos couldn't be listed, so this isn't a full scan. Definitive
+  // non-active answers (missing/forbidden/no_installation) are real and still count as enumerated.
   return {
     orgs,
     repos: {
@@ -91,6 +89,7 @@ export async function reconcileRepos(
       unblocked,
       clearedReappeared: cleared.length,
     },
+    fullScan: orgs.transient_error.length === 0,
   };
 }
 
@@ -214,6 +213,7 @@ function classifyError(e: unknown): OrgProbeResult {
 
 function emptySummary(): ReconcileSummary {
   return {
+    fullScan: false, // zero installs → nothing enumerated, not a full scan
     orgs: {
       active: [],
       missing: [],

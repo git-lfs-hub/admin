@@ -9,11 +9,11 @@ export async function reconcileLocal(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
   present: string[] = devPresentRepos,
-): Promise<void> {
+): Promise<boolean> {
   const activeRepos = new Set(present.map((r) => r.toLowerCase()));
   const activeOrgs = new Set([...activeRepos].map((r) => r.split('/')[0]));
   await applyReconciliation(env, registry, activeOrgs, activeRepos);
-  // The fixture is authoritative (every owner reachable), so certify the pass — else the
+  // The fixture is authoritative (every owner reachable) → always a full scan; else the
   // cold-start guard would permanently disable auto-Archive in dev.
-  await registry.markFullScan();
+  return true;
 }

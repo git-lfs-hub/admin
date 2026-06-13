@@ -93,7 +93,6 @@ function fakeRegistry(installed: string[], tracked: { org: string; status: strin
       },
     ),
     reconcileStorage: vi.fn(async () => storageResult),
-    markFullScan: vi.fn(async () => {}),
   } as any;
 }
 
@@ -200,22 +199,22 @@ describe('reconcileRepos', () => {
     expect(registry.getLastReconcileInput()?.activeOrgs).toEqual(new Set());
   });
 
-  test('cold-start guard: trustworthy pass certifies the scan (markFullScan)', async () => {
+  test('cold-start guard: all orgs enumerated → full scan', async () => {
     const registry = fakeRegistry(['a', 'b']);
     probeOrg
       .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
       .mockResolvedValueOnce({ status: 'forbidden', error: '403' }); // definitive, still trustworthy
-    await reconcileRepos(env, registry);
-    expect(registry.markFullScan).toHaveBeenCalledOnce();
+    const r = await reconcileRepos(env, registry);
+    expect(r.fullScan).toBe(true);
   });
 
-  test('cold-start guard: a transient_error org leaves the scan uncertified', async () => {
+  test('cold-start guard: a transient_error org → not a full scan', async () => {
     const registry = fakeRegistry(['a', 'b']);
     probeOrg
       .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
       .mockResolvedValueOnce({ status: 'transient_error', error: '5xx' });
-    await reconcileRepos(env, registry);
-    expect(registry.markFullScan).not.toHaveBeenCalled();
+    const r = await reconcileRepos(env, registry);
+    expect(r.fullScan).toBe(false);
   });
 
   test('summary counts reflect git + storage results', async () => {

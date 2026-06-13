@@ -1,7 +1,7 @@
 import { test, expect, vi, beforeEach, describe } from 'vitest';
 
 const discoverRepos = vi.fn(async (..._a: unknown[]) => {});
-const reconcileRepos = vi.fn(async (..._a: unknown[]) => {});
+const reconcileRepos = vi.fn(async (..._a: unknown[]) => ({ fullScan: true }));
 const reconcileObjects = vi.fn(async (..._a: unknown[]) => {});
 const autoArchive = vi.fn(async (..._a: unknown[]) => []);
 const autoPurge = vi.fn(async (..._a: unknown[]) => []);
@@ -19,7 +19,6 @@ import { reconcileAll } from '@/reconcile/index';
 const registryStub = {
   id: 'registry',
   listStorage: vi.fn(async (): Promise<unknown[]> => []),
-  getLastFullScanAt: vi.fn(async (): Promise<string | null> => '2026-01-01T00:00:00Z'),
 };
 const storeStub = { id: 'store' };
 
@@ -34,12 +33,11 @@ function makeEnv() {
 beforeEach(() => {
   discoverRepos.mockClear();
   reconcileRepos.mockClear();
+  reconcileRepos.mockResolvedValue({ fullScan: true });
   reconcileObjects.mockClear();
   autoArchive.mockClear();
   autoPurge.mockClear();
   registryStub.listStorage.mockClear();
-  registryStub.getLastFullScanAt.mockClear();
-  registryStub.getLastFullScanAt.mockResolvedValue('2026-01-01T00:00:00Z');
 });
 
 describe('reconcileAll', () => {
@@ -53,9 +51,9 @@ describe('reconcileAll', () => {
     expect(autoPurge).toHaveBeenCalledWith(env, registryStub);
   });
 
-  test('cold-start guard: no full scan → destructive passes skipped', async () => {
+  test('cold-start guard: partial scan → destructive passes skipped', async () => {
     const env = makeEnv();
-    registryStub.getLastFullScanAt.mockResolvedValueOnce(null);
+    reconcileRepos.mockResolvedValueOnce({ fullScan: false });
     await reconcileAll(env);
     expect(autoArchive).not.toHaveBeenCalled();
     expect(autoPurge).not.toHaveBeenCalled();

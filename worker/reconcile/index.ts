@@ -18,12 +18,13 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
   // Local dev has no GitHub App key → fixture stand-in. `__DEV__` is a build-time literal:
   // false in the deployed bundle, so esbuild drops this branch and the `@dev` import with
   // it. Guarded so a failure here never blocks the object pass below.
+  let fullScan = false;
   try {
     if (__DEV__ && (local || (env.ENV as string) === 'local')) {
       const { reconcileLocal } = await import('@dev/reconcileLocal');
-      await reconcileLocal(env, registry);
+      fullScan = await reconcileLocal(env, registry);
     } else {
-      await reconcileRepos(env, registry);
+      fullScan = (await reconcileRepos(env, registry)).fullScan;
     }
   } catch (e) {
     console.error('[reconcile] repo reconciliation failed:', e);
@@ -37,9 +38,9 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
       console.error(`[reconcile] object reconciliation failed for ${row.prefix}:`, e);
     }
   }
-  // Cold-start guard: destructive passes only after a trustworthy full pass certifies the link
-  // state — else a stale/failed probe could read every prefix as `unused` and act on live repos.
-  if (await registry.getLastFullScanAt()) {
+  // Cold-start guard: destructive passes only after a full scan this tick — else a partial/failed
+  // probe could read every prefix as `unused` and act on live repos.
+  if (fullScan) {
     try {
       await autoArchive(env, registry);
     } catch (e) {

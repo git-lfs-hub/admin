@@ -18,7 +18,6 @@ function fakeRegistry() {
       blockedReused: [],
     })),
     listStorage: vi.fn(async () => []),
-    markFullScan: vi.fn(async () => {}),
   } as any;
 }
 
@@ -27,13 +26,13 @@ beforeEach(() => unblockRepo.mockReset());
 describe('reconcileLocal', () => {
   test('present list → activeRepos; their owners → activeOrgs (lowercased)', async () => {
     const registry = fakeRegistry();
-    await reconcileLocal(env, registry, ['ACME/Keep', 'globex/site']);
+    const fullScan = await reconcileLocal(env, registry, ['ACME/Keep', 'globex/site']);
     expect(registry.lastInput).toEqual({
       activeOrgs: new Set(['acme', 'globex']),
       activeRepos: new Set(['acme/keep', 'globex/site']),
     });
     expect(registry.reconcileStorage).toHaveBeenCalledOnce();
-    expect(registry.markFullScan).toHaveBeenCalledOnce(); // fixture certifies the pass
+    expect(fullScan).toBe(true); // fixture is authoritative → full scan
   });
 
   test('empty present list → every discovered repo evaluated as gone', async () => {

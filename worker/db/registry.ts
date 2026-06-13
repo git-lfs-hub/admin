@@ -6,7 +6,6 @@ import {
   repos,
   storage,
   orgs,
-  meta,
   type RepoStatus,
   type StorageStatus,
   type OrgStatus,
@@ -86,12 +85,6 @@ export class Registry extends DurableObject<CloudflareBindings> {
           updated_at  TEXT NOT NULL,
           missing_at  TEXT,
           last_error  TEXT
-        )
-      `);
-      this.ctx.storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS meta (
-          id                 INTEGER PRIMARY KEY,
-          last_full_scan_at  TEXT
         )
       `);
     });
@@ -470,22 +463,6 @@ export class Registry extends DurableObject<CloudflareBindings> {
 
   async listOrgs(): Promise<OrgRow[]> {
     return await this.db.select().from(orgs);
-  }
-
-  // --- cold-start guard ---
-
-  /** null until the first trustworthy full reconcile pass — the archive/purge eligibility gate. */
-  async getLastFullScanAt(): Promise<string | null> {
-    const [row] = await this.db.select().from(meta).where(eq(meta.id, 1));
-    return row?.lastFullScanAt ?? null;
-  }
-
-  async markFullScan(): Promise<void> {
-    const now = isoNow();
-    await this.db
-      .insert(meta)
-      .values({ id: 1, lastFullScanAt: now })
-      .onConflictDoUpdate({ target: meta.id, set: { lastFullScanAt: now } });
   }
 }
 
