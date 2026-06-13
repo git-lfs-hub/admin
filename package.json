@@ -36,6 +36,7 @@
     "@tanstack/vue-query": "^5.100.14",
     "@tanstack/vue-table": "^8.21.3",
     "@vueuse/core": "^14.3.0",
+    "aws4fetch": "^1.0.20",
     "drizzle-orm": "^0.45.2",
     "filesize": "^11.0.17",
     "hono": "^4.12.23",

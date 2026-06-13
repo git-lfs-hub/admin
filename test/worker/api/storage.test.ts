@@ -36,9 +36,11 @@ function appEnv(
     purgeRepo: vi.fn(async () => {}),
     ...lfs,
   };
-  // PURGE_WORKFLOW is omitted from the test wrangler (no workflow runtime in the pool); stub
-  // create()/get() so the trigger path (beginOp on the real STORAGE DO + create) is exercisable.
+  // PURGE_WORKFLOW / BACKUP_WORKFLOW are omitted from the test wrangler (no workflow runtime in the
+  // pool); stub create()/get() so the trigger path (beginOp on the real STORAGE DO + create) is
+  // exercisable.
   const PURGE_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
+  const BACKUP_WORKFLOW = { create: vi.fn(async () => {}), get: vi.fn() };
   return {
     env: {
       REGISTRY: env.REGISTRY,
@@ -49,11 +51,16 @@ function appEnv(
       GC: { ...env.GC, ...gc },
       LFS_SERVER,
       PURGE_WORKFLOW,
-    } as unknown as CloudflareBindings & { PURGE_WORKFLOW: typeof PURGE_WORKFLOW },
+      BACKUP_WORKFLOW,
+    } as unknown as CloudflareBindings & {
+      PURGE_WORKFLOW: typeof PURGE_WORKFLOW;
+      BACKUP_WORKFLOW: typeof BACKUP_WORKFLOW;
+    },
     blockRepo: LFS_SERVER.blockRepo,
     unblockRepo: LFS_SERVER.unblockRepo,
     purgeRepo: LFS_SERVER.purgeRepo,
     PURGE_WORKFLOW,
+    BACKUP_WORKFLOW,
   };
 }
 const post = (path: string, e: CloudflareBindings) =>
@@ -346,9 +353,10 @@ describe('POST /api/storage/:owner/:repo/restore', () => {
   });
 });
 
-describe('cold-storage ops → 501 (not yet implemented)', () => {
+describe('cold-storage ops not yet implemented → 501', () => {
+  // DELETE backup (F4) and clear (F5) are genuine stubs. BackUp is implemented — when cold storage
+  // is off it's config-disabled, a 409, not a 501 (see the backup describe above).
   test.each([
-    ['POST', '/alice/r/backup'],
     ['DELETE', '/alice/r/backup'],
     ['POST', '/alice/r/clear'],
   ])('%s %s', async (method, path) => {
@@ -356,6 +364,49 @@ describe('cold-storage ops → 501 (not yet implemented)', () => {
     const { env: e } = appEnv();
     const res = await storageApp.request(path, { method }, e);
     expect(res.status).toBe(501);
+  });
+});
+
+describe('POST /api/storage/:o/:r/backup (cold storage on)', () => {
+  const cold = { coldStorage: 's3.backup' };
+
+  test('non-purged prefix → reserves the op (beginOp) + creates the instance → 202', async () => {
+    await seedUnused('alice/r');
+    const { env: e, BACKUP_WORKFLOW } = appEnv({}, cold);
+    const res = await post('/alice/r/backup', e);
+    expect(res.status).toBe(202);
+    expect(BACKUP_WORKFLOW.create).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.stringMatching(/^backup-[0-9A-Za-z_]{1,64}$/) }),
+    );
+    expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('backup');
+  });
+
+  test('runs on a blocked prefix too (admin pre-warm allowed)', async () => {
+    await seedArchived('alice/r');
+    const { env: e } = appEnv({}, cold);
+    expect((await post('/alice/r/backup', e)).status).toBe(202);
+  });
+
+  test('purged prefix → 409', async () => {
+    await seedArchived('alice/r');
+    await reg().markPurged('alice/r');
+    const { env: e } = appEnv({}, cold);
+    expect((await post('/alice/r/backup', e)).status).toBe(409);
+  });
+
+  test('busy (an op already in flight) → 409', async () => {
+    await seedUnused('alice/r');
+    await env.STORAGE.getByName('alice/r').beginOp('alice/r', 'purge-x', 'purge');
+    const { env: e } = appEnv({}, cold);
+    expect((await post('/alice/r/backup', e)).status).toBe(409);
+  });
+
+  test('cold storage off → 409 cold_storage_disabled (config, not unimplemented)', async () => {
+    await seedUnused('alice/r');
+    const { env: e } = appEnv(); // default: coldStorage ""
+    const res = await post('/alice/r/backup', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'cold_storage_disabled' });
   });
 });
 

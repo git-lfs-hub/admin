@@ -3,7 +3,11 @@
     "admin": { "workerName": "lfs-admin-test" },
     "workerName": "lfs-server-test"
   },
-  "s3": { "bucket": "test-lfs-objects" },
+  "s3": {
+    "endpoint": "https://test.r2.cloudflarestorage.com",
+    "bucket": "test-lfs-objects",
+    "backup": { "region": "", "bucket": "" }
+  },
   "github": { "org": "test-org", "adminHome": "https://lfs-admin-test.example.com" },
   "admin": { "slack": { "channel": "" } },
   "gc": {

@@ -48,6 +48,11 @@
   ],
   "workflows": [
     {
+      "binding": "BACKUP_WORKFLOW",
+      "name": "lfs-admin-backup",
+      "class_name": "BackupWorkflow",
+    },
+    {
       "binding": "PURGE_WORKFLOW",
       "name": "lfs-admin-purge",
       "class_name": "PurgeWorkflow",
@@ -102,6 +107,11 @@
       "slack": {{{json admin.slack}}},
       "url": "{{github.adminHome}}",
     },
+    // R2 endpoint/bucket + cold-storage `backup` (AWS S3, Glacier classes), bundled as one
+    // JSON var like GC → `env.S3.backup.{region,bucket}`. `backup` is empty until
+    // `gc.coldStorage` names a backend ("s3.backup"); the backup creds are optional secrets
+    // (below). Cold-storage code stays dead behind the `GC.coldStorage` flag until set.
+    "S3": {{{json s3}}},
     "ENV": "{{env}}",
   },
   "secrets": {
@@ -115,6 +125,8 @@
       // SLACK_BOT_TOKEN + SLACK_SIGNING_SECRET are optional — Slack delivery and the
       // interactions callback both no-op when unset (see worker/globals.d.ts). Left out of
       // `required` so deploy/dev don't demand them; declared optional in globals.d.ts.
+      // S3_BACKUP_ACCESS_KEY_ID + S3_BACKUP_SECRET_ACCESS_KEY are likewise optional — only
+      // read on the cold-storage path (GC.coldStorage set). Optional in globals.d.ts.
     ],
   },
 }

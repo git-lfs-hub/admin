@@ -1,6 +1,7 @@
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { autoArchive } from '@/gc/autoArchive';
+import { autoBackup } from '@/gc/autoBackup';
 import { autoPurge } from '@/gc/autoPurge';
 import { reconcileObjects } from '@/reconcile/objects';
 import { reconcileRepos } from '@/reconcile/repos';
@@ -9,7 +10,7 @@ import { discoverRepos } from '@/storage/discovery';
 /**
  * Cron pipeline: discover storage prefixes from R2, reconcile git presence + storage link
  * state against GitHub, reconcile each non-purged prefix's object index against R2, then
- * auto-Archive overdue ones, then
+ * auto-Archive overdue ones, auto-BackUp freshly-blocked ones (cold storage), then
  * auto-Purge ones past live retention (wait-only confirmation gate).
  */
 export async function reconcileAll(env: CloudflareBindings, local = false): Promise<void> {
@@ -45,6 +46,12 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
       await autoArchive(env, registry);
     } catch (e) {
       console.error('[reconcile] auto-archive failed:', e);
+    }
+    // Back up freshly-blocked prefixes to cold storage (no-op off the cold-storage path).
+    try {
+      await autoBackup(env, registry);
+    } catch (e) {
+      console.error('[reconcile] auto-backup failed:', e);
     }
     try {
       await autoPurge(env, registry);

@@ -73,9 +73,9 @@ describe('storage mutation scoping', () => {
   });
 
   test('501 stubs sit behind the guard + row resolution', async () => {
-    expect((await post('/api/storage/org-b/repo/backup')).status).toBe(403); // guard blocks
+    expect((await post('/api/storage/org-b/repo/clear')).status).toBe(403); // guard blocks
     registryMock.storageForRepo.mockResolvedValue({ prefix: 'org-a/repo' }); // row exists
-    const ok = await post('/api/storage/org-a/repo/backup');
+    const ok = await post('/api/storage/org-a/repo/clear');
     expect(ok.status).toBe(501); // guard + withStorage passed, then the stub
   });
 

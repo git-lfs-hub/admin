@@ -10,6 +10,7 @@ import { gcConfig } from '@/gc/config';
 import { isLocal } from '@/lib/host';
 import { isoAddDays } from '@/lib/time';
 import { archive, restore } from '@/server/operations';
+import { startBackup } from '@/workflows/backup';
 import { purgeInstanceId, startPurge, wakePurge } from '@/workflows/purge';
 
 // `:owner/:repo` routes carry the resolved storage row in `c.var.storage`.
@@ -103,8 +104,21 @@ const app = new Hono<StorageEnv>()
     return c.json({ storage: row });
   })
 
+  // BackUp live R2 → cold storage. Cold-storage only. Runs on any non-purged prefix (blocked or an
+  // admin pre-warm of a serving one); 409 if an op is already in flight.
+  .post('/:owner/:repo/backup', async (c) => {
+    if (!gcConfig(c.env).coldStorage) return c.json({ error: 'cold_storage_disabled' }, 409);
+    const cur = c.var.storage;
+    if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
+    try {
+      const id = await startBackup(c.env, { prefix: cur.prefix });
+      return c.json({ status: 'backing_up', workflow: id }, 202);
+    } catch {
+      return c.json({ error: 'busy' }, 409);
+    }
+  })
+
   // Cold-storage ops not yet implemented.
-  .post('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .delete('/:owner/:repo/backup', (c) => c.json({ error: 'not_implemented' }, 501))
   .post('/:owner/:repo/clear', (c) => c.json({ error: 'not_implemented' }, 501))
 

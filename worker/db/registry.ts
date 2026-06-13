@@ -414,6 +414,21 @@ export class Registry extends DurableObject<CloudflareBindings> {
     });
   }
 
+  /** Land a finished BackUp (cross-DO from the STORAGE DO): a cold copy now exists (`backedUpAt`),
+   *  complete only if the prefix stayed blocked under the same `archivedAt` throughout. Status
+   *  untouched (BackUp never moves it). */
+  async endBackup(prefix: string, archivedAtAtStart: string | null): Promise<void> {
+    const now = isoNow();
+    const row = await this.getStorage(prefix);
+    const complete = archivedAtAtStart != null && row?.archivedAt === archivedAtAtStart;
+    await this.updateStorage(prefix, {
+      backedUpAt: now,
+      backupComplete: complete,
+      activeOp: null,
+      updatedAt: now,
+    });
+  }
+
   /** Bump `lastChangeAt` + reset `backupComplete` on an upload event (cold copy may have diverged). */
   async recordUpload(prefix: string): Promise<void> {
     const now = isoNow();

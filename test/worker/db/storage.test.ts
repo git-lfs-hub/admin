@@ -192,6 +192,36 @@ describe('Storage workflows (one-active-op guard)', () => {
     expect(row?.purgedAt).not.toBeNull();
   });
 
+  test('endBackupOp lands backedUpAt/backupComplete (not status) when last shard ends', async () => {
+    const registry = env.REGISTRY.getByName('global');
+    await registry.upsertStorage('alice/thing');
+    await registry.markUnused('alice/thing');
+    const blocked = await registry.block('alice/thing');
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.beginOp('alice/thing', 'inst-1', 'backup');
+
+    await store.endBackupOp('alice/thing', 'inst-1', blocked!.archivedAt);
+    expect(await store.activeOp()).toBeNull();
+    const row = await registry.getStorage('alice/thing');
+    expect(row?.status).toBe('unused'); // BackUp never moves resting status
+    expect(row?.backedUpAt).not.toBeNull();
+    expect(row?.backupComplete).toBe(true);
+    expect(row?.activeOp).toBeNull();
+  });
+
+  test('endBackupOp defers the REGISTRY write until the last shard closes', async () => {
+    const registry = env.REGISTRY.getByName('global');
+    await registry.upsertStorage('alice/thing');
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.beginOp('alice/thing', 'inst-1', 'backup', 0);
+    await store.beginOp('alice/thing', 'inst-2', 'backup', 1);
+
+    await store.endBackupOp('alice/thing', 'inst-1', null);
+    expect((await registry.getStorage('alice/thing'))?.backedUpAt).toBeNull(); // shard 1 still active
+    await store.endBackupOp('alice/thing', 'inst-2', null);
+    expect((await registry.getStorage('alice/thing'))?.backedUpAt).not.toBeNull();
+  });
+
   test('listWorkflows returns every row, active and closed', async () => {
     const registry = env.REGISTRY.getByName('global');
     await registry.upsertStorage('alice/thing');

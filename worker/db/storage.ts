@@ -249,15 +249,36 @@ export class Storage extends DurableObject<CloudflareBindings> {
     restingStatus: StorageStatus,
     error: string | null = null,
   ): Promise<void> {
+    const last = await this.closeRow(instanceId, engineStatus, error);
+    if (last) await Registry.global(this.env).endStorageOp(prefix, restingStatus);
+  }
+
+  /**
+   * Close a completed BackUp. Unlike `endOp` it leaves the resting `status` alone and lands
+   * `backedUpAt`/`backupComplete` instead (`Registry.endBackup`). Success-only — a cancelled BackUp
+   * goes through `endOp` with status unchanged.
+   */
+  async endBackupOp(
+    prefix: string,
+    instanceId: string,
+    archivedAtAtStart: string | null,
+  ): Promise<void> {
+    const last = await this.closeRow(instanceId, 'complete', null);
+    if (last) await Registry.global(this.env).endBackup(prefix, archivedAtAtStart);
+  }
+
+  /** Mark one instance's row ended; returns true when no active row remains for the prefix. */
+  private async closeRow(
+    instanceId: string,
+    engineStatus: WorkflowStatus,
+    error: string | null,
+  ): Promise<boolean> {
     const now = isoNow();
     await this.db
       .update(workflows)
       .set({ status: engineStatus, endedAt: now, error })
       .where(eq(workflows.instanceId, instanceId));
-    const stillActive = await this.activeOp();
-    if (!stillActive) {
-      await Registry.global(this.env).endStorageOp(prefix, restingStatus);
-    }
+    return (await this.activeOp()) === null;
   }
 
   /** Flag every active row for cancellation; the executors check this at batch boundaries. */

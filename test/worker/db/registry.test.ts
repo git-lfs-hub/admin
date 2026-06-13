@@ -326,6 +326,36 @@ describe('activeOp denormalization + upload tracking', () => {
   });
 });
 
+describe('endBackup (cold copy outcome)', () => {
+  test('blocked under the same archivedAt throughout → backupComplete true, status untouched', async () => {
+    await reg().upsertStorage('alice/a');
+    await reg().markUnused('alice/a');
+    const blocked = await reg().block('alice/a');
+    await reg().endBackup('alice/a', blocked!.archivedAt);
+    const row = await reg().getStorage('alice/a');
+    expect(row?.backedUpAt).toMatch(ISO_RE);
+    expect(row?.backupComplete).toBe(true);
+    expect(row?.status).toBe('unused'); // BackUp never moves resting status
+    expect(row?.activeOp).toBeNull();
+  });
+
+  test('started unblocked (archivedAt null at start) → cold copy exists but incomplete', async () => {
+    await reg().upsertStorage('alice/a');
+    await reg().endBackup('alice/a', null);
+    const row = await reg().getStorage('alice/a');
+    expect(row?.backedUpAt).toMatch(ISO_RE);
+    expect(row?.backupComplete).toBe(false);
+  });
+
+  test('unblocked mid-run (archivedAt changed) → incomplete', async () => {
+    await reg().upsertStorage('alice/a');
+    const blocked = await reg().block('alice/a');
+    await reg().unblock('alice/a'); // archivedAt cleared mid-backup
+    await reg().endBackup('alice/a', blocked!.archivedAt);
+    expect((await reg().getStorage('alice/a'))?.backupComplete).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // orgs
 // ---------------------------------------------------------------------------
