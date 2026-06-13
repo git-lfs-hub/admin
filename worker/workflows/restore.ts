@@ -28,10 +28,8 @@ export class RestoreWorkflow extends WorkflowEntrypoint<CloudflareBindings, Rest
         throw new NonRetryableError('restore no longer eligible');
     });
 
-    // Thaw EVERY page first — S3 then retrieves them concurrently — and wait ONCE for the whole set,
-    // else page N's wait stacks on page N-1's (total = sum of waits, not the slowest). Each sub-step
-    // re-lists its page via the `list()` thunk, so no key list is persisted across the sleeps
-    // (instance state stays cursor-sized regardless of object count).
+    // Thaw EVERY page before waiting, so the retrieval windows overlap (one shared wait, not a sum
+    // over pages). Each sub-step re-lists its page, so no key list persists across the sleeps.
 
     // 1. Initiate the async retrieval for every colder object (no-op for `GLACIER_IR`; idempotent)
     await walkS3Pages(step, this.env, prefix, 'thaw', async (objects) => {

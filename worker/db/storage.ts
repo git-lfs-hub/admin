@@ -80,12 +80,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return await this.db.select().from(objects);
   }
 
-  /**
-   * Record an object event. `source` is the operation; `last_seen`/`last_accessed`
-   * bump on every event. `upload` only presigns a PUT, so R2 presence is unconfirmed
-   * (`pending`); `verify`/`download` head-check R2 server-side, so they confirm `present`
-   * and never downgrade an already-present object.
-   */
+  /** Record an object event. `upload` only presigns a PUT → `pending` (R2 unconfirmed);
+   *  `verify`/`download` head-check server-side → confirm `present`, never downgrade. */
   async recordObject(
     oid: string,
     size: number,
@@ -140,12 +136,9 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return row?.value ?? null;
   }
 
-  /**
-   * Reconcile one page of storage truth (`oid -> size` for keys present under the
-   * prefix): insert objects present in storage but absent from the index (as `present`,
-   * source `storage_scan`), confirm `pending` objects to `present`, and correct sizes.
-   * Callers stream pages from storage; only the page's oids are touched.
-   */
+  /** Reconcile one page of storage truth (`oid -> size`): insert keys absent from the index
+   *  (`present`, source `storage_scan`), confirm `pending` → `present`, correct sizes. Only the
+   *  page's oids are touched. */
   async recordReconciliation(
     storageSizes: Record<string, number>,
   ): Promise<ObjectReconciliationResult> {
@@ -184,8 +177,7 @@ export class Storage extends DurableObject<CloudflareBindings> {
           lastSeen: now,
           lastAccessed: now,
         }));
-      // Each row binds one var per column; chunk so `rows * cols` stays under
-      // the var limit. Column count is taken from the row actually inserted.
+      // Chunk so `rows * cols` stays under the var limit (column count from the inserted row).
       if (inserts.length > 0) {
         const batch_rows = Math.floor(SQL_VAR_LIMIT / Object.keys(inserts[0]).length);
         for (let j = 0; j < inserts.length; j += batch_rows) {
@@ -214,11 +206,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return row?.op ?? null;
   }
 
-  /**
-   * Start (a shard of) an op. Refused while the prefix is busy with a *different* op (409);
-   * another shard of the same op is allowed. Denormalizes `activeOp` onto `REGISTRY.storage`
-   * so the list view shows running ops without fanning out.
-   */
+  /** Start (a shard of) an op. Refused while busy with a *different* op (409); same-op shards
+   *  allowed. Denormalizes `activeOp` onto `REGISTRY.storage` (list view, no fan-out). */
   async beginOp(
     prefix: string,
     instanceId: string,
@@ -238,10 +227,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return row;
   }
 
-  /**
-   * Close one op row with its engine status. When the last active row for the prefix closes,
-   * write the resting `status` and clear `activeOp` on `REGISTRY.storage` (cross-DO).
-   */
+  /** Close one op row. On the last active row closing, write resting `status` + clear `activeOp`
+   *  on `REGISTRY.storage` (cross-DO). */
   async endOp(
     prefix: string,
     instanceId: string,
@@ -253,11 +240,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
     if (last) await Registry.global(this.env).endStorageOp(prefix, restingStatus);
   }
 
-  /**
-   * Close a completed BackUp. Unlike `endOp` it leaves the resting `status` alone and lands
-   * `backedUpAt`/`backupComplete` instead (`Registry.endBackup`). Success-only — a cancelled BackUp
-   * goes through `endOp` with status unchanged.
-   */
+  /** Close a completed BackUp: lands `backedUpAt`/`backupComplete` via `Registry.endBackup`,
+   *  status untouched. Success-only (a cancelled BackUp goes through `endOp`). */
   async endBackupOp(
     prefix: string,
     instanceId: string,
@@ -267,11 +251,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
     if (last) await Registry.global(this.env).endBackup(prefix, archivedAtAtStart);
   }
 
-  /**
-   * Close a completed cold Restore. Like `endBackupOp` it leaves the resting `status` alone, but
-   * clears the block (`archivedAt`/`clearedAt`) + `backupComplete` via `Registry.endRestore`.
-   * Success-only — a cancelled Restore goes through `endOp` with status unchanged.
-   */
+  /** Close a completed cold Restore: clears the block (`archivedAt`/`clearedAt`) + `backupComplete`
+   *  via `Registry.endRestore`, status untouched. Success-only. */
   async endRestoreOp(prefix: string, instanceId: string): Promise<void> {
     const last = await this.closeRow(instanceId, 'complete', null);
     if (last) await Registry.global(this.env).endRestore(prefix);
@@ -283,11 +264,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
     if (last) await Registry.global(this.env).endClear(prefix);
   }
 
-  /**
-   * Close a completed Delete Backup. Leaves the resting `status` alone (live R2 untouched) and
-   * clears the cold-copy flags (`backedUpAt`/`backupComplete`) via `Registry.endDeleteBackup`.
-   * Success-only — a cancelled Delete Backup goes through `endOp` with status unchanged.
-   */
+  /** Close a completed Delete Backup: clears `backedUpAt`/`backupComplete` via
+   *  `Registry.endDeleteBackup`, status untouched. Success-only. */
   async endDeleteBackupOp(prefix: string, instanceId: string): Promise<void> {
     const last = await this.closeRow(instanceId, 'complete', null);
     if (last) await Registry.global(this.env).endDeleteBackup(prefix);

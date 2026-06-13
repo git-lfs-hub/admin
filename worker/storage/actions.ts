@@ -1,14 +1,10 @@
-// Shared vocabulary for the storage lifecycle — the single source of truth for both the admin UI
-// (StorageTable) and Slack alerts, so the two never drift. Two catalogs:
-//   STORAGE_ACTIONS — per verb: button label + consequence copy (shown before you act).
-//   STORAGE_STATES  — per lifecycle state: emoji, Slack one-liner, UI description, default action.
-// Each consumer maps its own representation onto LifecycleState (Slack: AlertKind; UI: StorageRow)
-// and pulls selection + wording from here.
+// Shared vocabulary for the storage lifecycle — single source of truth for the admin UI
+// (StorageTable) and Slack alerts, so the two never drift. STORAGE_ACTIONS = per-verb button label
+// + consequence copy; STORAGE_STATES = per-state emoji, Slack line, UI description, default action.
 
-// The single authority on a storage row's resting lifecycle state. Both surfaces derive from this
-// instead of re-checking `status`/`archivedAt` inline — the UI to render, the worker to pick the
-// standing alert kind. `purging` is an in-flight overlay (the active op), not a resting state, so
-// it's never returned here. Minimal row shape so worker registry rows and client API rows both fit.
+// Authority on a row's resting lifecycle state; both surfaces derive from this rather than
+// re-checking `status`/`archivedAt` inline. `purging` is an in-flight overlay (active op), not a
+// resting state, so it's never returned. Minimal row shape so worker + client rows both fit.
 export type LifecycleRow = { status: 'used' | 'unused' | 'purged'; archivedAt: string | null };
 
 export function lifecycleState(row: LifecycleRow): LifecycleState {

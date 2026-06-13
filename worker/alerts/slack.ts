@@ -38,13 +38,9 @@ export interface SlackPoster {
   };
 }
 
-/**
- * One Slack message per scope: first state posts, later states `chat.update` it in place (so a
- * prefix's missing → archived → restored is one updating message). `skipped` when unconfigured
- * or the shown state hasn't changed. A Slack API error (bad token, bot not in channel, …) is
- * NOT thrown — it's recorded to the global health store (`failed`) and cleared on success, so a
- * misconfig shows up in the admin UI instead of dying in a log line.
- */
+/** One Slack message per scope: first state posts, later states `chat.update` it in place
+ *  (missing → archived → restored = one message). `skipped` when unconfigured / state unchanged.
+ *  Slack API errors aren't thrown — recorded to the health store, cleared on success (surfaced in-app). */
 export async function deliverSlack(
   env: CloudflareBindings,
   store: SlackStore,
