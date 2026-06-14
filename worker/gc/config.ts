@@ -1,4 +1,7 @@
-export type GcConfig = CloudflareBindings['GC'];
+// `coldStorage` is a runtime capability flag (empty = off, else a backend key), but wrangler
+// types it as the single literal the active env happens to render — too narrow for the ''
+// default and cross-env values. Widen it back to string.
+export type GcConfig = Omit<CloudflareBindings['GC'], 'coldStorage'> & { coldStorage: string };
 
 // Every GC tunable has a safe default so a config that omits any key (or the whole GC var) can't
 // crash a consumer — e.g. a missing `confirmDays` makes `isoAddDays` produce an Invalid Date.
