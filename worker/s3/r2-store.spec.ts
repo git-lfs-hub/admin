@@ -64,7 +64,7 @@ describe('r2Store.write', () => {
   test('puts the body under the key', async () => {
     const { env, bucket } = bucketEnv();
     const stream = body();
-    await r2Store(env).write('k', stream);
+    await r2Store(env).write('k', stream, 100);
     expect(bucket.put).toHaveBeenCalledWith('k', stream);
   });
 });
