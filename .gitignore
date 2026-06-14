@@ -2,6 +2,14 @@
 dist/
 dist-server/
 
+# tsc
+.tsbuild/
+*.tsbuildinfo
+
+# test outputs
+coverage/
+test-results/
+
 # dev
 .yarn/
 !.yarn/releases
@@ -17,8 +25,7 @@ node_modules/
 .wrangler
 
 # env
-.env
-.env.production
+.env*
 .dev.vars
 
 # logs
@@ -32,3 +39,13 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# configs
+vars.input.json
+vars.json
+wrangler.jsonc
+worker-configuration.d.ts
+github-app.md
+slack-app.md
+cold-storage.md
+test/worker/wrangler.jsonc

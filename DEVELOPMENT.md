@@ -10,7 +10,7 @@ Use this when you work from **[git-lfs-hub/admin](https://github.com/git-lfs-hub
 
 ```sh
 bun install
-bun run dev       # vite dev — local SvelteKit dev server
+bun run dev       # vite dev — local Vue dev server
 bun run test      # vitest (integration via @cloudflare/vitest-pool-workers)
 bun run types     # regenerate worker-configuration.d.ts after changing wrangler.jsonc bindings
 ```
@@ -22,7 +22,7 @@ With Cloudflare auth in place (`wrangler login` or `CLOUDFLARE_API_TOKEN`) and s
 ```sh
 wrangler secret put GITHUB_CLIENT_ID
 wrangler secret put GITHUB_CLIENT_SECRET
-wrangler secret put SESSION_SECRET   # openssl rand -hex 32
+wrangler secret put LOGIN_SECRET   # openssl rand -hex 32
 ```
 
 ```sh
@@ -52,5 +52,5 @@ Pass the `CloudflareBindings` as generics when instantiation `Hono`:
 
 ```ts
 // src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
+const app = new Hono<{ Bindings: CloudflareBindings }>();
 ```

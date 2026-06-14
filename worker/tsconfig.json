@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "types": [],
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "outDir": "../.tsbuild",
+    "rootDir": "..",
+    "paths": {
+      "@/*": ["./*"],
+      "@dev/*": ["../dev/*"]
+    }
+  },
+  "include": ["**/*.ts", "../dev/**/*.ts", "../worker-configuration.d.ts"]
+}

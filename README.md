@@ -20,15 +20,11 @@ See [DEVELOPMENT.md](DEVELOPMENT.md)
 
 [ci-badge]: https://badgen.net/github/checks/git-lfs-hub/admin/main?icon=vitest&label=CI
 [gh-wf-href]: https://github.com/git-lfs-hub/admin/actions/workflows/main.yml?query=branch%3Amain
-
 [coverage-badge]: https://badgen.net/https/git-lfs-hub.github.io/admin/coverage-badge.json?icon=vitest
 [coverage-href]: https://git-lfs-hub.github.io/gc/lcov-report/
-
 [codeql-badge]: https://github.com/git-lfs-hub/admin/actions/workflows/github-code-scanning/codeql/badge.svg
 [codeql-href]: https://github.com/git-lfs-hub/admin/actions/workflows/github-code-scanning/codeql?query=branch%3Amain
-
 [socket-badge]: https://badgen.net/static/Socket/report/blue?icon=socket
 [socket-href]: https://socket.dev/dashboard/org/git-lfs-hub/repo/@git-lfs-hub/admin
-
 [license-badge]: https://badgen.net/github/license/git-lfs-hub/admin
 [license-href]: LICENSE.md

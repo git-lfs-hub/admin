@@ -1,0 +1,15 @@
+name: Init admin
+description: Init bun with lib + config peers, then render vars.json + wrangler.jsonc + worker types
+
+runs:
+  using: composite
+  steps:
+    - uses: git-lfs-hub/ci-cd/actions/init@main
+      with: { peers: lib config }
+
+    - name: Render vars.json + wrangler.jsonc + types
+      shell: bash
+      run: |
+        bun run config:vars
+        bun run config
+        bun run types

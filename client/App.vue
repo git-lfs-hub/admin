@@ -1,0 +1,12 @@
+<script setup lang="ts">
+import AppHeader from '@/components/AppHeader.vue';
+import { Toaster } from '@/components/ui/sonner';
+</script>
+
+<template>
+  <AppHeader />
+  <main class="container mx-auto p-4">
+    <RouterView />
+  </main>
+  <Toaster position="top-right" :offset="{ top: '4.5rem', right: '1rem' }" />
+</template>

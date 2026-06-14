@@ -3,13 +3,10 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "lib": ["ESNext"],
     "strict": true,
-    "skipLibCheck": true,
-    "lib": [
-      "ESNext"
-    ],
-    "types": ["vite/client"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "skipLibCheck": true
   },
+  "files": [],
+  "references": [{ "path": "./client" }, { "path": "./worker" }, { "path": "./test/worker" }]
 }

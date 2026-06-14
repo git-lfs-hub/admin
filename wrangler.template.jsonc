@@ -1,0 +1,147 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{{cloudflare.admin.workerName}}",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-05-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    // Only the session-bearing paths run the Worker (and its `auth`) first. Static assets
+    // (HTML shell + hashed JS bundle) are public and served directly, so a stale access
+    // token never 302s the bundle to login (blank page) — the SPA's authFetch drives the
+    // OAuth redirect off a /api/* 401 instead.
+    "run_worker_first": ["/api/*", "/login/*", "/webhooks/*"],
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REGISTRY",
+        "class_name": "Registry",
+      },
+      {
+        "name": "STORAGE",
+        "class_name": "Storage",
+      },
+      {
+        "name": "ALERTS",
+        "class_name": "Alerts",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Registry", "Storage", "Alerts"],
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "LFS_BUCKET",
+      "bucket_name": "{{s3.bucket}}",
+    },
+  ],
+  "workflows": [
+    {
+      "binding": "BACKUP_WORKFLOW",
+      "name": "lfs-admin-backup",
+      "class_name": "BackupWorkflow",
+    },
+    {
+      "binding": "PURGE_WORKFLOW",
+      "name": "lfs-admin-purge",
+      "class_name": "PurgeWorkflow",
+    },
+    {
+      "binding": "RESTORE_WORKFLOW",
+      "name": "lfs-admin-restore",
+      "class_name": "RestoreWorkflow",
+    },
+    {
+      "binding": "DELETE_BACKUP_WORKFLOW",
+      "name": "lfs-admin-delete-backup",
+      "class_name": "DeleteBackupWorkflow",
+    },
+    {
+      "binding": "CLEAR_WORKFLOW",
+      "name": "lfs-admin-clear",
+      "class_name": "ClearWorkflow",
+    },
+  ],
+  // RPC into lfs-server (block/unblock/purge). In prod this targets the
+  // lfs-server worker; in dev the same-named auxiliary worker (vite.config.ts).
+  "services": [
+    {
+      "binding": "LFS_SERVER",
+      "service": "{{cloudflare.workerName}}",
+      "entrypoint": "AdminEntrypoint",
+    },
+  ],
+  {{!-- Omitted until a namespace id is set, so `wrangler kv namespace create
+  GITHUB_CACHE` can run before the binding exists. No id → org-role cache disabled
+  (orgRole still works, just uncached). Reuses lfs-server's namespace id. --}}
+  {{#if cloudflare.kv.githubCacheId}}
+  "kv_namespaces": [
+    {
+      "binding": "GITHUB_CACHE",
+      "id": "{{cloudflare.kv.githubCacheId}}",
+    },
+  ],
+  {{/if}}
+  "queues": {
+    "consumers": [
+      {
+        "queue": "lfs-object-events",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+      },
+    ],
+  },
+  "triggers": {
+    "crons": ["0 * * * *"],
+  },
+  // Build-time DCE flag — false in the deployed bundle strips the dev-only fixture
+  // reconcile (`@dev/*`). Overridden to true for dev (vite.config) and tests (wrangler.test.json).
+  "define": {
+    "__DEV__": "false",
+  },
+  "vars": {
+    "GITHUB_ORG": "{{github.org}}",
+    // Optional: one or more owner/org slugs (alternative to GITHUB_ORG for multi-org setups).
+    "GITHUB_ORGS": "{{github.orgs}}",
+    "GC": {{{json gc}}},
+    // Admin-side notification config (non-secret). `slack.channel` empty → Slack delivery
+    // no-ops; `url` is the admin base for deep links in alerts. The Slack bot token is a
+    // secret (SLACK_BOT_TOKEN).
+    "ADMIN": {
+      "slack": {{{json admin.slack}}},
+      "url": "{{github.adminHome}}",
+    },
+    // R2 endpoint/bucket + cold-storage `backup` (AWS S3, Glacier classes), bundled as one
+    // JSON var like GC → `env.S3.backup.{region,bucket}`. `backup` is empty until
+    // `gc.coldStorage` names a backend ("s3.backup"); the backup creds are optional secrets
+    // (below). Cold-storage code stays dead behind the `GC.coldStorage` flag until set.
+    "S3": {{{json s3}}},
+    "ENV": "{{env}}",
+  },
+  "secrets": {
+    "required": [
+      "GITHUB_CLIENT_ID",
+      "GITHUB_CLIENT_SECRET",
+      "LOGIN_SECRET",
+      "GITHUB_APP_ID",
+      "GITHUB_APP_PRIVATE_KEY",
+      "GITHUB_WEBHOOK_SECRET",
+      // SLACK_BOT_TOKEN + SLACK_SIGNING_SECRET are optional — Slack delivery and the
+      // interactions callback both no-op when unset (see worker/globals.d.ts). Left out of
+      // `required` so deploy/dev don't demand them; declared optional in globals.d.ts.
+      // S3_BACKUP_ACCESS_KEY_ID + S3_BACKUP_SECRET_ACCESS_KEY are likewise optional — only
+      // read on the cold-storage path (GC.coldStorage set). Optional in globals.d.ts.
+    ],
+  },
+}

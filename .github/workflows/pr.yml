@@ -1,0 +1,31 @@
+name: PR
+
+on:
+  pull_request:
+  workflow_dispatch: # Can run manually from the Actions tab
+
+env:
+  GLH_VARS_JSON: ${{ vars.GLH_VARS_JSON || secrets.GLH_VARS_JSON }}
+
+permissions: { contents: read }
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: write }
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/init
+
+      - run: bun run test-coverage
+
+      - uses: git-lfs-hub/ci-cd/actions/coverage-report@main
+
+  can-merge:
+    name: Can merge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: git-lfs-hub/ci-cd/actions/check-can-merge@main
