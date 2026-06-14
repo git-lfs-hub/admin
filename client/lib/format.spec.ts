@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatSize, formatTime, formatDate, formatUntil, formatRelative } from '@/lib/format';
 
@@ -26,6 +26,9 @@ describe('formatDate', () => {
 });
 
 describe('formatUntil', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   const until = (ms: number) => formatUntil(new Date(Date.now() + ms).toISOString());
 
   it('reports "now" once the instant has elapsed', () => {
@@ -50,6 +53,9 @@ describe('formatUntil', () => {
 });
 
 describe('formatRelative', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   const ago = (ms: number) => formatRelative(new Date(Date.now() - ms).toISOString());
 
   it('counts seconds under a minute', () => {
