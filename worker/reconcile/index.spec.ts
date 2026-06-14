@@ -3,7 +3,10 @@ import { test, expect, vi, beforeEach, describe } from 'vitest';
 const discoverRepos = vi.fn(async (..._a: unknown[]) => {});
 const reconcileRepos = vi.fn(async (..._a: unknown[]) => ({ fullScan: true }));
 const reconcileObjects = vi.fn(async (..._a: unknown[]) => {});
+const reconcileWorkflows = vi.fn(async (..._a: unknown[]) => {});
 const autoArchive = vi.fn(async (..._a: unknown[]) => []);
+const autoBackup = vi.fn(async (..._a: unknown[]) => []);
+const autoClear = vi.fn(async (..._a: unknown[]) => []);
 const autoPurge = vi.fn(async (..._a: unknown[]) => []);
 
 vi.mock('@/storage/discovery', () => ({ discoverRepos: (...a: unknown[]) => discoverRepos(...a) }));
@@ -11,7 +14,12 @@ vi.mock('@/reconcile/repos', () => ({ reconcileRepos: (...a: unknown[]) => recon
 vi.mock('@/reconcile/objects', () => ({
   reconcileObjects: (...a: unknown[]) => reconcileObjects(...a),
 }));
+vi.mock('@/reconcile/workflows', () => ({
+  reconcileWorkflows: (...a: unknown[]) => reconcileWorkflows(...a),
+}));
 vi.mock('@/gc/autoArchive', () => ({ autoArchive: (...a: unknown[]) => autoArchive(...a) }));
+vi.mock('@/gc/autoBackup', () => ({ autoBackup: (...a: unknown[]) => autoBackup(...a) }));
+vi.mock('@/gc/autoClear', () => ({ autoClear: (...a: unknown[]) => autoClear(...a) }));
 vi.mock('@/gc/autoPurge', () => ({ autoPurge: (...a: unknown[]) => autoPurge(...a) }));
 
 import { reconcileAll } from '@/reconcile/index';
@@ -35,7 +43,10 @@ beforeEach(() => {
   reconcileRepos.mockClear();
   reconcileRepos.mockResolvedValue({ fullScan: true });
   reconcileObjects.mockClear();
+  reconcileWorkflows.mockClear();
   autoArchive.mockClear();
+  autoBackup.mockClear();
+  autoClear.mockClear();
   autoPurge.mockClear();
   registryStub.listStorage.mockClear();
 });
@@ -96,6 +107,21 @@ describe('reconcileAll', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(reconcileAll(env)).resolves.toBeUndefined();
     expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/');
+  });
+
+  test('each pass is isolated: every stage throwing still resolves', async () => {
+    const env = makeEnv();
+    reconcileWorkflows.mockRejectedValueOnce(new Error('workflows'));
+    autoArchive.mockRejectedValueOnce(new Error('archive'));
+    autoBackup.mockRejectedValueOnce(new Error('backup'));
+    autoClear.mockRejectedValueOnce(new Error('clear'));
+    autoPurge.mockRejectedValueOnce(new Error('purge'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(reconcileAll(env)).resolves.toBeUndefined();
+    expect(autoArchive).toHaveBeenCalled();
+    expect(autoBackup).toHaveBeenCalled();
+    expect(autoClear).toHaveBeenCalled();
+    expect(autoPurge).toHaveBeenCalled();
   });
 
   test("one prefix's object failure does not abort the rest", async () => {

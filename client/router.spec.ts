@@ -9,6 +9,13 @@ describe('router', () => {
     expect(router.currentRoute.value.path).toBe('/storage');
   });
 
+  it('loads the ReposPage chunk on navigation to /repos', async () => {
+    await router.push('/repos');
+    await router.isReady();
+    expect(router.currentRoute.value.path).toBe('/repos');
+    expect(router.currentRoute.value.matched[0].components?.default).toBeDefined();
+  });
+
   it('resolves /repos to ReposPage chunk', () => {
     const route = router.resolve('/repos');
     expect(route.matched).toHaveLength(1);

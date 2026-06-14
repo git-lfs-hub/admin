@@ -210,6 +210,16 @@ describe('refreshConfirmation', () => {
     await refreshConfirmation(envWith('xoxb', 'C1'), store, purge, poster);
     expect(poster.chat.update).not.toHaveBeenCalled();
   });
+
+  test('a failed update records the Slack error and does not clear health', async () => {
+    const store = fakeStore({ kind: 'purge', channel: 'C7', ts: '5.0' });
+    const poster = fakePoster();
+    poster.chat.update.mockRejectedValueOnce(new Error('not_in_channel'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await refreshConfirmation(envWith('xoxb', 'C1'), store, { ...purge, decision: 'approve' }, poster);
+    expect(store.recordSlackError).toHaveBeenCalledWith('not_in_channel');
+    expect(store.clearSlackError).not.toHaveBeenCalled();
+  });
 });
 
 describe('verifySlackRequest', () => {

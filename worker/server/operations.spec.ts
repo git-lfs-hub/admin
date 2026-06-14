@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { notify } from '@/alerts/lifecycle';
-import { archive, restore, purgeServer } from '@/server/operations';
+import { archive, restore, purgeServer, unblockServer } from '@/server/operations';
 
 // notify hits ALERTS (a DO); stub it so these stay pure unit tests of the RPC + REGISTRY wiring.
 // `restingAlert` is pure (row → kind) — keep the real one so restore picks the right kind.
@@ -106,5 +106,23 @@ describe('purgeServer', () => {
       }),
     });
     await expect(purgeServer(env, 'a/r')).rejects.toThrow('rpc down');
+  });
+});
+
+describe('unblockServer', () => {
+  test('splits the prefix into owner/repo and calls unblockRepo', async () => {
+    const env = lfsEnv();
+    await unblockServer(env, 'a/r');
+    expect(env.LFS_SERVER.unblockRepo).toHaveBeenCalledWith('a', 'r');
+  });
+
+  // RPC-before-write: a failed unblockRepo must propagate so the workflow step retries.
+  test('propagates the RPC failure', async () => {
+    const env = lfsEnv({
+      unblockRepo: vi.fn(async () => {
+        throw new Error('rpc down');
+      }),
+    });
+    await expect(unblockServer(env, 'a/r')).rejects.toThrow('rpc down');
   });
 });

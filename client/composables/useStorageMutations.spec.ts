@@ -205,6 +205,66 @@ describe('useStorageMutations', () => {
     wrapper.unmount();
   });
 
+  const errResponse = (error: string) => ({
+    ok: false,
+    status: 409,
+    statusText: 'Conflict',
+    clone() {
+      return { json: () => Promise.resolve({ error }) };
+    },
+    json: () => Promise.resolve({ error }),
+  });
+
+  it('purge surfaces a preview gate failure as a toast', async () => {
+    fetchMock.mockResolvedValueOnce(errResponse('gated'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper } = mountWithQuery();
+    await expect(wrapper.vm.purge.mutateAsync({ owner: 'alice', repo: 'gone' })).rejects.toThrow(
+      'gated',
+    );
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // never reaches the token POST
+    expect(toast.error).toHaveBeenCalledWith('gated');
+    wrapper.unmount();
+  });
+
+  it('clear throws "preview failed" when the preview returns no token', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ impact: { objects: 1 } })); // no token
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper } = mountWithQuery();
+    await expect(wrapper.vm.clear.mutateAsync({ owner: 'alice', repo: 'gone' })).rejects.toThrow(
+      'preview failed',
+    );
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith('preview failed');
+    wrapper.unmount();
+  });
+
+  it.each([
+    ['restore', 'restore'],
+    ['backup', 'backup'],
+    ['deleteBackup', 'deleteBackup'],
+    ['confirmWorkflow', 'confirmWorkflow'],
+    ['cancelWorkflow', 'cancelWorkflow'],
+  ])('%s toasts the server error on failure', async (_name, key) => {
+    fetchMock.mockResolvedValueOnce(errResponse('invalid_state'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { wrapper } = mountWithQuery();
+    const m = wrapper.vm[key as keyof typeof wrapper.vm] as { mutateAsync: (p: unknown) => Promise<unknown> };
+    await expect(m.mutateAsync({ owner: 'alice', repo: 'gone' })).rejects.toThrow('invalid_state');
+    await flushPromises();
+
+    expect(toast.error).toHaveBeenCalledWith('invalid_state');
+    expect(toast.success).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('toasts the server error message on failure', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
