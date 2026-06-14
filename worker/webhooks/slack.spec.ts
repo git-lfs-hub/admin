@@ -124,4 +124,17 @@ describe('POST /webhooks/slack/interactions', () => {
     expect(res.status).toBe(200);
     expect(archive).not.toHaveBeenCalled();
   });
+
+  test('a failing op is caught → still acks 200', async () => {
+    storageForRepo.mockResolvedValueOnce({
+      prefix: 'alice/repo',
+      status: 'unused',
+      archivedAt: null,
+    });
+    archive.mockRejectedValueOnce(new Error('rpc down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post(payload('archive', 'storage:alice/repo#missing'));
+    expect(res.status).toBe(200);
+    expect(archive).toHaveBeenCalled();
+  });
 });

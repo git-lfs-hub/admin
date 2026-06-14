@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatSize, formatTime, formatRelative } from '@/lib/format';
+import { formatSize, formatTime, formatDate, formatUntil, formatRelative } from '@/lib/format';
 
 describe('formatSize', () => {
   it('formats bytes human-readable', () => {
@@ -14,6 +14,38 @@ describe('formatTime', () => {
     expect(formatTime('2026-05-24T12:00:00Z')).toBe(
       new Date('2026-05-24T12:00:00Z').toLocaleString(),
     );
+  });
+});
+
+describe('formatDate', () => {
+  it('formats an ISO string as a locale date (no time)', () => {
+    expect(formatDate('2026-05-24T12:00:00Z')).toBe(
+      new Date('2026-05-24T12:00:00Z').toLocaleDateString(),
+    );
+  });
+});
+
+describe('formatUntil', () => {
+  const until = (ms: number) => formatUntil(new Date(Date.now() + ms).toISOString());
+
+  it('reports "now" once the instant has elapsed', () => {
+    expect(until(0)).toBe('now');
+    expect(formatUntil(new Date(Date.now() - 10_000).toISOString())).toBe('now');
+  });
+
+  it('counts minutes under an hour', () => {
+    expect(until(60 * 1000)).toBe('1 m');
+    expect(until(59 * 60 * 1000)).toBe('59 m');
+  });
+
+  it('counts hours under a day', () => {
+    expect(until(60 * 60 * 1000)).toBe('1 h');
+    expect(until(23 * 60 * 60 * 1000)).toBe('23 h');
+  });
+
+  it('counts days beyond that', () => {
+    expect(until(24 * 60 * 60 * 1000)).toBe('1 d');
+    expect(until(10 * 24 * 60 * 60 * 1000)).toBe('10 d');
   });
 });
 
