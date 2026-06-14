@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "config:vars": "git-lfs-hub-config vars . --env dev",
+    "config:vars": "GLH_ENV=dev git-lfs-hub-config vars .",
     "config": "git-lfs-hub-config worker .",
     "config:test": "git-lfs-hub-config test-worker . test/worker",
     "types": "wrangler types --env-interface CloudflareBindings",
