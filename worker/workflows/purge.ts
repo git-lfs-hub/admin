@@ -1,4 +1,4 @@
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
 
 import { Registry } from '@/db/registry';
@@ -7,7 +7,7 @@ import { gcConfig } from '@/gc/config';
 import { s3DeleteObject } from '@/s3/delete';
 import { purgeServer } from '@/server/operations';
 import { runConfirmation } from '@/workflows/confirm';
-import { walkR2Pages, walkS3Pages } from '@/workflows/lifecycle';
+import { LifecycleWorkflow } from '@/workflows/lifecycle';
 
 export type PurgeParams = {
   prefix: string; // STORAGE DO key + R2 key root (canonical OwnerCase/RepoCase)
@@ -18,8 +18,8 @@ export type PurgeParams = {
 // Purge: confirmation gate → delete live R2 in batches → (cold storage) delete the cold S3 copy →
 // purgeRepo → `purged`. With cold storage on, live R2 may already be cleared (the live walk is then a
 // no-op) but the cold copy still needs dropping.
-export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeParams> {
-  async run(event: WorkflowEvent<PurgeParams>, step: WorkflowStep): Promise<void> {
+export class PurgeWorkflow extends LifecycleWorkflow<PurgeParams> {
+  protected async execute(event: WorkflowEvent<PurgeParams>, step: WorkflowStep): Promise<void> {
     const { prefix, scope, triggeredBy } = event.payload;
 
     // Admin: proceed at the grace deadline (intent expressed).
@@ -40,13 +40,13 @@ export class PurgeWorkflow extends WorkflowEntrypoint<CloudflareBindings, PurgeP
     });
 
     // Bulk delete is idempotent, so a retried page is safe.
-    await walkR2Pages(this.env.LFS_BUCKET, prefix, step, 'r2-delete', async (objects) => {
+    await this.walkR2Pages(prefix, step, 'r2-delete', async (objects) => {
       if (objects.length > 0) await this.env.LFS_BUCKET.delete(objects.map((o) => o.key));
     });
 
     if (gcConfig(this.env).coldStorage)
       // Drop the cold (S3) copy too. Per-object DELETE is idempotent.
-      await walkS3Pages(this.env, prefix, step, 's3-delete', async (objects) => {
+      await this.walkS3Pages(prefix, step, 's3-delete', async (objects) => {
         await Promise.all(objects.map((o) => s3DeleteObject(this.env, o.key)));
       });
 

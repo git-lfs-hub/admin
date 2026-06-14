@@ -34,13 +34,15 @@ function envWith(
   storageRow: unknown,
   endBackupOp = vi.fn(async () => {}),
 ) {
+  const endOp = vi.fn(async () => {});
   return {
     env: {
       LFS_BUCKET: b,
       REGISTRY: { getByName: () => ({ getStorage: vi.fn(async () => storageRow) }) },
-      STORAGE: { getByName: () => ({ endBackupOp }) },
+      STORAGE: { getByName: () => ({ endBackupOp, endOp }) },
     } as unknown as CloudflareBindings,
     endBackupOp,
+    endOp,
   };
 }
 
@@ -116,5 +118,20 @@ describe('BackupWorkflow.run', () => {
     const { env } = envWith(bucket([]), null);
     const { step } = fakeStep();
     await expect(run(env, step)).rejects.toThrow('backup no longer eligible');
+  });
+
+  test('step failure → closes op errored, rethrows', async () => {
+    copyObject.mockRejectedValueOnce(new Error('S3 PUT failed: 404'));
+    const { env, endOp } = envWith(bucket([{ keys: ['A/R/o1'] }]), blocked);
+    const { step } = fakeStep();
+
+    await expect(run(env, step)).rejects.toThrow('S3 PUT failed: 404');
+    expect(endOp).toHaveBeenCalledWith(
+      'A/R',
+      'backup-abc',
+      'errored',
+      'used',
+      'S3 PUT failed: 404',
+    );
   });
 });

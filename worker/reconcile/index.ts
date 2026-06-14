@@ -6,6 +6,7 @@ import { autoClear } from '@/gc/autoClear';
 import { autoPurge } from '@/gc/autoPurge';
 import { reconcileObjects } from '@/reconcile/objects';
 import { reconcileRepos } from '@/reconcile/repos';
+import { reconcileWorkflows } from '@/reconcile/workflows';
 import { discoverRepos } from '@/storage/discovery';
 
 /**
@@ -39,6 +40,13 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
     } catch (e) {
       console.error(`[reconcile] object reconciliation failed for ${row.prefix}:`, e);
     }
+  }
+  // Non-destructive, so it runs outside the `fullScan` guard below — every tick, to unwedge the UI
+  // promptly even after a partial scan.
+  try {
+    await reconcileWorkflows(env, registry);
+  } catch (e) {
+    console.error('[reconcile] workflow reconciliation failed:', e);
   }
   // Cold-start guard: destructive passes only after a full scan this tick — else a partial/failed
   // probe could read every prefix as `unused` and act on live repos.

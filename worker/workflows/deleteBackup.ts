@@ -1,10 +1,10 @@
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
 
 import { Registry } from '@/db/registry';
 import { Storage } from '@/db/storage';
 import { s3DeleteObject } from '@/s3/delete';
-import { walkS3Pages } from '@/workflows/lifecycle';
+import { LifecycleWorkflow } from '@/workflows/lifecycle';
 
 export type DeleteBackupParams = {
   prefix: string; // STORAGE DO key + R2/S3 key root (canonical OwnerCase/RepoCase)
@@ -13,11 +13,11 @@ export type DeleteBackupParams = {
 // Delete Backup: drop every cold-storage object, leaving live R2 untouched. Gated on a cold copy
 // existing (`backedUpAt`) and live still present (`clearedAt` null) — once live is cleared the cold
 // copy is the only copy, so deleting it would lose data.
-export class DeleteBackupWorkflow extends WorkflowEntrypoint<
-  CloudflareBindings,
-  DeleteBackupParams
-> {
-  async run(event: WorkflowEvent<DeleteBackupParams>, step: WorkflowStep): Promise<void> {
+export class DeleteBackupWorkflow extends LifecycleWorkflow<DeleteBackupParams> {
+  protected async execute(
+    event: WorkflowEvent<DeleteBackupParams>,
+    step: WorkflowStep,
+  ): Promise<void> {
     const { prefix } = event.payload;
 
     // Re-read guard: only a backed-up, not-cleared prefix is eligible at execution time.
@@ -28,7 +28,7 @@ export class DeleteBackupWorkflow extends WorkflowEntrypoint<
     });
 
     // Per-object delete is idempotent, so a retried page is safe.
-    await walkS3Pages(this.env, prefix, step, 's3-delete', async (objects) => {
+    await this.walkS3Pages(prefix, step, 's3-delete', async (objects) => {
       await Promise.all(objects.map((o) => s3DeleteObject(this.env, o.key)));
     });
 

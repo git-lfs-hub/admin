@@ -21,7 +21,7 @@ function envWith(storageRow: unknown, endDeleteBackupOp = vi.fn(async () => {}))
   return {
     env: {
       REGISTRY: { getByName: () => ({ getStorage: vi.fn(async () => storageRow) }) },
-      STORAGE: { getByName: () => ({ endDeleteBackupOp }) },
+      STORAGE: { getByName: () => ({ endDeleteBackupOp, endOp: vi.fn(async () => {}) }) },
     } as unknown as CloudflareBindings,
     endDeleteBackupOp,
   };

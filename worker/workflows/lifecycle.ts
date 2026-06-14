@@ -1,11 +1,68 @@
-import type { WorkflowStep } from 'cloudflare:workers';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 
+import { Registry } from '@/db/registry';
 import type { StorageStatus } from '@/db/registry-schema';
 import { Storage } from '@/db/storage';
 import type { WorkflowOp } from '@/db/storage-schema';
 import { listS3Page, type S3Object } from '@/s3/list';
 
 // Shared scaffolding for the lifecycle workflows (backup / purge / restore).
+export abstract class LifecycleWorkflow<P extends { prefix: string }> extends WorkflowEntrypoint<
+  CloudflareBindings,
+  P
+> {
+  protected abstract execute(event: WorkflowEvent<P>, step: WorkflowStep): Promise<void>;
+
+  // Wraps the subclass `execute` so a throw closes the active-op row as `errored` before re-raising —
+  // else `activeOp` stays set and the UI wedges on "backing up"/… forever.
+  async run(event: WorkflowEvent<P>, step: WorkflowStep): Promise<void> {
+    try {
+      await this.execute(event, step);
+    } catch (err) {
+      await step.do('errored', () => this.failOp(event.payload.prefix, event.instanceId, err));
+      throw err;
+    }
+  }
+
+  // Resting status keeps its current value (a failed run changed nothing); `'used'` is an unreachable
+  // type floor (purged rows are kept, so the lookup is non-null).
+  private async failOp(prefix: string, instanceId: string, err: unknown): Promise<void> {
+    const row = await Registry.global(this.env).getStorage(prefix);
+    const message = err instanceof Error ? err.message : String(err);
+    await Storage.byPrefix(this.env, prefix).endOp(prefix, instanceId, 'errored', row?.status ?? 'used', message); // prettier-ignore
+  }
+
+  // List + per-object work share one step, so per-object work must be idempotent
+  // (backup HEAD-skip, delete naturally).
+  protected async walkR2Pages(
+    prefix: string,
+    step: WorkflowStep,
+    label: string,
+    perPage: (objects: R2Object[]) => Promise<void>,
+  ): Promise<void> {
+    await walkPages(step, label, async (cursor) => {
+      const list = await this.env.LFS_BUCKET.list({ prefix: `${prefix}/`, cursor });
+      await perPage(list.objects);
+      return { cursor: list.truncated ? list.cursor : undefined };
+    });
+  }
+
+  // Restore runs one walk per pass (thaw → poll/sleep → pull), re-listing from the cursor each pass
+  // since the `step.sleep`s sit between walks. `perPage` returns a per-page readiness bool (default
+  // ready); the walk ANDs them — poll uses the result to decide whether to sleep again.
+  protected walkS3Pages(
+    prefix: string,
+    step: WorkflowStep,
+    label: string,
+    perPage: (objects: S3Object[]) => Promise<boolean | void>,
+  ): Promise<boolean> {
+    return walkPages(step, label, async (cursor) => {
+      const list = await listS3Page(this.env, `${prefix}/`, cursor);
+      const ready = (await perPage(list.objects)) ?? true;
+      return { cursor: list.cursor, ready };
+    });
+  }
+}
 
 // op → its Workflow binding name on env. Keeps the op string the single source of truth so call
 // sites never repeat the `'purge', env.PURGE_WORKFLOW` pair.
@@ -69,40 +126,6 @@ export async function terminateWorkflow(
     // workflow already finished/terminated — nothing to stop
   }
   await store.endOp(prefix, id, 'terminated', status);
-}
-
-// Walk every R2 object page under `{prefix}/`, applying `perPage` to each. List + work share one
-// step, so per-object work must be idempotent (backup HEAD-skip, delete naturally).
-export async function walkR2Pages(
-  bucket: R2Bucket,
-  prefix: string,
-  step: WorkflowStep,
-  label: string,
-  perPage: (objects: R2Object[]) => Promise<void>,
-): Promise<void> {
-  await walkPages(step, label, async (cursor) => {
-    const list = await bucket.list({ prefix: `${prefix}/`, cursor });
-    await perPage(list.objects);
-    return { cursor: list.truncated ? list.cursor : undefined };
-  });
-}
-
-// Walk every cold-storage (S3) object page under `{prefix}/`, applying `perPage` to each. Restore
-// runs one walk per pass (thaw → poll/sleep → pull), re-listing from the cursor each pass since the
-// `step.sleep`s sit between walks. `perPage` may return a per-page readiness bool (default ready);
-// the walk ANDs them — poll uses the result to decide whether to sleep again.
-export function walkS3Pages(
-  env: CloudflareBindings,
-  prefix: string,
-  step: WorkflowStep,
-  label: string,
-  perPage: (objects: S3Object[]) => Promise<boolean | void>,
-): Promise<boolean> {
-  return walkPages(step, label, async (cursor) => {
-    const list = await listS3Page(env, `${prefix}/`, cursor);
-    const ready = (await perPage(list.objects)) ?? true;
-    return { cursor: list.cursor, ready };
-  });
 }
 
 // The cursor pump: run `page(cursor)` inside step `${label}:${n}`, threading the cursor until it's

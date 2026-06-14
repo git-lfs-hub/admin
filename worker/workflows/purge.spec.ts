@@ -51,7 +51,7 @@ function envWith(
     LFS_BUCKET: b,
     GC: { confirmDays: 3 }, // read into runConfirmation's args before the (mocked) call
     REGISTRY: { getByName: () => ({ getStorage: vi.fn(async () => storageRow) }) },
-    STORAGE: { getByName: () => ({ endPurgeOp }) },
+    STORAGE: { getByName: () => ({ endPurgeOp, endOp: vi.fn(async () => {}) }) },
   } as unknown as CloudflareBindings;
 }
 

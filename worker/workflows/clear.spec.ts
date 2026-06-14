@@ -37,7 +37,7 @@ function envWith(
     env: {
       LFS_BUCKET: b,
       REGISTRY: { getByName: () => ({ getStorage: vi.fn(async () => storageRow), markCleared }) },
-      STORAGE: { getByName: () => ({ endClearOp }) },
+      STORAGE: { getByName: () => ({ endClearOp, endOp: vi.fn(async () => {}) }) },
     } as unknown as CloudflareBindings,
     markCleared,
     endClearOp,
