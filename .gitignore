@@ -47,4 +47,5 @@ wrangler.jsonc
 worker-configuration.d.ts
 github-app.md
 slack-app.md
+cold-storage.md
 test/worker/wrangler.jsonc
