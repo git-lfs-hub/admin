@@ -1,4 +1,5 @@
 import { authorizeOrgRole, orgsFromEnv, resolveSession } from '@git-lfs-hub/lib/auth';
+import { GithubError } from '@git-lfs-hub/lib/github';
 import type { MiddlewareHandler } from 'hono';
 import type { Context } from 'hono';
 
@@ -24,7 +25,15 @@ const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   // Record which orgs the caller admins — mutations are scoped to them (api/storage.ts).
   // Dedupe: config derives both GITHUB_ORG and GITHUB_ORGS, so an org can appear twice.
-  const result = await authorizeOrgRole(api, orgsFromEnv(c.env), 'admin');
+  let result: string[] | Response;
+  try {
+    result = await authorizeOrgRole(api, orgsFromEnv(c.env), 'admin');
+  } catch (e) {
+    // GitHub rejected the session's token (401): it's expired/revoked, so re-auth rather than
+    // 500. resolveSession can't catch this — the token only fails on first real API use.
+    if (e instanceof GithubError && e.code === 'unauthorized') return unauthenticated(c);
+    throw e;
+  }
   if (result instanceof Response) return result;
   const adminOrgs = [...new Set(result)];
 

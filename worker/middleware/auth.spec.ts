@@ -147,4 +147,47 @@ describe('auth middleware', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  // A 401 from GitHub means the session's token is expired/revoked — re-auth, not 500.
+  describe('production — token rejected by GitHub (401)', () => {
+    function sessionWithDeadToken() {
+      const unauthorized = new GithubError('unauthorized', 'membership: 401', 401);
+      return {
+        api: {
+          orgRole: async () => {
+            throw unauthorized;
+          },
+        },
+        username: 'alice',
+      };
+    }
+
+    test('API path returns 401 JSON', async () => {
+      mockResolveSession.mockResolvedValue(sessionWithDeadToken());
+      const res = await req('/api/test');
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'unauthenticated' });
+    });
+
+    test('non-API path redirects to OAuth', async () => {
+      mockResolveSession.mockResolvedValue(sessionWithDeadToken());
+      const res = await req('/dashboard');
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toBe('/login/oauth/authorize?state=%2Fdashboard');
+    });
+
+    test('a non-auth GithubError is not swallowed as re-auth (propagates → 500)', async () => {
+      const transient = new GithubError('transient', 'membership: 503', 503);
+      mockResolveSession.mockResolvedValue({
+        api: {
+          orgRole: async () => {
+            throw transient;
+          },
+        },
+        username: 'alice',
+      });
+      const res = await req('/test');
+      expect(res.status).toBe(500);
+    });
+  });
 });
