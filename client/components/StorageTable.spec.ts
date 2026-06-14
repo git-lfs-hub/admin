@@ -363,7 +363,7 @@ describe('StorageTable', () => {
     expect(chip.text()).not.toContain('—');
 
     const dash = await mountTable([archived], undefined, true); // no backup yet
-    expect(dash.find('[data-slot="backup"]').text()).toContain('—');
+    expect(dash.find('[data-slot="backup"]').exists()).toBe(false);
 
     const clearedW = await mountTable([cleared], undefined, true);
     expect(clearedW.find('[data-slot="backup"]').text()).toContain('live cleared');

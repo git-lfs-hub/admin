@@ -235,12 +235,12 @@ const runConfirm = (r: StorageRow) => {
                 </span>
               </template>
 
-              <!-- Backup state — only when a cold-storage backend is configured. -->
-              <template v-if="coldStorage">
+              <!-- Backup state — only when a cold-storage backend is configured and a cold copy exists. -->
+              <template v-if="coldStorage && r.backedUpAt">
                 <span class="text-muted-foreground/50">·</span>
                 <span data-slot="backup" class="inline-flex items-center gap-1.5 whitespace-nowrap">
                   <span>Backup</span>
-                  <HoverCard v-if="r.backedUpAt">
+                  <HoverCard>
                     <HoverCardTrigger as-child>
                       <span class="text-foreground">{{
                         r.clearedAt ? 'live cleared' : formatRelative(r.backedUpAt)
@@ -262,7 +262,6 @@ const runConfirm = (r: StorageRow) => {
                       </p>
                     </HoverCardContent>
                   </HoverCard>
-                  <span v-else class="text-foreground">—</span>
                 </span>
               </template>
             </ItemDescription>
