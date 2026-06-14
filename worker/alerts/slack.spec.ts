@@ -216,7 +216,12 @@ describe('refreshConfirmation', () => {
     const poster = fakePoster();
     poster.chat.update.mockRejectedValueOnce(new Error('not_in_channel'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    await refreshConfirmation(envWith('xoxb', 'C1'), store, { ...purge, decision: 'approve' }, poster);
+    await refreshConfirmation(
+      envWith('xoxb', 'C1'),
+      store,
+      { ...purge, decision: 'approve' },
+      poster,
+    );
     expect(store.recordSlackError).toHaveBeenCalledWith('not_in_channel');
     expect(store.clearSlackError).not.toHaveBeenCalled();
   });

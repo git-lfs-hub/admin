@@ -256,7 +256,9 @@ describe('useStorageMutations', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const { wrapper } = mountWithQuery();
-    const m = wrapper.vm[key as keyof typeof wrapper.vm] as { mutateAsync: (p: unknown) => Promise<unknown> };
+    const m = wrapper.vm[key as keyof typeof wrapper.vm] as {
+      mutateAsync: (p: unknown) => Promise<unknown>;
+    };
     await expect(m.mutateAsync({ owner: 'alice', repo: 'gone' })).rejects.toThrow('invalid_state');
     await flushPromises();
 
