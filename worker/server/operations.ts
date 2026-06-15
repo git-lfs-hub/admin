@@ -1,17 +1,15 @@
 import { notify, restingAlert } from '@/alerts/lifecycle';
 import type { Registry, StorageRow } from '@/db/registry';
+import { gcConfig } from '@/gc/config';
 import { lfsServer } from '@/server/lfs-server';
+import { startWorkflow } from '@/workflows/lifecycle';
 
 type RegistryStub = DurableObjectStub<Registry>;
 
-// End-to-end storage-lifecycle ops: each flips the LFS server (RPC) AND the admin REGISTRY for a
-// prefix, in RPC-before-write order so a server failure leaves the row untouched (retriable).
-// High-level callers (routes, cron, reconcile, the purge workflow) come through here instead of
-// touching `lfs-server` directly. Owner/repo is derived from the prefix here (`splitPrefix`) — the
-// single seam to replace when repo⇄storage links land.
+// Lifecycle ops: RPC the LFS server before the REGISTRY write, so a server failure leaves the row
+// untouched (retriable). The one `lfs-server` seam for all high-level callers (routes/cron/wf).
 
-// Serve-block + mark the row blocked. Returns the row, or null when REGISTRY refused (already
-// blocked / purged). Throws if the server RPC fails.
+// null = REGISTRY refused (already blocked / purged); throws if the server RPC fails.
 export async function archive(
   env: CloudflareBindings,
   registry: RegistryStub,
@@ -20,12 +18,22 @@ export async function archive(
   const [owner, repo] = splitPrefix(prefix);
   await lfsServer(env).blockRepo(owner, repo);
   const row = await registry.block(prefix);
-  if (row) await notify(env, owner, repo, 'archived');
+  if (row) {
+    await notify(env, owner, repo, 'archived');
+    // Cold storage on → back up now instead of next `autoBackup` tick. Best-effort: the block
+    // already landed, so a busy/failed start must not fail the archive (autoBackup retries).
+    if (gcConfig(env).coldStorage) {
+      try {
+        await startWorkflow(env, 'backup', { prefix });
+      } catch (e) {
+        console.error(`[archive] backup start failed for ${prefix}:`, e);
+      }
+    }
+  }
   return row;
 }
 
-// Clear the serve-block + mark the row unblocked. Returns the row, or null when it wasn't blocked.
-// Throws if the server RPC fails.
+// null when it wasn't blocked; throws if the server RPC fails.
 export async function restore(
   env: CloudflareBindings,
   registry: RegistryStub,
@@ -40,16 +48,15 @@ export async function restore(
   return row;
 }
 
-// Post-purge server cleanup (Locks wipe + server registry → purged). RPC only: the admin REGISTRY
-// mark is a separate, durable workflow step. Idempotent.
+// Post-purge server cleanup (Locks wipe + server registry → purged). RPC only — the admin REGISTRY
+// mark is a separate durable workflow step. Idempotent.
 export function purgeServer(env: CloudflareBindings, prefix: string): Promise<void> {
   const [owner, repo] = splitPrefix(prefix);
   return lfsServer(env).purgeRepo(owner, repo);
 }
 
-// RPC-only unblock for the cold-restore workflow — the admin REGISTRY write (`endRestore`) is a
-// separate, durable workflow step on the STORAGE DO. RPC before that write so a failure retries
-// without leaving the row inconsistent. Idempotent. Mirrors `purgeServer`.
+// RPC-only unblock for the cold-restore workflow — the REGISTRY write (`endRestore`) is a separate
+// durable step, so RPC failure retries without leaving the row inconsistent. Mirrors `purgeServer`.
 export function unblockServer(env: CloudflareBindings, prefix: string): Promise<void> {
   const [owner, repo] = splitPrefix(prefix);
   return lfsServer(env).unblockRepo(owner, repo);

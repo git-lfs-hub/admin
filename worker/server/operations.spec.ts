@@ -2,6 +2,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { notify } from '@/alerts/lifecycle';
 import { archive, restore, purgeServer, unblockServer } from '@/server/operations';
+import { startWorkflow } from '@/workflows/lifecycle';
 
 // notify hits ALERTS (a DO); stub it so these stay pure unit tests of the RPC + REGISTRY wiring.
 // `restingAlert` is pure (row → kind) — keep the real one so restore picks the right kind.
@@ -10,10 +11,17 @@ vi.mock('@/alerts/lifecycle', async (importOriginal) => ({
   notify: vi.fn(async () => {}),
 }));
 
+// startWorkflow reserves an op on the STORAGE DO + creates a Workflow instance; stub it so the
+// cold-storage backup trigger is observable without real bindings.
+vi.mock('@/workflows/lifecycle', () => ({
+  startWorkflow: vi.fn(async () => 'backup-1'),
+}));
+
 beforeEach(() => vi.clearAllMocks());
 
 function lfsEnv(over: Record<string, unknown> = {}) {
   return {
+    GC: undefined,
     LFS_SERVER: {
       blockRepo: vi.fn(async () => {}),
       unblockRepo: vi.fn(async () => {}),
@@ -38,6 +46,31 @@ describe('archive', () => {
     const registry = { block: vi.fn(async () => null) } as any;
     expect(await archive(lfsEnv(), registry, 'a/r')).toBeNull();
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  // Cold storage on → back up the freshly-blocked prefix immediately, not at the next cron tick.
+  test('cold storage on → starts a backup for the blocked prefix', async () => {
+    const env = lfsEnv();
+    env.GC = { coldStorage: 'r2-cold' };
+    const registry = { block: vi.fn(async () => ({ prefix: 'a/r' })) } as any;
+    await archive(env, registry, 'a/r');
+    expect(startWorkflow).toHaveBeenCalledWith(env, 'backup', { prefix: 'a/r' });
+  });
+
+  test('cold storage off → no backup', async () => {
+    const registry = { block: vi.fn(async () => ({ prefix: 'a/r' })) } as any;
+    await archive(lfsEnv(), registry, 'a/r');
+    expect(startWorkflow).not.toHaveBeenCalled();
+  });
+
+  // The block already landed; a busy/failed backup start must not fail the archive.
+  test('cold storage on but backup start fails → swallowed, still returns the row', async () => {
+    const env = lfsEnv();
+    env.GC = { coldStorage: 'r2-cold' };
+    const row = { prefix: 'a/r' };
+    const registry = { block: vi.fn(async () => row) } as any;
+    vi.mocked(startWorkflow).mockRejectedValueOnce(new Error('busy'));
+    expect(await archive(env, registry, 'a/r')).toBe(row);
   });
 
   // RPC before write: a failed blockRepo must propagate before REGISTRY is touched.
