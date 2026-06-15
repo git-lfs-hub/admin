@@ -188,7 +188,7 @@ describe('StorageTable', () => {
     expect(cell.find('[data-slot="button-group"]').exists()).toBe(true);
   });
 
-  it('offers Purge only via the "…" overflow for unused storage; used and purged show a badge', async () => {
+  it('offers Purge via the "…" overflow for unused, never for used; purged shows a badge', async () => {
     // Purge is no longer a column button — it lives in the "…" DropdownMenu.
     const unusedW = await mountTable([unused]);
     const cell = unusedW.find('[data-slot="lifecycle"]');
@@ -198,10 +198,15 @@ describe('StorageTable', () => {
     expect(menuItemEls().map((el) => el.textContent?.trim())).toContain('Purge…');
     unusedW.unmount();
 
-    // Used storage is actively serving — no lifecycle actions, just the "used" badge (top-right).
+    // Used (live) storage: no primary action and no Purge. With cold storage off there's nothing to
+    // offer, so no overflow at all; with it on, the overflow holds Back up only.
     const used = await mountTable([row]);
     expect(used.find('[data-slot="status"]').text()).toContain('used');
     expect(moreTrigger(used.find('[data-slot="lifecycle"]'))).toBeUndefined();
+    used.unmount();
+    const usedCold = await mountTable([row], undefined, true);
+    expect(await openMore(usedCold.find('[data-slot="lifecycle"]'))).toEqual(['Back up']);
+    usedCold.unmount();
 
     const purged = await mountTable([
       { ...row, status: 'purged', purgedAt: '2026-05-26T00:00:00Z' },

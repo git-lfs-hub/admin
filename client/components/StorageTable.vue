@@ -319,10 +319,12 @@ const runConfirm = (r: StorageRow) => {
                 }}</Badge>
               </div>
 
-              <!-- Unused: archived rows offer Restore, not-yet-archived rows offer Archive. Purge is
-                   the destructive overflow, enabled only once archived. -->
+              <!-- Unused-archived offers Restore, not-yet-archived offers Archive; used (live) offers
+                   no primary action, only Back Up via the "…" overflow — so the block renders for a
+                   used row only when cold storage is on (else nothing to show). Purge is the
+                   destructive overflow, never offered for a live (used) prefix. -->
               <div
-                v-else-if="r.status === 'unused'"
+                v-else-if="coldStorage || lifecycleState(r) !== 'used'"
                 data-slot="actions"
                 class="flex flex-col items-end gap-2"
               >
@@ -352,14 +354,15 @@ const runConfirm = (r: StorageRow) => {
 
                 <!-- Default: the action ButtonGroup (archived state shows in the row-1 status badge). -->
                 <ButtonGroup v-else>
-                  <!-- Primary: Restore (archived) or Archive (not yet). -->
+                  <!-- Primary: Restore (archived) or Archive (not yet). Used has no default action. -->
                   <Button
+                    v-if="STORAGE_STATES[lifecycleState(r)].action"
                     size="xs"
                     variant="outline"
                     @click="startConfirm(r, STORAGE_STATES[lifecycleState(r)].action!)"
                     >{{ STORAGE_ACTIONS[STORAGE_STATES[lifecycleState(r)].action!].label }}</Button
                   >
-                  <!-- "…" overflow: Purge. -->
+                  <!-- "…" overflow: cold-storage actions + Purge (never for a live `used` prefix). -->
                   <DropdownMenu>
                     <DropdownMenuTrigger as-child>
                       <Button size="icon-xs" variant="outline" aria-label="More actions">
@@ -386,7 +389,11 @@ const runConfirm = (r: StorageRow) => {
                           {{ STORAGE_ACTIONS.deleteBackup.label }}…
                         </DropdownMenuItem>
                       </template>
-                      <DropdownMenuItem variant="destructive" @select="startConfirm(r, 'purge')">
+                      <DropdownMenuItem
+                        v-if="lifecycleState(r) !== 'used'"
+                        variant="destructive"
+                        @select="startConfirm(r, 'purge')"
+                      >
                         {{ STORAGE_ACTIONS.purge.label }}…
                       </DropdownMenuItem>
                     </DropdownMenuContent>
