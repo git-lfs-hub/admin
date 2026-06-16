@@ -175,6 +175,17 @@ const app = new Hono<StorageEnv>()
     const cur = c.var.storage;
     if (!(await validateToken(c, cur))) return c.json({ error: 'stale_token' }, 409);
     const { owner, repo } = c.req.param();
+    // Unused, never archived: serve-block it now (no backup — the workflow deletes everything),
+    // so the workflow's `archivedAt` guard passes. RPC failure aborts before anything is reserved.
+    if (!cur.archivedAt) {
+      try {
+        const row = await archive(c.env, Registry.global(c.env), cur.prefix, { backup: false });
+        if (!row) return c.json({ error: 'invalid_state' }, 409);
+      } catch (e) {
+        console.error(`[purge] inline archive failed for ${cur.prefix}:`, e);
+        return c.json({ error: 'lfs_server_unavailable' }, 502);
+      }
+    }
     try {
       const id = await startWorkflow(c.env, 'purge', {
         prefix: cur.prefix,
@@ -246,12 +257,13 @@ async function clearable(c: Context<StorageEnv>, next: Next) {
   await next();
 }
 
-// Purge gate (both cold and no-cold paths): prefix must be blocked, not yet purged, and not still
-// backing a live git repo. The workflow drops the cold copy when cold storage is on.
+// Purge gate (both cold and no-cold paths): prefix must be archived or unused (a non-live copy), not
+// yet purged, and not still backing a live git repo. An unused prefix is archived inline by the POST
+// before the workflow runs. The workflow drops the cold copy when cold storage is on.
 async function purgeable(c: Context<StorageEnv>, next: Next) {
   const cur = c.var.storage;
   if (cur.status === 'purged') return c.json({ error: 'already_purged' }, 409);
-  if (!cur.archivedAt) return c.json({ error: 'not_blocked' }, 409);
+  if (!cur.archivedAt && cur.status !== 'unused') return c.json({ error: 'not_blocked' }, 409);
   if (await Registry.global(c.env).storageInUse(cur.prefix))
     return c.json({ error: 'in_use' }, 409);
   await next();

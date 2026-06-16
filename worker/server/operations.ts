@@ -9,11 +9,14 @@ type RegistryStub = DurableObjectStub<Registry>;
 // Lifecycle ops: RPC the LFS server before the REGISTRY write, so a server failure leaves the row
 // untouched (retriable). The one `lfs-server` seam for all high-level callers (routes/cron/wf).
 
-// null = REGISTRY refused (already blocked / purged); throws if the server RPC fails.
+// null = REGISTRY refused (already blocked / purged); throws if the server RPC fails. `backup: false`
+// skips the cold-storage backup start — used by a direct purge of an unused prefix (archive → purge,
+// no backup), where the cold copy is about to be deleted anyway.
 export async function archive(
   env: CloudflareBindings,
   registry: RegistryStub,
   prefix: string,
+  { backup = true }: { backup?: boolean } = {},
 ): Promise<StorageRow | null> {
   const [owner, repo] = splitPrefix(prefix);
   await lfsServer(env).blockRepo(owner, repo);
@@ -22,7 +25,7 @@ export async function archive(
     await notify(env, owner, repo, 'archived');
     // Cold storage on → back up now instead of next `autoBackup` tick. Best-effort: the block
     // already landed, so a busy/failed start must not fail the archive (autoBackup retries).
-    if (gcConfig(env).coldStorage) {
+    if (backup && gcConfig(env).coldStorage) {
       try {
         await startWorkflow(env, 'backup', { prefix });
       } catch (e) {

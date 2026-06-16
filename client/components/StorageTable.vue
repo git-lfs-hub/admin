@@ -2,9 +2,7 @@
 import {
   STORAGE_ACTIONS,
   STORAGE_STATES,
-  canPurge,
   lifecycleState,
-  purgeRequires,
   type StorageAction,
 } from '@worker/storage/actions';
 import { MoreHorizontal } from 'lucide-vue-next';
@@ -330,16 +328,7 @@ const runConfirm = (r: StorageRow) => {
               >
                 <template v-if="confirmFor && confirmFor.prefix === r.prefix">
                   <div data-slot="confirm" class="flex items-center gap-2">
-                    <!-- Purge needs an archived prefix; otherwise the confirm is blocked (Archive first). -->
                     <Button
-                      v-if="confirmFor.action === 'purge' && !canPurge(lifecycleState(r))"
-                      size="xs"
-                      variant="destructive"
-                      disabled
-                      >{{ STORAGE_ACTIONS.purge.label }}</Button
-                    >
-                    <Button
-                      v-else
                       size="xs"
                       :variant="confirmFor.action === 'restore' ? 'outline' : 'destructive'"
                       :disabled="
@@ -411,10 +400,7 @@ const runConfirm = (r: StorageRow) => {
             data-slot="confirm-description"
             class="-mx-4 -mb-4 mt-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm whitespace-pre-line text-muted-foreground"
           >
-            {{ STORAGE_ACTIONS[confirmFor.action].consequence
-            }}<template v-if="confirmFor.action === 'purge' && !r.archivedAt">
-              Archive this storage first.</template
-            >
+            {{ STORAGE_ACTIONS[confirmFor.action].consequence }}
           </p>
         </ItemContent>
       </Item>

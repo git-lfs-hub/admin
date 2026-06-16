@@ -63,6 +63,15 @@ describe('archive', () => {
     expect(startWorkflow).not.toHaveBeenCalled();
   });
 
+  // The direct-purge path archives with `backup: false`: the cold copy is about to be deleted.
+  test('backup: false → no backup even with cold storage on', async () => {
+    const env = lfsEnv();
+    env.GC = { coldStorage: 'r2-cold' };
+    const registry = { block: vi.fn(async () => ({ prefix: 'a/r' })) } as any;
+    await archive(env, registry, 'a/r', { backup: false });
+    expect(startWorkflow).not.toHaveBeenCalled();
+  });
+
   // The block already landed; a busy/failed backup start must not fail the archive.
   test('cold storage on but backup start fails → swallowed, still returns the row', async () => {
     const env = lfsEnv();
