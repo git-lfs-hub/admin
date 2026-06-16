@@ -123,6 +123,10 @@
     // Optional: one or more owner/org slugs (alternative to GITHUB_ORG for multi-org setups).
     "GITHUB_ORGS": "{{github.orgs}}",
     "GC": {{{json gc}}},
+    // This deployment's LFS server host (`lfs.server`), bundled as a JSON var like GC →
+    // `env.LFS.server`. Used by `lib/lfsEndpoint.ts` to classify a committed `.lfsconfig`
+    // `lfs.url` as local (this hub) vs external.
+    "LFS": {{{json lfs}}},
     // Admin-side notification config (non-secret). `slack.channel` empty → Slack delivery
     // no-ops; `url` is the admin base for deep links in alerts. The Slack bot token is a
     // secret (SLACK_BOT_TOKEN).
