@@ -71,6 +71,12 @@ describe('useRepos', () => {
       row({ owner: 'org', repo: 'b-active', status: 'active' }),
       row({ owner: 'org', repo: 'missing', status: 'missing' }),
       row({ owner: 'org', repo: 'missing-gone', status: 'missing', storage: null }),
+      row({
+        owner: 'org',
+        repo: 'missing-purged',
+        status: 'missing',
+        storage: { prefix: 'org/missing-purged', status: 'purged', archivedAt: null },
+      }),
       row({ owner: 'org', repo: 'a-active', status: 'active' }),
     ];
     fetchMock.mockResolvedValueOnce({
@@ -91,6 +97,7 @@ describe('useRepos', () => {
       'org/a-active', // active w/ storage, ties broken alphabetically
       'org/b-active',
       'org/missing-gone', // missing but no storage — nothing to act on, sinks with the noise
+      'org/missing-purged', // missing and storage already purged — nothing left, sinks too
       'org/no-storage', // no storage — noise, last
     ]);
     wrapper.unmount();

@@ -15,14 +15,15 @@ export function useRepos() {
   });
 }
 
-// Problems first, irrelevant last: a `missing` repo still backed by storage needs attention (that
-// storage is now unused); then `active` repos serving storage. Repos with no inferred storage are
-// noise — nothing to act on, missing or not — so they sink to the bottom. Ties break on owner/repo.
+// Problems first, irrelevant last: a `missing` repo still backed by live storage needs attention
+// (that storage is now unused); then `active` repos serving storage. Repos with no storage — or
+// whose storage is already purged — are noise: nothing left to act on, so they sink to the bottom.
+// Ties break on owner/repo.
 function byActionable(a: RepoRow, b: RepoRow) {
   return rank(a) - rank(b) || `${a.owner}/${a.repo}`.localeCompare(`${b.owner}/${b.repo}`);
 }
 
 function rank(r: RepoRow) {
-  if (!r.storage) return 2;
+  if (!r.storage || r.storage.status === 'purged') return 2;
   return r.status === 'missing' ? 0 : 1;
 }
