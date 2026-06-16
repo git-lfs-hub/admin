@@ -1,10 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
-import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, notInArray, sql, type SQL } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
 import {
   repos,
   storage,
+  links,
   orgs,
   type RepoStatus,
   type StorageStatus,
@@ -14,6 +15,7 @@ import { isoNow } from '@/lib/time';
 
 export type RepoRow = typeof repos.$inferSelect;
 export type StorageRow = typeof storage.$inferSelect;
+export type LinkRow = typeof links.$inferSelect;
 export type OrgRow = typeof orgs.$inferSelect;
 
 export type ReconciliationInput = {
@@ -85,6 +87,19 @@ export class Registry extends DurableObject<CloudflareBindings> {
           last_error  TEXT
         )
       `);
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS links (
+          owner      TEXT NOT NULL,
+          repo       TEXT NOT NULL,
+          prefix     TEXT NOT NULL,
+          status     TEXT NOT NULL DEFAULT 'active',
+          first_seen TEXT NOT NULL,
+          last_seen  TEXT NOT NULL,
+          PRIMARY KEY (owner, repo, prefix)
+        )
+      `);
+      this.ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS links_prefix ON links (prefix)`);
+      this.ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS links_repo ON links (owner, repo)`);
     });
   }
 
@@ -470,6 +485,82 @@ export class Registry extends DurableObject<CloudflareBindings> {
       backupComplete: false,
       updatedAt: now,
     });
+  }
+
+  // --- links: git↔prefix graph (N:N), written by REPO.syncLinks() ---
+
+  /** Project a repo's current local-prefix set onto `links`: upsert each prefix `active`
+   *  (bump `lastSeen`), and mark `stale` any active link for this repo whose prefix dropped out
+   *  of the set. `prefixes` is the canonical `OwnerCase/RepoCase` prefixes the repo still
+   *  references. */
+  async syncLinks(owner: string, repo: string, prefixes: Set<string>): Promise<void> {
+    const o = owner.toLowerCase();
+    const r = repo.toLowerCase();
+    const now = isoNow();
+    for (const prefix of prefixes) {
+      await this.db
+        .insert(links)
+        .values({ owner: o, repo: r, prefix, firstSeen: now, lastSeen: now })
+        .onConflictDoUpdate({
+          target: [links.owner, links.repo, links.prefix],
+          set: { status: 'active', lastSeen: now },
+        });
+    }
+    const kept = [...prefixes];
+    await this.db
+      .update(links)
+      .set({ status: 'stale', lastSeen: now })
+      .where(
+        and(
+          eq(links.owner, o),
+          eq(links.repo, r),
+          eq(links.status, 'active'),
+          ...(kept.length ? [notInArray(links.prefix, kept)] : []),
+        ),
+      );
+  }
+
+  /** A git repo went `missing` → mark all its active links `stale`. */
+  async staleLinksForRepo(owner: string, repo: string): Promise<void> {
+    await this.db
+      .update(links)
+      .set({ status: 'stale', lastSeen: isoNow() })
+      .where(
+        and(
+          eq(links.owner, owner.toLowerCase()),
+          eq(links.repo, repo.toLowerCase()),
+          eq(links.status, 'active'),
+        ),
+      );
+  }
+
+  /** Purge gate: active links to a prefix from an `active` git repo. Non-empty → prefix in use. */
+  async listActiveLinks(prefix: string): Promise<LinkRow[]> {
+    return await this.db
+      .select({
+        owner: links.owner,
+        repo: links.repo,
+        prefix: links.prefix,
+        status: links.status,
+        firstSeen: links.firstSeen,
+        lastSeen: links.lastSeen,
+      })
+      .from(links)
+      .innerJoin(repos, and(eq(links.owner, repos.owner), eq(links.repo, repos.repo)))
+      .where(and(eq(links.prefix, prefix), eq(links.status, 'active'), eq(repos.status, 'active')));
+  }
+
+  /** All links (any status) for a git repo — its consumed prefixes. */
+  async listLinksForRepo(owner: string, repo: string): Promise<LinkRow[]> {
+    return await this.db
+      .select()
+      .from(links)
+      .where(and(eq(links.owner, owner.toLowerCase()), eq(links.repo, repo.toLowerCase())));
+  }
+
+  /** All links (any status) for a prefix — its consumer git repos. */
+  async listLinksForStorage(prefix: string): Promise<LinkRow[]> {
+    return await this.db.select().from(links).where(eq(links.prefix, prefix));
   }
 
   // --- orgs ---

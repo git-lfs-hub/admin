@@ -29,6 +29,10 @@
         "class_name": "Storage",
       },
       {
+        "name": "REPO",
+        "class_name": "Repo",
+      },
+      {
         "name": "ALERTS",
         "class_name": "Alerts",
       },
@@ -38,6 +42,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["Registry", "Storage", "Alerts"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["Repo"],
     },
   ],
   "r2_buckets": [

@@ -317,6 +317,107 @@ describe('same-key edge + purge gate', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// links — git↔prefix graph (N:N)
+// ---------------------------------------------------------------------------
+
+describe('syncLinks (upsert / stale / active)', () => {
+  test('creates active rows, lowercased git key, ISO timestamps', async () => {
+    await reg().syncLinks('Alice', 'Repo', new Set(['Alice/Repo']));
+    const [row] = await reg().listLinksForRepo('alice', 'repo');
+    expect(row.owner).toBe('alice');
+    expect(row.repo).toBe('repo');
+    expect(row.prefix).toBe('Alice/Repo');
+    expect(row.status).toBe('active');
+    expect(row.firstSeen).toMatch(ISO_RE);
+    expect(row.lastSeen).toMatch(ISO_RE);
+  });
+
+  test('shared prefix → one link row per repo', async () => {
+    await reg().syncLinks('alice', 'a', new Set(['shared/prefix']));
+    await reg().syncLinks('bob', 'b', new Set(['shared/prefix']));
+    const rows = await reg().listLinksForStorage('shared/prefix');
+    expect(rows.map((r) => key(r.owner, r.repo)).sort()).toEqual(['alice/a', 'bob/b']);
+  });
+
+  test('one repo at two prefixes → two rows', async () => {
+    await reg().syncLinks('alice', 'a', new Set(['alice/a', 'alice/a-mirror']));
+    const rows = await reg().listLinksForRepo('alice', 'a');
+    expect(rows.map((r) => r.prefix).sort()).toEqual(['alice/a', 'alice/a-mirror']);
+    expect(rows.every((r) => r.status === 'active')).toBe(true);
+  });
+
+  test('dropping a prefix marks it stale; kept stays active, firstSeen preserved, lastSeen bumped', async () => {
+    await reg().syncLinks('alice', 'a', new Set(['p1', 'p2']));
+    const before = await reg().listLinksForRepo('alice', 'a');
+    const p1Before = before.find((r) => r.prefix === 'p1')!;
+    await new Promise((r) => setTimeout(r, 1100));
+    await reg().syncLinks('alice', 'a', new Set(['p1']));
+    const after = await reg().listLinksForRepo('alice', 'a');
+    const p1 = after.find((r) => r.prefix === 'p1')!;
+    const p2 = after.find((r) => r.prefix === 'p2')!;
+    expect(p1.status).toBe('active');
+    expect(p2.status).toBe('stale');
+    expect(p1.firstSeen).toBe(p1Before.firstSeen);
+    expect(p1.lastSeen).not.toBe(p1Before.lastSeen);
+  });
+
+  test('empty prefix set marks every active link stale', async () => {
+    await reg().syncLinks('alice', 'a', new Set(['p1', 'p2']));
+    await reg().syncLinks('alice', 'a', new Set());
+    const rows = await reg().listLinksForRepo('alice', 'a');
+    expect(rows.every((r) => r.status === 'stale')).toBe(true);
+  });
+
+  test('re-syncing a stale prefix reactivates it', async () => {
+    await reg().syncLinks('alice', 'a', new Set(['p1']));
+    await reg().syncLinks('alice', 'a', new Set()); // p1 → stale
+    await reg().syncLinks('alice', 'a', new Set(['p1'])); // back
+    const [row] = await reg().listLinksForRepo('alice', 'a');
+    expect(row.status).toBe('active');
+  });
+});
+
+describe('staleLinksForRepo', () => {
+  test('marks all of a repo’s active links stale, leaves other repos untouched', async () => {
+    await reg().syncLinks('alice', 'a', new Set(['p1', 'p2']));
+    await reg().syncLinks('bob', 'b', new Set(['p3']));
+    await reg().staleLinksForRepo('Alice', 'A');
+    expect((await reg().listLinksForRepo('alice', 'a')).every((r) => r.status === 'stale')).toBe(
+      true,
+    );
+    expect((await reg().listLinksForRepo('bob', 'b')).every((r) => r.status === 'active')).toBe(
+      true,
+    );
+  });
+});
+
+describe('listActiveLinks (purge gate)', () => {
+  test('returns active links only from active git repos', async () => {
+    await reg().upsertRepo('alice', 'a');
+    await reg().syncLinks('alice', 'a', new Set(['shared/prefix']));
+    expect((await reg().listActiveLinks('shared/prefix')).map((r) => key(r.owner, r.repo))).toEqual(
+      ['alice/a'],
+    );
+  });
+
+  test('excludes links whose git repo is missing', async () => {
+    await reg().upsertRepo('alice', 'a');
+    await reg().syncLinks('alice', 'a', new Set(['p']));
+    await reg().markMissing('alice', 'a');
+    expect(await reg().listActiveLinks('p')).toEqual([]);
+  });
+
+  test('excludes stale links and links with no repos row', async () => {
+    await reg().syncLinks('ghost', 'g', new Set(['p'])); // no repos row
+    expect(await reg().listActiveLinks('p')).toEqual([]);
+    await reg().upsertRepo('alice', 'a');
+    await reg().syncLinks('alice', 'a', new Set(['p']));
+    await reg().syncLinks('alice', 'a', new Set()); // p → stale
+    expect(await reg().listActiveLinks('p')).toEqual([]);
+  });
+});
+
 describe('activeOp denormalization + upload tracking', () => {
   test('setActiveOp / endStorageOp round-trip', async () => {
     await reg().upsertStorage('alice/a');

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 
 // repos — GitHub presence (git identity). Keyed lc(owner/repo); populated by reconciliation +
 // `repository` webhooks. The git↔storage edge is not stored: `lc(storage.prefix)` matches
@@ -53,6 +53,30 @@ export const storage = sqliteTable('storage', {
 });
 
 export type StorageStatus = 'used' | 'unused' | 'purged';
+
+// links — the real git↔prefix graph (N:N), replacing the same-key lookup. One row per
+// `lc(owner/repo)` + `prefix`. Written only by `REPO.syncLinks()`: a prefix referenced by a
+// `local` `.lfsconfig` on some branch is `active`; one no branch references goes `stale`.
+export const links = sqliteTable(
+  'links',
+  {
+    owner: text('owner').notNull(),
+    repo: text('repo').notNull(),
+    prefix: text('prefix').notNull(),
+    status: text('status', { enum: ['active', 'stale'] })
+      .notNull()
+      .default('active'),
+    firstSeen: text('first_seen').notNull(),
+    lastSeen: text('last_seen').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.owner, table.repo, table.prefix] }),
+    index('links_prefix').on(table.prefix),
+    index('links_repo').on(table.owner, table.repo),
+  ],
+);
+
+export type LinkStatus = 'active' | 'stale';
 
 export const orgs = sqliteTable('orgs', {
   org: text('org').primaryKey(),
