@@ -1,3 +1,4 @@
+import { orgsFromEnv } from '@git-lfs-hub/lib/auth';
 import { GithubApi, GithubError } from '@git-lfs-hub/lib/github';
 
 import { notify, restingAlert } from '@/alerts/lifecycle';
@@ -33,7 +34,8 @@ export async function reconcileRepos(
 ): Promise<ReconcileSummary> {
   const app = await GithubApi.forApp(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
 
-  const accounts = await app.installedOrgs();
+  const allow = allowedOrgs(env);
+  const accounts = (await app.installedOrgs()).filter((a) => allow.has(a.login.toLowerCase()));
   if (accounts.length === 0) return emptySummary();
 
   const activeRepos = new Set<string>();
@@ -136,6 +138,7 @@ export async function reconcileRepoEvent(
   repo: string,
   present: boolean,
 ): Promise<void> {
+  if (!allowedOrgs(env).has(owner.toLowerCase())) return;
   const res = await registry.applyRepoEvent(owner, repo, present);
   if (!res) return;
   const store = await registry.storageForRepo(owner, repo);
@@ -186,6 +189,12 @@ export async function autoUnblock(
 async function notifyClearedReappeared(env: CloudflareBindings, r: StorageRow): Promise<void> {
   const { owner, repo } = splitPrefix(r.prefix);
   await notify(env, owner, repo, 'reappeared');
+}
+
+/** Orgs this deployment manages (`GITHUB_ORGS`), lowercased. The App may be public, so installs
+ *  and webhook events for any other owner are ignored — only configured orgs are tracked. */
+export function allowedOrgs(env: CloudflareBindings): Set<string> {
+  return new Set(orgsFromEnv(env).map((o) => o.toLowerCase()));
 }
 
 function splitPrefix(prefix: string): { owner: string; repo: string } {
