@@ -123,7 +123,7 @@ describe('reconcileRepos', () => {
     probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
     await reconcileRepos(env, registry);
     expect(probeOrg).toHaveBeenCalledOnce();
-    expect(registry.orgStatuses.map((s) => s.org)).toEqual(['a']);
+    expect(registry.orgStatuses.map((s: { org: string }) => s.org)).toEqual(['a']);
   });
 
   test('single active org → activeRepos passed through', async () => {
