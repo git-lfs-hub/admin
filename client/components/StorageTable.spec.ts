@@ -292,7 +292,7 @@ describe('StorageTable', () => {
     wrapper.unmount();
   });
 
-  it('inline Purge confirm stays disabled (Archive first) for an unarchived prefix', async () => {
+  it('inline Purge confirm is enabled for an unused prefix (archived inline)', async () => {
     const wrapper = await mountTable([unused]);
     const cell = wrapper.find('[data-slot="lifecycle"]');
     await openPurgeConfirm(cell);
@@ -300,10 +300,8 @@ describe('StorageTable', () => {
     expect(box.exists()).toBe(true);
     const description = wrapper.find('[data-slot="confirm-description"]').text();
     expect(description).toContain('Permanently deletes every file');
-    expect(description).toContain('Archive this storage first');
-    // The Purge confirm stays disabled until the prefix is archived.
     const action = box.findAll('button').find((b) => b.text() === 'Purge');
-    expect(action!.attributes('disabled')).toBeDefined();
+    expect(action!.attributes('disabled')).toBeUndefined();
     wrapper.unmount();
   });
 

@@ -649,13 +649,52 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     expect(body.impact.objects).toBe(1);
   });
 
-  test('preview/POST 409 when the prefix is not blocked', async () => {
-    await seedUnused('alice/r');
+  test('preview/POST 409 not_blocked for a live (used) prefix', async () => {
+    await reg().upsertStorage('alice/live'); // status 'used', never archived
     const { env: e } = appEnv();
-    expect((await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)).status).toBe(
-      409,
-    );
-    expect((await purge('/alice/r/purge', e, { token: 'x' })).status).toBe(409);
+    const prev = await storageApp.request('/alice/live/purge/preview', { method: 'POST' }, e);
+    expect(prev.status).toBe(409);
+    expect(await prev.json()).toMatchObject({ error: 'not_blocked' });
+    expect((await purge('/alice/live/purge', e, { token: 'x' })).status).toBe(409);
+  });
+
+  test('unused prefix → archives inline (blockRepo, no backup) then starts the workflow → 202', async () => {
+    await seedUnused('alice/r');
+    const {
+      env: e,
+      PURGE_WORKFLOW,
+      BACKUP_WORKFLOW,
+      blockRepo,
+    } = appEnv({}, { coldStorage: 's3.backup' });
+    const prev = (await (
+      await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
+    ).json()) as { token: string };
+    const res = await purge('/alice/r/purge', e, { token: prev.token });
+    expect(res.status).toBe(202);
+    expect(blockRepo).toHaveBeenCalledWith('alice', 'r');
+    expect(BACKUP_WORKFLOW.create).not.toHaveBeenCalled(); // no backup on the direct-purge path
+    expect(PURGE_WORKFLOW.create).toHaveBeenCalled();
+    const row = await reg().getStorage('alice/r');
+    expect(row?.archivedAt).toBeTruthy(); // archived inline
+    expect(row?.activeOp).toBe('purge');
+  });
+
+  test('unused prefix, blockRepo fails → 502, nothing reserved', async () => {
+    await seedUnused('alice/r');
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { env: e, PURGE_WORKFLOW } = appEnv({
+      blockRepo: vi.fn(async () => {
+        throw new Error('rpc down');
+      }),
+    });
+    const prev = (await (
+      await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
+    ).json()) as { token: string };
+    const res = await purge('/alice/r/purge', e, { token: prev.token });
+    expect(res.status).toBe(502);
+    expect(PURGE_WORKFLOW.create).not.toHaveBeenCalled();
+    expect((await reg().getStorage('alice/r'))?.archivedAt).toBeNull();
+    warn.mockRestore();
   });
 
   test('409 in_use when a matching git repo is active', async () => {
@@ -685,6 +724,19 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
       expect.objectContaining({ id: expect.stringMatching(/^purge-[0-9a-f-]{36}$/) }),
     );
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('purge');
+  });
+
+  test('busy (a different op already in flight) → 409', async () => {
+    await seedArchived('alice/r');
+    await env.STORAGE.getByName('alice/r').beginOp('alice/r', 'backup-x', 'backup');
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    const prev = (await (
+      await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
+    ).json()) as { token: string };
+    const res = await purge('/alice/r/purge', e, { token: prev.token });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'busy' });
+    expect(PURGE_WORKFLOW.create).not.toHaveBeenCalled();
   });
 
   test('cold storage enabled → purge passes the gate (preview 200, valid token → 202)', async () => {

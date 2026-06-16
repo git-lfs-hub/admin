@@ -88,11 +88,7 @@ export const STORAGE_ACTIONS = {
   },
 } as const satisfies Record<StorageAction, { label: string; consequence: string }>;
 
-// Purge is irreversible and only valid once archived — both surfaces gate it the same way: the
-// button is offered but disabled until the prefix is archived, with `hint` explaining why.
-export const purgeRequires = {
-  state: 'archived' as LifecycleState,
-  hint: 'Archive this storage first.',
-};
-
-export const canPurge = (state: LifecycleState): boolean => state === purgeRequires.state;
+// Purge is irreversible and valid for any non-live copy: an archived prefix, or an unused one
+// (archived inline before the workflow runs). Only a live `used` prefix can't be purged.
+export const canPurge = (state: LifecycleState): boolean =>
+  state === 'archived' || state === 'unused';
