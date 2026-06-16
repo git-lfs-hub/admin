@@ -37,6 +37,7 @@ const clearAlert = vi.fn(async () => {});
 const env = {
   GITHUB_APP_ID: '1',
   GITHUB_APP_PRIVATE_KEY: 'k',
+  GITHUB_ORGS: 'a b c d x alice newbie ghost',
   LFS_SERVER: { unblockRepo },
   ALERTS: { getByName: () => ({ sendNotification, clearAlert }) },
 } as any;
@@ -115,6 +116,14 @@ describe('reconcileRepos', () => {
     expect(registry.recordReconciliation).not.toHaveBeenCalled();
     expect(summary.repos.active).toBe(0);
     expect(summary.orgs.active).toEqual([]);
+  });
+
+  test('install for org outside GITHUB_ORGS is ignored', async () => {
+    const registry = fakeRegistry(['a', 'stranger']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    await reconcileRepos(env, registry);
+    expect(probeOrg).toHaveBeenCalledOnce();
+    expect(registry.orgStatuses.map((s) => s.org)).toEqual(['a']);
   });
 
   test('single active org → activeRepos passed through', async () => {
@@ -399,6 +408,12 @@ describe('reconcileRepoEvent', () => {
       unblock: vi.fn(async (prefix: string) => ({ prefix })),
     } as any;
   }
+
+  test('event for owner outside GITHUB_ORGS is ignored', async () => {
+    const registry = eventRegistry({ applyResult: null });
+    await reconcileRepoEvent(env, registry, 'stranger', 'x', true);
+    expect(registry.applyRepoEvent).not.toHaveBeenCalled();
+  });
 
   test('presence flip with no storage row → no unblock', async () => {
     const registry = eventRegistry({

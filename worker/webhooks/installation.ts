@@ -1,5 +1,5 @@
 import { Registry } from '@/db/registry';
-import { reconcileRepoEvent } from '@/reconcile/repos';
+import { allowedOrgs, reconcileRepoEvent } from '@/reconcile/repos';
 
 // Install-scope webhooks → shared DO path. `installation` sets whole-org state on the orgs
 // table; `installation_repositories` flips presence for tracked repos — genuinely new ones are
@@ -21,6 +21,7 @@ const INSTALL_ABSENT = new Set(['deleted', 'suspend']);
 export async function handleInstallation(env: CloudflareBindings, payload: InstallationEvent) {
   const present = INSTALL_PRESENT.has(payload.action);
   if (!present && !INSTALL_ABSENT.has(payload.action)) return;
+  if (!allowedOrgs(env).has(payload.installation.account.login.toLowerCase())) return;
   const registry = Registry.global(env);
   await registry.upsertOrgStatus(
     payload.installation.account.login,

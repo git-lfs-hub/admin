@@ -3,13 +3,15 @@ import { test, expect, vi, beforeEach, describe } from 'vitest';
 const reconcileRepoEvent = vi.fn(async (..._a: unknown[]) => {});
 vi.mock('@/reconcile/repos', () => ({
   reconcileRepoEvent: (...a: unknown[]) => reconcileRepoEvent(...a),
+  allowedOrgs: (e: { GITHUB_ORGS?: string }) =>
+    new Set((e.GITHUB_ORGS ?? '').split(/\s+/).filter(Boolean)),
 }));
 
 import { handleInstallation, handleInstallationRepositories } from '@/webhooks/installation';
 
 const upsertOrgStatus = vi.fn(async () => ({}));
 const registryStub = { upsertOrgStatus };
-const env = { REGISTRY: { getByName: () => registryStub } } as any;
+const env = { GITHUB_ORGS: 'acme', REGISTRY: { getByName: () => registryStub } } as any;
 
 beforeEach(() => {
   reconcileRepoEvent.mockClear();
@@ -25,6 +27,14 @@ describe('handleInstallation', () => {
   test.each(['deleted', 'suspend'])('%s → org no_installation', async (action) => {
     await handleInstallation(env, { action, installation: { account: { login: 'acme' } } });
     expect(upsertOrgStatus).toHaveBeenCalledWith('acme', 'no_installation');
+  });
+
+  test('org outside GITHUB_ORGS → no-op', async () => {
+    await handleInstallation(env, {
+      action: 'created',
+      installation: { account: { login: 'stranger' } },
+    });
+    expect(upsertOrgStatus).not.toHaveBeenCalled();
   });
 
   test('unknown action → no-op', async () => {
