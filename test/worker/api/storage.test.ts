@@ -726,6 +726,19 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     expect(await env.STORAGE.getByName('alice/r').activeOp()).toBe('purge');
   });
 
+  test('busy (a different op already in flight) → 409', async () => {
+    await seedArchived('alice/r');
+    await env.STORAGE.getByName('alice/r').beginOp('alice/r', 'backup-x', 'backup');
+    const { env: e, PURGE_WORKFLOW } = appEnv();
+    const prev = (await (
+      await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e)
+    ).json()) as { token: string };
+    const res = await purge('/alice/r/purge', e, { token: prev.token });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'busy' });
+    expect(PURGE_WORKFLOW.create).not.toHaveBeenCalled();
+  });
+
   test('cold storage enabled → purge passes the gate (preview 200, valid token → 202)', async () => {
     await seedArchived('alice/r');
     const { env: e, PURGE_WORKFLOW } = appEnv({}, { coldStorage: 's3.backup' });

@@ -2,6 +2,7 @@
 import {
   STORAGE_ACTIONS,
   STORAGE_STATES,
+  canPurge,
   lifecycleState,
   type StorageAction,
 } from '@worker/storage/actions';
@@ -379,7 +380,7 @@ const runConfirm = (r: StorageRow) => {
                         </DropdownMenuItem>
                       </template>
                       <DropdownMenuItem
-                        v-if="lifecycleState(r) !== 'used'"
+                        v-if="canPurge(lifecycleState(r))"
                         variant="destructive"
                         @select="startConfirm(r, 'purge')"
                       >
