@@ -9,6 +9,7 @@ import { githubVerify } from '@/middleware/githubVerify';
 import { slackVerify } from '@/middleware/slackVerify';
 import { archive, restore } from '@/server/operations';
 import { handleInstallation, handleInstallationRepositories } from '@/webhooks/installation';
+import { handlePush } from '@/webhooks/push';
 import { handleRepository } from '@/webhooks/repository';
 import { wakeConfirmation } from '@/workflows/confirm';
 
@@ -77,6 +78,9 @@ app.post('/github', githubVerify, async (c) => {
   const payload = JSON.parse(await c.req.text());
 
   switch (event) {
+    case 'push':
+      await handlePush(c.env, payload);
+      break;
     case 'repository':
       await handleRepository(c.env, payload);
       break;

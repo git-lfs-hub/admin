@@ -24,6 +24,7 @@ organization's repositories on GitHub. It uses:
 
 - **Organization → Members (read)** — to sign you in and confirm you're an org admin
 - **Repository → Metadata (read)** — to scan which repositories exist
+- **Repository → Contents (read)** — to read each repo's `.lfsconfig` storage mapping
 ```
 
 **Homepage URL**
@@ -59,6 +60,7 @@ Leave defaults (no Setup URL).
 **Repository**
 
 - Metadata → `Read-only` (mandatory default) — detect which repos still exist
+- Contents → `Read-only` — read each repo's committed `.lfsconfig` (storage prefix mapping)
 
 **Organization**
 
@@ -67,6 +69,7 @@ Leave defaults (no Setup URL).
 ### Subscribe to events
 
 - [x] **Repository**
+- [x] **Push** — scan `.lfsconfig` only when a push touches it (0 API calls otherwise)
 
 ### Where can this app be installed?
 

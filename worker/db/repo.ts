@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
+import { Registry } from '@/db/registry';
 import { branches, lfsconfigs, type LfsconfigParseStatus } from '@/db/repo-schema';
 import { isoNow } from '@/lib/time';
 
@@ -66,6 +67,16 @@ export class Repo extends DurableObject<CloudflareBindings> {
     return await this.db.select().from(lfsconfigs);
   }
 
+  /** Advance a branch's head without re-reading `.lfsconfig` — the push diff didn't touch it, so
+   *  its parse columns still hold. Used by the webhook's 0-GitHub-call path. */
+  async recordHead(branch: string, headSha: string): Promise<void> {
+    const now = isoNow();
+    await this.db
+      .insert(branches)
+      .values({ branch, headSha, seenAt: now, lfsconfigSha: null, lfsconfigStatus: null })
+      .onConflictDoUpdate({ target: branches.branch, set: { headSha, seenAt: now } });
+  }
+
   /** Branch's `.lfsconfig` is absent at `headSha`: record `missing`, no blob row. */
   async recordMissing(branch: string, headSha: string): Promise<void> {
     const now = isoNow();
@@ -106,5 +117,26 @@ export class Repo extends DurableObject<CloudflareBindings> {
         target: branches.branch,
         set: { headSha, seenAt: now, lfsconfigSha: blob.sha, lfsconfigStatus: blob.status },
       });
+  }
+
+  /** Project this repo's observed local prefixes onto the REGISTRY graph: ensure a `storage` row
+   *  per newly-seen prefix, then `syncLinks` so each becomes an `active` link (prefixes that
+   *  dropped out go `stale`). One cross-DO call per scan batch. */
+  async syncLinks(owner: string, repo: string): Promise<void> {
+    const prefixes = await this.localPrefixes();
+    const registry = Registry.global(this.env);
+    for (const prefix of prefixes) await registry.upsertStorage(prefix);
+    await registry.syncLinks(owner, repo, prefixes);
+  }
+
+  /** Distinct local storage prefixes this repo currently references (`local`, parsed `ok`),
+   *  across all recorded branches. */
+  private async localPrefixes(): Promise<Set<string>> {
+    const rows = await this.db
+      .selectDistinct({ prefix: lfsconfigs.prefix })
+      .from(branches)
+      .innerJoin(lfsconfigs, eq(branches.lfsconfigSha, lfsconfigs.sha))
+      .where(and(eq(lfsconfigs.local, true), eq(lfsconfigs.status, 'ok')));
+    return new Set(rows.map((r) => r.prefix));
   }
 }
