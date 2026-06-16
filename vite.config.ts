@@ -4,6 +4,15 @@ import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 import * as vueCompilerSfc from 'vue/compiler-sfc';
 
+import vars from './vars.json';
+
+const htmlVarsPlugin = {
+  name: 'html-vars',
+  transformIndexHtml(html: string) {
+    return html.replace(/<title>.*<\/title>/, `<title>${vars.admin.title}</title>`);
+  },
+};
+
 // plugin-vue resolves its SFC compiler lazily in `buildStart`, which under the
 // @cloudflare/vite-plugin multi-environment dev server doesn't run before the
 // first HMR file-change. Its deprecated `handleHotUpdate` then dereferences a
@@ -23,6 +32,7 @@ export default defineConfig(({ command }) => ({
     tsconfigPaths: true,
   },
   plugins: [
+    htmlVarsPlugin,
     vuePlugin,
     tailwindcss(),
     cloudflare({

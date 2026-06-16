@@ -40,6 +40,9 @@ lerna-debug.log*
 # misc
 .DS_Store
 
+# synced from root assets/ by config/cli.sh
+public/favicon.png
+
 # configs
 vars.input.json
 vars.json
