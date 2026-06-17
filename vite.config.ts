@@ -42,9 +42,10 @@ export default defineConfig(({ command }) => ({
             // the auxiliary lfs-server worker and standalone `bun dev/start.ts`
             // (which persists to server/.wrangler/state) read/write one place.
             persistState: { path: '../server/.wrangler/state' },
-            // Dev launches with ENV=local (see package.json `dev`) — inject it as a
-            // worker var so reconcile skips GitHub (no real GitHub App key locally).
+            // ENV=local → mock GitHub client. Override orgs to `acme` (what server/dev/seed.ts seeds
+            // R2 under) so the mock treats the seeded repos as present.
             config: (config) => {
+              config.vars = { ...config.vars, GITHUB_ORGS: 'acme' };
               if (process.env.ENV) config.vars = { ...config.vars, ENV: process.env.ENV };
             },
             auxiliaryWorkers: [

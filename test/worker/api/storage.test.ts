@@ -87,19 +87,20 @@ async function seedUnused(prefix: string) {
 }
 
 describe('GET /api/storage', () => {
-  // First real localhost fetch fires the dev reconcile (auth bypassed on localhost), seeding the
-  // N:N dev fixture. Doubles as the step-7 smoke: two git repos share one prefix, which reads `used`.
+  // Localhost fetch fires the dev reconcile. `design-assets` is storage only once R2 has objects
+  // (not from the link), so seed one first; then its two linked repos read `used`.
   test('localhost bypass serves the dev fixture link graph (shared prefix, two consumers)', async () => {
+    await env.LFS_BUCKET.put('test-org/design-assets/o1', 'x');
     const res = await exports.default.fetch('http://localhost/api/storage');
     expect(res.status).toBe(200);
     const { storage } = (await res.json()) as {
       storage: { prefix: string; status: string; gitRepos: { owner: string; repo: string }[] }[];
     };
-    const shared = storage.find((s) => s.prefix === 'acme/shared-lfs');
+    const shared = storage.find((s) => s.prefix === 'test-org/design-assets');
     expect(shared?.status).toBe('used');
     expect(shared?.gitRepos.map((g) => `${g.owner}/${g.repo}`).sort()).toEqual([
-      'acme/mobile',
-      'acme/webapp',
+      'test-org/marketing-app',
+      'test-org/marketing-site',
     ]);
   });
 

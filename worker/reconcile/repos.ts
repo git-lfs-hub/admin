@@ -32,8 +32,9 @@ export type ReconcileSummary = {
 export async function reconcileRepos(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
+  local = false,
 ): Promise<ReconcileSummary> {
-  const app = await GithubApi.forApp(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+  const app = await githubApp(env, local);
 
   const allow = allowedOrgs(env);
   const accounts = (await app.installedOrgs()).filter((a) => allow.has(a.login.toLowerCase()));
@@ -75,18 +76,19 @@ export async function reconcileRepos(
     orgs.no_installation.push(row.org);
   }
 
+  // Links before the storage-state reconcile below, so a discover+link in the same tick resolves in
+  // one pass (no 2-tick lag). Isolated: a sweep failure must not sink the reconcile below.
+  try {
+    await syncLfsconfigs(env, scans);
+  } catch (e) {
+    console.error('[reconcile] lfsconfig sweep failed:', e);
+  }
   const { git, unblocked, cleared } = await applyReconciliation(
     env,
     registry,
     new Set(orgs.active),
     activeRepos,
   );
-  // Isolated so a sweep failure never sinks the presence reconciliation above — it gates auto-purge.
-  try {
-    await syncLfsconfigs(env, scans);
-  } catch (e) {
-    console.error('[reconcile] lfsconfig sweep failed:', e);
-  }
   warnAnomalies(orgs);
 
   // `transient_error` = an org's repos couldn't be listed, so this isn't a full scan. Definitive
@@ -104,8 +106,17 @@ export async function reconcileRepos(
   };
 }
 
+// Local dev (no App key) swaps in a mock client; `__DEV__` is false in the deployed bundle, so
+// esbuild drops this branch and the `@dev` import.
+async function githubApp(env: CloudflareBindings, local: boolean): Promise<GithubApi> {
+  if (__DEV__ && (local || (env.ENV as string) === 'local')) {
+    return (await import('@dev/mock-github')).mockGithubApp(env);
+  }
+  return GithubApi.forApp(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+}
+
 /** Reconcile git presence, then storage link state, then auto-unblock present-but-blocked
- *  prefixes. Shared with the local-dev fixture path (`dev/reconcileLocal.ts`). */
+ *  prefixes. */
 export async function applyReconciliation(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,

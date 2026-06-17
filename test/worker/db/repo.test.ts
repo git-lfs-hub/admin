@@ -52,12 +52,13 @@ describe('Repo DO', () => {
 describe('Repo.syncLinks → REGISTRY graph', () => {
   const registry = () => Registry.global(env);
 
-  test('local prefix → storage row + active link', async () => {
+  test('local prefix → active link, but no storage row (storage = bytes, not a claim)', async () => {
     const repo = Repo.byRepo(env, 'Org', 'Repo');
     await repo.recordLfsconfig('main', 'c1', local('b1', 'Org/Repo'));
     await repo.syncLinks('Org', 'Repo');
 
-    expect(await registry().getStorage('Org/Repo')).toMatchObject({ prefix: 'Org/Repo' });
+    // The `.lfsconfig` claim is a link only; the prefix becomes storage when objects are discovered.
+    expect(await registry().getStorage('Org/Repo')).toBeNull();
     expect(await registry().listLinksForRepo('Org', 'Repo')).toMatchObject([
       { owner: 'org', repo: 'repo', prefix: 'Org/Repo', status: 'active' },
     ]);

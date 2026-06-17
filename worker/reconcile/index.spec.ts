@@ -21,10 +21,6 @@ vi.mock('@/gc/autoArchive', () => ({ autoArchive: (...a: unknown[]) => autoArchi
 vi.mock('@/gc/autoBackup', () => ({ autoBackup: (...a: unknown[]) => autoBackup(...a) }));
 vi.mock('@/gc/autoClear', () => ({ autoClear: (...a: unknown[]) => autoClear(...a) }));
 vi.mock('@/gc/autoPurge', () => ({ autoPurge: (...a: unknown[]) => autoPurge(...a) }));
-const reconcileLocal = vi.fn(async (..._a: unknown[]) => true);
-vi.mock('@dev/reconcileLocal', () => ({
-  reconcileLocal: (...a: unknown[]) => reconcileLocal(...a),
-}));
 
 import { reconcileAll } from '@/reconcile/index';
 
@@ -52,7 +48,6 @@ beforeEach(() => {
   autoBackup.mockClear();
   autoClear.mockClear();
   autoPurge.mockClear();
-  reconcileLocal.mockClear();
   registryStub.listStorage.mockClear();
 });
 
@@ -62,7 +57,7 @@ describe('reconcileAll', () => {
     await reconcileAll(env);
     expect(env.REGISTRY.getByName).toHaveBeenCalledWith('global');
     expect(discoverRepos).toHaveBeenCalledWith(env.LFS_BUCKET, registryStub);
-    expect(reconcileRepos).toHaveBeenCalledWith(env, registryStub);
+    expect(reconcileRepos).toHaveBeenCalledWith(env, registryStub, false);
     expect(autoArchive).toHaveBeenCalledWith(env, registryStub);
     expect(autoPurge).toHaveBeenCalledWith(env, registryStub);
   });
@@ -75,21 +70,12 @@ describe('reconcileAll', () => {
     expect(autoPurge).not.toHaveBeenCalled();
   });
 
-  test('local flag skips reconcileRepos but still reconciles objects', async () => {
+  test('forwards the local flag to reconcileRepos (the dev mock path lives there)', async () => {
     const env = makeEnv();
     registryStub.listStorage.mockResolvedValueOnce([{ prefix: 'alice/a', status: 'used' }]);
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
     await reconcileAll(env, true);
-    expect(reconcileRepos).not.toHaveBeenCalled();
+    expect(reconcileRepos).toHaveBeenCalledWith(env, registryStub, true);
     expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/');
-  });
-
-  test('ENV=local skips reconcileRepos', async () => {
-    const env = makeEnv();
-    env.ENV = 'local';
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await reconcileAll(env);
-    expect(reconcileRepos).not.toHaveBeenCalled();
   });
 
   test('reconciles objects per non-purged prefix by name', async () => {

@@ -18,17 +18,10 @@ import { discoverRepos } from '@/storage/discovery';
 export async function reconcileAll(env: CloudflareBindings, local = false): Promise<void> {
   const registry = Registry.global(env);
   await discoverRepos(env.LFS_BUCKET, registry);
-  // Local dev has no GitHub App key → fixture stand-in. `__DEV__` is a build-time literal:
-  // false in the deployed bundle, so esbuild drops this branch and the `@dev` import with
-  // it. Guarded so a failure here never blocks the object pass below.
+  // Guarded: a repo-reconcile failure must not block the object pass below.
   let fullScan = false;
   try {
-    if (__DEV__ && (local || (env.ENV as string) === 'local')) {
-      const { reconcileLocal } = await import('@dev/reconcileLocal');
-      fullScan = await reconcileLocal(env, registry);
-    } else {
-      fullScan = (await reconcileRepos(env, registry)).fullScan;
-    }
+    fullScan = (await reconcileRepos(env, registry, local)).fullScan;
   } catch (e) {
     console.error('[reconcile] repo reconciliation failed:', e);
   }

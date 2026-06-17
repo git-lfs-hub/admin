@@ -119,14 +119,11 @@ export class Repo extends DurableObject<CloudflareBindings> {
       });
   }
 
-  /** Project this repo's observed local prefixes onto the REGISTRY graph: ensure a `storage` row
-   *  per newly-seen prefix, then `syncLinks` so each becomes an `active` link (prefixes that
-   *  dropped out go `stale`). One cross-DO call per scan batch. */
+  // Writes links only, never `storage` rows: a `.lfsconfig` claim is a link, not bytes (storage
+  // comes from R2 discovery / object-writes). Dropped prefixes go `stale`.
   async syncLinks(owner: string, repo: string): Promise<void> {
-    const prefixes = await this.localPrefixes();
     const registry = Registry.global(this.env);
-    for (const prefix of prefixes) await registry.upsertStorage(prefix);
-    await registry.syncLinks(owner, repo, prefixes);
+    await registry.syncLinks(owner, repo, await this.localPrefixes());
   }
 
   /** Distinct local storage prefixes this repo currently references (`local`, parsed `ok`),
