@@ -6,8 +6,10 @@ vi.mock('@/github/lfsconfig', () => ({
 }));
 
 const orgApi = vi.fn(async () => ({}));
-const forApp = vi.fn(async () => ({ orgApi }));
-vi.mock('@git-lfs-hub/lib/github', () => ({ GithubApi: { forApp: (...a: unknown[]) => forApp(...a) } }));
+const forApp = vi.fn(async (..._a: unknown[]) => ({ orgApi }));
+vi.mock('@git-lfs-hub/lib/github', () => ({
+  GithubApi: { forApp: (...a: unknown[]) => forApp(...a) },
+}));
 
 vi.mock('@/reconcile/repos', () => ({
   allowedOrgs: (e: { GITHUB_ORGS?: string }) =>
@@ -47,13 +49,16 @@ describe('handlePush', () => {
     expect(syncLinks).toHaveBeenCalledWith('acme', 'repo');
   });
 
-  test.each(['added', 'modified', 'removed'])('.lfsconfig in %s → scan, no recordHead', async (k) => {
-    getBranch.mockResolvedValue({ branch: 'main', headSha: 'c0' });
-    await handlePush(env, push({ commits: [{ [k]: ['.lfsconfig'] }] }));
-    expect(scanLfsconfig).toHaveBeenCalledTimes(1);
-    expect(recordHead).not.toHaveBeenCalled();
-    expect(syncLinks).toHaveBeenCalledWith('acme', 'repo');
-  });
+  test.each(['added', 'modified', 'removed'])(
+    '.lfsconfig in %s → scan, no recordHead',
+    async (k) => {
+      getBranch.mockResolvedValue({ branch: 'main', headSha: 'c0' });
+      await handlePush(env, push({ commits: [{ [k]: ['.lfsconfig'] }] }));
+      expect(scanLfsconfig).toHaveBeenCalledTimes(1);
+      expect(recordHead).not.toHaveBeenCalled();
+      expect(syncLinks).toHaveBeenCalledWith('acme', 'repo');
+    },
+  );
 
   test('repo never scanned → scan even when diff lacks .lfsconfig', async () => {
     await handlePush(env, push());
@@ -69,14 +74,20 @@ describe('handlePush', () => {
   });
 
   test('owner outside GITHUB_ORGS → no-op', async () => {
-    await handlePush(env, push({ repository: { name: 'r', default_branch: 'main', owner: { login: 'stranger' } } }));
+    await handlePush(
+      env,
+      push({ repository: { name: 'r', default_branch: 'main', owner: { login: 'stranger' } } }),
+    );
     expect(scanLfsconfig).not.toHaveBeenCalled();
     expect(syncLinks).not.toHaveBeenCalled();
   });
 
   test('owner from repository.owner.name (no login) still resolves', async () => {
     getBranch.mockResolvedValue({ branch: 'main', headSha: 'c0' });
-    await handlePush(env, push({ repository: { name: 'repo', default_branch: 'main', owner: { name: 'acme' } } }));
+    await handlePush(
+      env,
+      push({ repository: { name: 'repo', default_branch: 'main', owner: { name: 'acme' } } }),
+    );
     expect(syncLinks).toHaveBeenCalledWith('acme', 'repo');
   });
 

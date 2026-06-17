@@ -26,7 +26,7 @@ export async function handlePush(env: CloudflareBindings, payload: PushEvent): P
 
   const repo = Repo.byRepo(env, owner, name);
   const headSha = payload.after;
-  const ref = { owner, name, branch, headSha };
+  const ref = { owner, repo: name, branch, headSha };
 
   // Scan when the push touched `.lfsconfig` or the repo was never scanned (the file may predate
   // this push); otherwise just advance the head — the parse still holds, 0 GitHub calls.
@@ -42,7 +42,11 @@ export async function handlePush(env: CloudflareBindings, payload: PushEvent): P
 
 function lfsconfigTouched(payload: PushEvent): boolean {
   for (const c of payload.commits ?? []) {
-    if (c.added?.includes(LFSCONFIG) || c.modified?.includes(LFSCONFIG) || c.removed?.includes(LFSCONFIG))
+    if (
+      c.added?.includes(LFSCONFIG) ||
+      c.modified?.includes(LFSCONFIG) ||
+      c.removed?.includes(LFSCONFIG)
+    )
       return true;
   }
   return false;

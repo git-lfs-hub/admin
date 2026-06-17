@@ -1,11 +1,12 @@
+import { gitConfigFirstValue } from '@git-lfs-hub/lib/git/config';
 import type { GithubOrgApi } from '@git-lfs-hub/lib/github';
 
 import type { Repo, LfsconfigParse } from '@/db/repo';
-import { parseLfsUrl, isLocalLfsHost } from '@/lib/lfsEndpoint';
+import { isLocalLfsHost } from '@/lib/lfsEndpoint';
 
 export type ScanOutcome = 'unchanged' | 'missing' | 'ok' | 'parse_error' | 'unreachable';
 
-export type ScanRef = { owner: string; name: string; branch: string; headSha: string };
+export type ScanRef = { owner: string; repo: string; branch: string; headSha: string };
 
 /** Scan a branch's committed `.lfsconfig` and record the result on the REPO DO. A single
  *  `getContent` call returns the blob sha *and* bytes together — GitHub's rate limit counts
@@ -19,59 +20,55 @@ export async function scanLfsconfig(
   env: CloudflareBindings,
   ref: ScanRef,
 ): Promise<ScanOutcome> {
-  const { owner, name, branch, headSha } = ref;
-
-  const prior = await repo.getBranch(branch);
-  if (prior?.headSha === headSha) return 'unchanged'; // layer 1: branch didn't move → no GitHub call
-
+  if (await headUnchanged(repo, ref)) return 'unchanged'; // layer 1: branch didn't move → no call
   let file: { sha: string; text: string } | null;
   try {
-    file = await fetchLfsconfig(api, owner, name, headSha);
+    file = await api.getFile(ref.repo, '.lfsconfig', ref.headSha);
   } catch {
     return 'unreachable';
   }
+  return recordScan(repo, env, ref, file);
+}
+
+/** Cron-backstop counterpart of `scanLfsconfig`: the GraphQL sweep returns the blob inline, so no
+ *  per-repo fetch. `blob` null = absent; `{ text: null }` = unreadable (→ `unreachable`, retry). */
+export async function scanLfsconfigInline(
+  repo: DurableObjectStub<Repo>,
+  env: CloudflareBindings,
+  ref: ScanRef,
+  blob: { oid: string; text: string | null } | null,
+): Promise<ScanOutcome> {
+  if (await headUnchanged(repo, ref)) return 'unchanged'; // layer 1: branch didn't move
+  if (!blob) return recordScan(repo, env, ref, null);
+  if (blob.text === null) return 'unreachable'; // unreadable inline → leave for the webhook
+  return recordScan(repo, env, ref, { sha: blob.oid, text: blob.text });
+}
+
+/** Layer-1 dedup: has this branch's head not moved since the last recorded scan? */
+async function headUnchanged(repo: DurableObjectStub<Repo>, ref: ScanRef): Promise<boolean> {
+  const prior = await repo.getBranch(ref.branch);
+  return prior?.headSha === ref.headSha;
+}
+
+/** Persist a scan result given the branch's `.lfsconfig` bytes (or null when absent). Re-parsing
+ *  an unchanged blob is a cheap regex; `lfsconfigs` dedups by `sha` (no-op insert). */
+async function recordScan(
+  repo: DurableObjectStub<Repo>,
+  env: CloudflareBindings,
+  ref: ScanRef,
+  file: { sha: string; text: string } | null,
+): Promise<ScanOutcome> {
   if (!file) {
-    await repo.recordMissing(branch, headSha);
+    await repo.recordMissing(ref.branch, ref.headSha);
     return 'missing';
   }
-
-  // Re-parsing an unchanged blob is a cheap regex; `lfsconfigs` dedups by `sha` (no-op insert).
   const blob: LfsconfigParse = { sha: file.sha, ...parseLfsconfig(file.text, env) };
-  await repo.recordLfsconfig(branch, headSha, blob);
+  await repo.recordLfsconfig(ref.branch, ref.headSha, blob);
   return blob.status;
 }
 
-/** Fetch the root `.lfsconfig` at a ref in one call (sha + decoded bytes). Null when the file is
- *  absent (404); other errors throw → `unreachable`. */
-async function fetchLfsconfig(
-  api: GithubOrgApi,
-  owner: string,
-  repo: string,
-  ref: string,
-): Promise<{ sha: string; text: string } | null> {
-  let data;
-  try {
-    ({ data } = await api.octokit.rest.repos.getContent({ owner, repo, path: '.lfsconfig', ref }));
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
-  if (Array.isArray(data) || data.type !== 'file') return null;
-  const text =
-    data.encoding === 'base64'
-      ? new TextDecoder().decode(
-          Uint8Array.from(atob(data.content.replace(/\s/g, '')), (c) => c.charCodeAt(0)),
-        )
-      : data.content;
-  return { sha: data.sha, text };
-}
-
-function isNotFound(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && (e as { status?: number }).status === 404;
-}
-
 function parseLfsconfig(text: string, env: CloudflareBindings): Omit<LfsconfigParse, 'sha'> {
-  const url = lfsUrlFromConfig(text);
+  const url = gitConfigFirstValue(text, 'lfs', 'url');
   const parsed = url ? parseLfsUrl(url) : null;
   const prefix = parsed ? lfsPrefixFromPath(parsed.path) : null;
   if (!parsed || !prefix)
@@ -79,26 +76,23 @@ function parseLfsconfig(text: string, env: CloudflareBindings): Omit<LfsconfigPa
   return { host: parsed.host, prefix, local: isLocalLfsHost(parsed.host, env), status: 'ok' };
 }
 
-/** First `url` under the `[lfs]` section of a git-config (`.lfsconfig`) file. */
-function lfsUrlFromConfig(text: string): string | null {
-  let inLfs = false;
-  for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (line.startsWith('[')) {
-      inLfs = /^\[lfs\]$/i.test(line);
-    } else if (inLfs) {
-      const m = line.match(/^url\s*=\s*(.+)$/i);
-      if (m) return m[1].trim();
-    }
+/** Parse an `lfs.url` into its normalized host (`host[:non-default-port]`, lowercased) and path.
+ *  Null for a non-`http(s)` or unparseable URL. */
+export function parseLfsUrl(url: string): { host: string; path: string } | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
   }
-  return null;
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  return { host: u.host, path: u.pathname };
 }
 
-/** Storage prefix from an `lfs.url` path: the `owner/repo` after the `/lfs/` route, `.git` and a
- *  trailing `/info/lfs` stripped. Mirrors the server's `resolveName()` candidate construction. */
+/** Storage prefix from an `lfs.url` path: the `owner/repo` after the `/lfs/` route, `.git`
+ *  stripped. Mirrors the server's `resolveName()` candidate construction. */
 function lfsPrefixFromPath(path: string): string | null {
   const segs = path.split('/').filter(Boolean);
-  if (segs[segs.length - 2] === 'info' && segs[segs.length - 1] === 'lfs') segs.splice(-2);
   if (segs[0] === 'lfs') segs.shift();
   if (segs.length < 2) return null;
   return `${segs[0]}/${segs[1].replace(/\.git$/, '')}`;

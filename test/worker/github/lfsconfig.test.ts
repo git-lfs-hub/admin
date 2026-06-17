@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import { describe, test, expect, afterEach, vi } from 'vitest';
 
 import { Repo } from '@/db/repo';
-import { scanLfsconfig, type ScanRef } from '@/github/lfsconfig';
+import { scanLfsconfig, scanLfsconfigInline, type ScanRef } from '@/github/lfsconfig';
 
 afterEach(async () => {
   await reset();
@@ -13,40 +13,38 @@ const LOCAL = env.LFS.server; // this deployment's host
 const repo = () => Repo.byRepo(env, 'Org', 'Repo');
 const ref = (branch: string, headSha: string): ScanRef => ({
   owner: 'Org',
-  name: 'Repo',
+  repo: 'Repo',
   branch,
   headSha,
 });
 const lfsconfig = (url: string) => `[lfs]\n\turl = ${url}\n`;
 
 // commits: ref(=headSha) → { blob?: blobSha }. A ref with no blob models an absent .lfsconfig
-// (getContent 404). blobs: blobSha → raw text. Identical content → identical blob sha, so two
+// (getFile → null). blobs: blobSha → raw text. Identical content → identical blob sha, so two
 // commits sharing content share a blob key (content-addressed, like git). fail → transient error.
+// `getFile` is the lib wrapper (decode + 404→null live there); the scan only sees {sha,text}|null.
 function fakeApi(
   commits: Record<string, { blob?: string }>,
   blobs: Record<string, string> = {},
   fail = false,
 ) {
-  const getContent = vi.fn(async ({ ref }: { ref: string }) => {
-    if (fail) throw { status: 500 };
+  const getFile = vi.fn(async (_repo: string, _path: string, ref: string) => {
+    if (fail) throw new Error('transient');
     const blob = commits[ref]?.blob;
-    if (!blob) throw { status: 404 };
-    return {
-      data: { type: 'file', sha: blob, content: btoa(blobs[blob] ?? ''), encoding: 'base64' },
-    };
+    return blob ? { sha: blob, text: blobs[blob] ?? '' } : null;
   });
-  const api = { octokit: { rest: { repos: { getContent } } } } as never;
-  return { api, getContent };
+  const api = { getFile } as never;
+  return { api, getFile };
 }
 
 describe('scanLfsconfig — parse states', () => {
-  test('ok local: one getContent call, records branch + parse cache, classifies local', async () => {
-    const { api, getContent } = fakeApi(
+  test('ok local: one getFile call, records branch + parse cache, classifies local', async () => {
+    const { api, getFile } = fakeApi(
       { c1: { blob: 'b1' } },
       { b1: lfsconfig(`https://${LOCAL}/lfs/Org/Repo`) },
     );
     expect(await scanLfsconfig(api, repo(), env, ref('main', 'c1'))).toBe('ok');
-    expect(getContent).toHaveBeenCalledTimes(1);
+    expect(getFile).toHaveBeenCalledTimes(1);
 
     const [branch] = await repo().listBranches();
     expect(branch).toMatchObject({
@@ -96,10 +94,10 @@ describe('scanLfsconfig — parse states', () => {
     expect(cfg).toMatchObject({ sha: 'b1', prefix: '', status: 'parse_error' });
   });
 
-  test('strips a trailing /info/lfs and .git from the prefix', async () => {
+  test('strips a trailing .git from the prefix', async () => {
     const { api } = fakeApi(
       { c1: { blob: 'b1' } },
-      { b1: lfsconfig(`https://${LOCAL}/lfs/Org/Repo.git/info/lfs`) },
+      { b1: lfsconfig(`https://${LOCAL}/lfs/Org/Repo.git`) },
     );
     expect(await scanLfsconfig(api, repo(), env, ref('main', 'c1'))).toBe('ok');
     expect((await repo().listLfsconfigs())[0].prefix).toBe('Org/Repo');
@@ -125,7 +123,7 @@ describe('scanLfsconfig — dedup', () => {
 
     const again = fakeApi({ c1: { blob: 'b1' } }, blobs);
     expect(await scanLfsconfig(again.api, repo(), env, ref('main', 'c1'))).toBe('unchanged');
-    expect(again.getContent).not.toHaveBeenCalled();
+    expect(again.getFile).not.toHaveBeenCalled();
   });
 
   test('head moves, blob content identical → branch head advances, one lfsconfigs row', async () => {
@@ -145,5 +143,104 @@ describe('scanLfsconfig — dedup', () => {
     await scanLfsconfig(fakeApi({ c2: { blob: 'b1' } }, blobs).api, repo(), env, ref('dev', 'c2'));
     expect(await repo().listBranches()).toHaveLength(2);
     expect(await repo().listLfsconfigs()).toHaveLength(1);
+  });
+});
+
+// The cron backstop's inline path: the bulk GraphQL sweep already carries the blob, so there is
+// no GitHub fetch — same recording + dedup as scanLfsconfig, driven by the inline bytes.
+describe('scanLfsconfigInline — cron backstop path', () => {
+  const blob = (oid: string, url: string) => ({ oid, text: lfsconfig(url) });
+
+  test('ok local: records branch + parse cache from inline bytes', async () => {
+    expect(
+      await scanLfsconfigInline(
+        repo(),
+        env,
+        ref('main', 'c1'),
+        blob('b1', `https://${LOCAL}/lfs/Org/Repo`),
+      ),
+    ).toBe('ok');
+    const [branch] = await repo().listBranches();
+    expect(branch).toMatchObject({ headSha: 'c1', lfsconfigSha: 'b1', lfsconfigStatus: 'ok' });
+    expect((await repo().listLfsconfigs())[0]).toMatchObject({
+      sha: 'b1',
+      prefix: 'Org/Repo',
+      local: true,
+    });
+  });
+
+  test('absent .lfsconfig (null blob) → missing row, no parse cache', async () => {
+    expect(await scanLfsconfigInline(repo(), env, ref('main', 'c1'), null)).toBe('missing');
+    const [branch] = await repo().listBranches();
+    expect(branch).toMatchObject({ lfsconfigSha: null, lfsconfigStatus: 'missing' });
+    expect(await repo().listLfsconfigs()).toEqual([]);
+  });
+
+  test('layer 1: unchanged head → no record', async () => {
+    await scanLfsconfigInline(
+      repo(),
+      env,
+      ref('main', 'c1'),
+      blob('b1', `https://${LOCAL}/lfs/Org/Repo`),
+    );
+    expect(
+      await scanLfsconfigInline(
+        repo(),
+        env,
+        ref('main', 'c1'),
+        blob('b1', `https://${LOCAL}/lfs/Org/Repo`),
+      ),
+    ).toBe('unchanged');
+    expect(await repo().listBranches()).toHaveLength(1);
+  });
+
+  test('unreadable blob (text null) → unreachable, branch untouched', async () => {
+    expect(
+      await scanLfsconfigInline(repo(), env, ref('main', 'c1'), { oid: 'b1', text: null }),
+    ).toBe('unreachable');
+    expect(await repo().listBranches()).toEqual([]);
+  });
+
+  test('parse_error: unparseable inline bytes → cached parse_error', async () => {
+    expect(
+      await scanLfsconfigInline(repo(), env, ref('main', 'c1'), { oid: 'b1', text: 'garbage' }),
+    ).toBe('parse_error');
+    expect((await repo().listLfsconfigs())[0]).toMatchObject({ status: 'parse_error' });
+  });
+});
+
+// `.lfsconfig` is git-config; a human may add comments or quote the value. Parse must follow the
+// same value rules git does, not just grab the rest of the line.
+describe('lfsUrlFromConfig — git-config value rules', () => {
+  async function expectParse(text: string, prefix: string) {
+    expect(await scanLfsconfigInline(repo(), env, ref('main', 'c1'), { oid: 'b1', text })).toBe('ok');
+    expect((await repo().listLfsconfigs())[0]).toMatchObject({ prefix, local: true });
+  }
+
+  test('strips a `;` inline comment', async () => {
+    await expectParse(`[lfs]\n\turl = https://${LOCAL}/lfs/Org/Repo ; production endpoint\n`, 'Org/Repo');
+  });
+
+  test('strips a `#` inline comment', async () => {
+    await expectParse(`[lfs]\n\turl = https://${LOCAL}/lfs/Org/Repo # note\n`, 'Org/Repo');
+  });
+
+  test('unwraps a double-quoted value', async () => {
+    await expectParse(`[lfs]\n\turl = "https://${LOCAL}/lfs/Org/Repo"\n`, 'Org/Repo');
+  });
+
+  test('quotes shield a comment char from being treated as a comment', async () => {
+    await expectParse(`[lfs]\n\turl = "https://${LOCAL}/lfs/Org/Repo" ; tail\n`, 'Org/Repo');
+  });
+
+  test('ignores a trailing comment on the section header', async () => {
+    await expectParse(`[lfs] ; mapping\n\turl = https://${LOCAL}/lfs/Org/Repo\n`, 'Org/Repo');
+  });
+
+  test('skips an `[lfs "sub"]` subsection, reads the plain [lfs] url', async () => {
+    await expectParse(
+      `[lfs "https://old/"]\n\turl = https://${LOCAL}/lfs/Other/Old\n[lfs]\n\turl = https://${LOCAL}/lfs/Org/Repo\n`,
+      'Org/Repo',
+    );
   });
 });

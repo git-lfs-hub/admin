@@ -1,5 +1,5 @@
 import { orgsFromEnv } from '@git-lfs-hub/lib/auth';
-import { GithubApi, GithubError } from '@git-lfs-hub/lib/github';
+import { GithubApi, GithubError, type RepoScan } from '@git-lfs-hub/lib/github';
 
 import { notify, restingAlert } from '@/alerts/lifecycle';
 import type {
@@ -10,6 +10,7 @@ import type {
 } from '@/db/registry';
 import type { OrgStatus } from '@/db/registry-schema';
 import { probeOrg, type OrgProbeResult } from '@/github/probeOrg';
+import { syncLfsconfigs } from '@/reconcile/lfsconfig';
 import { restore } from '@/server/operations';
 
 export type OrgsByStatus = Record<OrgStatus, string[]>;
@@ -39,6 +40,7 @@ export async function reconcileRepos(
   if (accounts.length === 0) return emptySummary();
 
   const activeRepos = new Set<string>();
+  const scans: RepoScan[] = [];
   const orgs: OrgsByStatus = {
     active: [],
     missing: [],
@@ -59,6 +61,7 @@ export async function reconcileRepos(
     await registry.upsertOrgStatus(org, probe.status, probe.error ?? null);
     if (probe.status === 'active') {
       for (const k of probe.activeRepos) activeRepos.add(k);
+      scans.push(...probe.scans);
     }
   }
 
@@ -78,6 +81,12 @@ export async function reconcileRepos(
     new Set(orgs.active),
     activeRepos,
   );
+  // Isolated so a sweep failure never sinks the presence reconciliation above — it gates auto-purge.
+  try {
+    await syncLfsconfigs(env, scans);
+  } catch (e) {
+    console.error('[reconcile] lfsconfig sweep failed:', e);
+  }
   warnAnomalies(orgs);
 
   // `transient_error` = an org's repos couldn't be listed, so this isn't a full scan. Definitive

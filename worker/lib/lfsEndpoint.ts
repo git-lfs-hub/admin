@@ -2,19 +2,6 @@
 // external hub. Not `lib/host.ts` — that's the dev request bypass; this compares an arbitrary
 // `lfs.url` host against `env.LFS.server`.
 
-/** Parse an `lfs.url` into its normalized host (`host[:non-default-port]`, lowercased) and path.
- *  Null for a non-`http(s)` or unparseable URL. */
-export function parseLfsUrl(url: string): { host: string; path: string } | null {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-  return { host: u.host, path: u.pathname };
-}
-
 /** True iff `host` (a parsed `lfs.url` host) is this deployment's LFS server (`env.LFS.server`).
  *  Normalizes case + default ports and ignores scheme, so `https://Host`, `http://host:80`, and
  *  `host` all compare equal. */
