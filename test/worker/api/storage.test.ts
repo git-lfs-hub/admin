@@ -87,10 +87,20 @@ async function seedUnused(prefix: string) {
 }
 
 describe('GET /api/storage', () => {
-  test('returns empty array when no storage prefixes exist (localhost bypass)', async () => {
+  // First real localhost fetch fires the dev reconcile (auth bypassed on localhost), seeding the
+  // N:N dev fixture. Doubles as the step-7 smoke: two git repos share one prefix, which reads `used`.
+  test('localhost bypass serves the dev fixture link graph (shared prefix, two consumers)', async () => {
     const res = await exports.default.fetch('http://localhost/api/storage');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ storage: [] });
+    const { storage } = (await res.json()) as {
+      storage: { prefix: string; status: string; gitRepos: { owner: string; repo: string }[] }[];
+    };
+    const shared = storage.find((s) => s.prefix === 'acme/shared-lfs');
+    expect(shared?.status).toBe('used');
+    expect(shared?.gitRepos.map((g) => `${g.owner}/${g.repo}`).sort()).toEqual([
+      'acme/mobile',
+      'acme/webapp',
+    ]);
   });
 
   test('returns all prefixes across statuses with zero object stats when empty', async () => {

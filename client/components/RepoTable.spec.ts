@@ -79,6 +79,22 @@ describe('RepoTable', () => {
     expect(wrapper.find('[data-slot="storage"]').text()).toContain('archived');
   });
 
+  it('lists every linked storage prefix when a repo consumes several', async () => {
+    const wrapper = await mountTable([
+      {
+        ...repo,
+        storage: [
+          { prefix: 'org/a', status: 'used', archivedAt: null },
+          { prefix: 'org/b', status: 'used', archivedAt: null },
+        ],
+      },
+    ]);
+    const storage = wrapper.find('[data-slot="storage"]');
+    expect(storage.text()).toContain('org/a');
+    expect(storage.text()).toContain('org/b');
+    expect(storage.findAll('a[href="/storage"]')).toHaveLength(2);
+  });
+
   it('omits the storage row entirely when no storage prefix matches', async () => {
     const wrapper = await mountTable([{ ...repo, storage: [] }]);
     expect(wrapper.find('a[href="/storage"]').exists()).toBe(false);

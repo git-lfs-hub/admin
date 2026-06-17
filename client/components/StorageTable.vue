@@ -87,6 +87,12 @@ const runConfirm = (r: StorageRow) => {
   confirm({ archive, restore, purge, backup, deleteBackup, clear }[confirmFor.value!.action], r);
   confirmFor.value = null;
 };
+
+// Purge deletes files / Archive stops serving for every git repo whose `.lfsconfig` points here, so
+// the confirm names them. Restore and the cold-storage verbs don't change what consumers see.
+function warnsConsumers(action: StorageAction): boolean {
+  return action === 'archive' || action === 'purge';
+}
 </script>
 
 <template>
@@ -399,13 +405,27 @@ const runConfirm = (r: StorageRow) => {
           <!-- Row 3: the confirm action's description — a full-bleed footer band that splits the
                item by background (negative margins reach the item's padded edges, top border +
                muted fill, bottom corners rounded to match). Never squeezes the metrics row. -->
-          <p
+          <div
             v-if="confirmFor && confirmFor.prefix === r.prefix"
             data-slot="confirm-description"
-            class="-mx-4 -mb-4 mt-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm whitespace-pre-line text-muted-foreground"
+            class="-mx-4 -mb-4 mt-2 space-y-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm text-muted-foreground"
           >
-            {{ STORAGE_ACTIONS[confirmFor.action].consequence }}
-          </p>
+            <p class="whitespace-pre-line">{{ STORAGE_ACTIONS[confirmFor.action].consequence }}</p>
+
+            <!-- Name every consumer (active `.lfsconfig` link). One still on GitHub keeps pushing to
+                 a prefix this verb stops serving (archive) or deletes (purge) — flag it loudly. -->
+            <p v-if="warnsConsumers(confirmFor.action) && r.gitRepos.length" data-slot="consumers">
+              Used by
+              <template v-for="(g, i) in r.gitRepos" :key="`${g.owner}/${g.repo}`"
+                ><template v-if="i > 0">, </template
+                ><RouterLink to="/repos" class="font-mono text-foreground"
+                  >{{ g.owner }}/{{ g.repo }}</RouterLink
+                ><span v-if="g.status === 'active'" class="text-destructive">
+                  (still on GitHub)</span
+                ></template
+              >.
+            </p>
+          </div>
         </ItemContent>
       </Item>
     </template>

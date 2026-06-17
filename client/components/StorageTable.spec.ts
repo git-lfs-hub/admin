@@ -106,6 +106,22 @@ describe('StorageTable', () => {
     wrapper.unmount();
   });
 
+  it('names every consumer git repo of a shared prefix in the used hover', async () => {
+    const shared = {
+      ...row,
+      gitRepos: [
+        { owner: 'org', repo: 'a', status: 'active' as const },
+        { owner: 'org', repo: 'b', status: 'active' as const },
+      ],
+    };
+    const wrapper = await mountTable([shared]);
+    await openHoverCard(wrapper.find('[data-slot="status"] [data-slot="hover-card-trigger"]'));
+    const links = [...document.body.querySelectorAll('a[href="/repos"]')].map((a) => a.textContent);
+    expect(links).toContain('org/a');
+    expect(links).toContain('org/b');
+    wrapper.unmount();
+  });
+
   it('badges an unused prefix (orphan or repo-missing) without a repo link', async () => {
     const orphan = await mountTable([{ ...unused, gitRepos: [] }]);
     expect(orphan.find('[data-slot="status"]').text()).toContain('unused');
@@ -302,6 +318,58 @@ describe('StorageTable', () => {
     expect(description).toContain('Permanently deletes every file');
     const action = box.findAll('button').find((b) => b.text() === 'Purge');
     expect(action!.attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  // A prefix consumed by several git repos via `.lfsconfig` — one still on GitHub, one gone.
+  const shared = {
+    ...unused,
+    prefix: 'org/shared',
+    gitRepos: [
+      { owner: 'org', repo: 'alpha', status: 'active' as const },
+      { owner: 'org', repo: 'beta', status: 'missing' as const },
+    ],
+  };
+
+  it('Purge confirm names every consumer, flagging ones still on GitHub', async () => {
+    const wrapper = await mountTable([shared]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    await openPurgeConfirm(cell);
+    const consumers = wrapper.find('[data-slot="confirm-description"] [data-slot="consumers"]');
+    expect(consumers.exists()).toBe(true);
+    expect(consumers.text()).toContain('org/alpha');
+    expect(consumers.text()).toContain('org/beta');
+    // Only the live consumer carries the "still on GitHub" warning.
+    expect(consumers.find('.text-destructive').text()).toContain('still on GitHub');
+    expect(consumers.findAll('.text-destructive')).toHaveLength(1);
+    expect(consumers.findAll('a[href="/repos"]')).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it('Archive confirm also names consumers', async () => {
+    const wrapper = await mountTable([shared]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    await cell
+      .findAll('button')
+      .find((b) => b.text() === 'Archive')!
+      .trigger('click');
+    const consumers = wrapper.find('[data-slot="consumers"]');
+    expect(consumers.exists()).toBe(true);
+    expect(consumers.text()).toContain('org/alpha');
+    wrapper.unmount();
+  });
+
+  it('Restore confirm omits the consumer warning — serving is unaffected for them', async () => {
+    const wrapper = await mountTable([
+      { ...archived, prefix: 'org/shared', gitRepos: shared.gitRepos },
+    ]);
+    const cell = wrapper.find('[data-slot="lifecycle"]');
+    await cell
+      .findAll('button')
+      .find((b) => b.text() === 'Restore')!
+      .trigger('click');
+    expect(wrapper.find('[data-slot="confirm-description"]').exists()).toBe(true);
+    expect(wrapper.find('[data-slot="consumers"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
