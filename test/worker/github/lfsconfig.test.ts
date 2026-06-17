@@ -213,12 +213,17 @@ describe('scanLfsconfigInline — cron backstop path', () => {
 // same value rules git does, not just grab the rest of the line.
 describe('lfsUrlFromConfig — git-config value rules', () => {
   async function expectParse(text: string, prefix: string) {
-    expect(await scanLfsconfigInline(repo(), env, ref('main', 'c1'), { oid: 'b1', text })).toBe('ok');
+    expect(await scanLfsconfigInline(repo(), env, ref('main', 'c1'), { oid: 'b1', text })).toBe(
+      'ok',
+    );
     expect((await repo().listLfsconfigs())[0]).toMatchObject({ prefix, local: true });
   }
 
   test('strips a `;` inline comment', async () => {
-    await expectParse(`[lfs]\n\turl = https://${LOCAL}/lfs/Org/Repo ; production endpoint\n`, 'Org/Repo');
+    await expectParse(
+      `[lfs]\n\turl = https://${LOCAL}/lfs/Org/Repo ; production endpoint\n`,
+      'Org/Repo',
+    );
   });
 
   test('strips a `#` inline comment', async () => {
