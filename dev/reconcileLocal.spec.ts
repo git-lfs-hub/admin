@@ -18,6 +18,7 @@ function fakeRegistry() {
       blockedReused: [],
     })),
     listStorage: vi.fn(async () => []),
+    syncLinks: vi.fn(async () => {}),
   } as any;
 }
 
@@ -33,6 +34,14 @@ describe('reconcileLocal', () => {
     });
     expect(registry.reconcileStorage).toHaveBeenCalledOnce();
     expect(fullScan).toBe(true); // fixture is authoritative → full scan
+  });
+
+  test('seeds a 1:1 link for a present repo backed by a storage prefix, skips orphans', async () => {
+    const registry = fakeRegistry();
+    registry.listStorage = vi.fn(async () => [{ prefix: 'ACME/Keep' }, { prefix: 'orphan/x' }]);
+    await reconcileLocal(env, registry, ['acme/keep']);
+    expect(registry.syncLinks).toHaveBeenCalledWith('acme', 'keep', new Set(['ACME/Keep']));
+    expect(registry.syncLinks).toHaveBeenCalledTimes(1); // orphan prefix has no present repo
   });
 
   test('empty present list → every discovered repo evaluated as gone', async () => {

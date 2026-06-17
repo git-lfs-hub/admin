@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { decide, wakeConfirmation, storageForRepo, archive, restore } = vi.hoisted(() => ({
+const { decide, wakeConfirmation, getStorageByPrefix, archive, restore } = vi.hoisted(() => ({
   decide: vi.fn(async () => ({ ok: true })),
   wakeConfirmation: vi.fn(async () => {}),
-  storageForRepo: vi.fn(async () => null as any),
+  getStorageByPrefix: vi.fn(async () => null as any),
   archive: vi.fn(async () => ({})),
   restore: vi.fn(async () => ({})),
 }));
@@ -12,7 +12,7 @@ vi.mock('@/db/alerts', () => ({
   isDecision: (s: string) => s === 'approve' || s === 'cancel',
 }));
 vi.mock('@/workflows/confirm', () => ({ wakeConfirmation }));
-vi.mock('@/db/registry', () => ({ Registry: { global: () => ({ storageForRepo }) } }));
+vi.mock('@/db/registry', () => ({ Registry: { global: () => ({ getStorageByPrefix }) } }));
 vi.mock('@/server/operations', () => ({ archive, restore }));
 
 import app from '@/webhooks/index';
@@ -55,7 +55,7 @@ async function post(body: string, opts: { ts?: string; sig?: string } = {}) {
 beforeEach(() => {
   decide.mockClear();
   wakeConfirmation.mockClear();
-  storageForRepo.mockReset();
+  getStorageByPrefix.mockReset();
   archive.mockClear();
   restore.mockClear();
 });
@@ -94,20 +94,24 @@ describe('POST /webhooks/slack/interactions', () => {
   });
 
   test('Archive on a missing alert → archives the prefix', async () => {
-    storageForRepo.mockResolvedValueOnce({
+    getStorageByPrefix.mockResolvedValueOnce({
       prefix: 'alice/repo',
       status: 'unused',
       archivedAt: null,
     });
     const res = await post(payload('archive', 'storage:alice/repo#missing'));
     expect(res.status).toBe(200);
-    expect(storageForRepo).toHaveBeenCalledWith('alice', 'repo');
+    expect(getStorageByPrefix).toHaveBeenCalledWith('alice/repo');
     expect(archive).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'alice/repo');
     expect(restore).not.toHaveBeenCalled();
   });
 
   test('Restore on an archived alert → restores the prefix', async () => {
-    storageForRepo.mockResolvedValueOnce({ prefix: 'alice/repo', status: 'used', archivedAt: 't' });
+    getStorageByPrefix.mockResolvedValueOnce({
+      prefix: 'alice/repo',
+      status: 'used',
+      archivedAt: 't',
+    });
     const res = await post(payload('restore', 'storage:alice/repo#archived'));
     expect(res.status).toBe(200);
     expect(restore).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'alice/repo');
@@ -115,7 +119,7 @@ describe('POST /webhooks/slack/interactions', () => {
   });
 
   test('stale Archive button on a now-live prefix → no-op (guarded)', async () => {
-    storageForRepo.mockResolvedValueOnce({
+    getStorageByPrefix.mockResolvedValueOnce({
       prefix: 'alice/repo',
       status: 'used',
       archivedAt: null,
@@ -126,7 +130,7 @@ describe('POST /webhooks/slack/interactions', () => {
   });
 
   test('a failing op is caught → still acks 200', async () => {
-    storageForRepo.mockResolvedValueOnce({
+    getStorageByPrefix.mockResolvedValueOnce({
       prefix: 'alice/repo',
       status: 'unused',
       archivedAt: null,

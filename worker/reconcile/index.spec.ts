@@ -21,6 +21,10 @@ vi.mock('@/gc/autoArchive', () => ({ autoArchive: (...a: unknown[]) => autoArchi
 vi.mock('@/gc/autoBackup', () => ({ autoBackup: (...a: unknown[]) => autoBackup(...a) }));
 vi.mock('@/gc/autoClear', () => ({ autoClear: (...a: unknown[]) => autoClear(...a) }));
 vi.mock('@/gc/autoPurge', () => ({ autoPurge: (...a: unknown[]) => autoPurge(...a) }));
+const reconcileLocal = vi.fn(async (..._a: unknown[]) => true);
+vi.mock('@dev/reconcileLocal', () => ({
+  reconcileLocal: (...a: unknown[]) => reconcileLocal(...a),
+}));
 
 import { reconcileAll } from '@/reconcile/index';
 
@@ -48,6 +52,7 @@ beforeEach(() => {
   autoBackup.mockClear();
   autoClear.mockClear();
   autoPurge.mockClear();
+  reconcileLocal.mockClear();
   registryStub.listStorage.mockClear();
 });
 

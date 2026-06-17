@@ -123,7 +123,7 @@ describe('wakeConfirmation', () => {
     return {
       env: {
         REGISTRY: {
-          getByName: () => ({ storageForRepo: async () => (prefix ? { prefix } : null) }),
+          getByName: () => ({ getStorageByPrefix: async () => (prefix ? { prefix } : null) }),
         },
         STORAGE: { getByName: () => ({ activeInstanceId: async () => `${kind}-abc123` }) },
         [binding]: { get: async () => ({ sendEvent }) },
@@ -152,7 +152,7 @@ describe('wakeConfirmation', () => {
 
   test('gone instance (get throws) is swallowed', async () => {
     const e = {
-      REGISTRY: { getByName: () => ({ storageForRepo: async () => ({ prefix: 'a/r' }) }) },
+      REGISTRY: { getByName: () => ({ getStorageByPrefix: async () => ({ prefix: 'a/r' }) }) },
       STORAGE: { getByName: () => ({ activeInstanceId: async () => 'purge-abc123' }) },
       PURGE_WORKFLOW: {
         get: async () => {

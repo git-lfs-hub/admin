@@ -445,9 +445,10 @@ describe('reconcileRepoEvent', () => {
     becameUsed?: unknown[];
     blockedReused?: unknown[];
   }) {
+    const prefix = (opts.store as { prefix: string } | undefined)?.prefix;
     return {
       applyRepoEvent: vi.fn(async () => opts.applyResult),
-      storageForRepo: vi.fn(async () => opts.store ?? null),
+      listLinksForRepo: vi.fn(async () => (prefix ? [{ prefix }] : [])),
       reconcileStoragePrefix: vi.fn(async () => ({
         becameUnused: opts.becameUnused ?? [],
         becameUsed: opts.becameUsed ?? [],
@@ -470,14 +471,14 @@ describe('reconcileRepoEvent', () => {
     });
     await reconcileRepoEvent(env, registry, 'a', 'x', false);
     expect(registry.applyRepoEvent).toHaveBeenCalledWith('a', 'x', false);
-    expect(registry.storageForRepo).toHaveBeenCalledWith('a', 'x');
+    expect(registry.listLinksForRepo).toHaveBeenCalledWith('a', 'x');
     expect(unblockRepo).not.toHaveBeenCalled();
   });
 
   test('untracked repo (null) → no storage lookup, no unblock', async () => {
     const registry = eventRegistry({ applyResult: null });
     await reconcileRepoEvent(env, registry, 'a', 'x', true);
-    expect(registry.storageForRepo).not.toHaveBeenCalled();
+    expect(registry.listLinksForRepo).not.toHaveBeenCalled();
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(registry.unblock).not.toHaveBeenCalled();
   });

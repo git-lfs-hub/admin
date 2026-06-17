@@ -65,7 +65,8 @@ export function unblockServer(env: CloudflareBindings, prefix: string): Promise<
   return lfsServer(env).unblockRepo(owner, repo);
 }
 
-// The seam: today a prefix is exactly `owner/repo`; replace with a repo⇄storage link lookup.
+// A prefix's two path segments — the LFS server's repo identity (it canonicalizes them back to the
+// prefix via `resolveName`). This is the storage's own key, not a git→storage link traversal.
 function splitPrefix(prefix: string): [owner: string, repo: string] {
   const [owner, repo] = prefix.split('/');
   return [owner, repo];

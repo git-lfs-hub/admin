@@ -14,7 +14,7 @@ const repo: RepoRow = {
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
-  storage: { prefix: 'org/my-repo', status: 'used', archivedAt: null },
+  storage: [{ prefix: 'org/my-repo', status: 'used', archivedAt: null }],
 };
 
 function makeRouter() {

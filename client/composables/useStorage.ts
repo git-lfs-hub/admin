@@ -4,7 +4,7 @@ import type { InferResponseType } from 'hono/client';
 
 import { api } from '@/api';
 
-// Storage prefix lifecycle, cross-linked to its git repo by same-key lookup.
+// Storage prefix lifecycle, cross-linked to its consumer git repos via `.lfsconfig` links.
 export type StorageRow = InferResponseType<typeof api.api.storage.$get>['storage'][number];
 export { type StorageStatus } from '@worker/db/registry-schema';
 

@@ -36,8 +36,8 @@ export type StorageReconciliationResult = {
 };
 
 /** Singleton registry DO (`getByName("global")`). Tables: `repos` (git presence), `storage`
- *  (prefix lifecycle), `orgs` (reconciliation state). The git↔storage edge is resolved 1:1 by
- *  same-key lookup `lc(prefix) ⇔ lc(owner/repo)`, not stored. */
+ *  (prefix lifecycle), `links` (git↔prefix N:N graph, from `.lfsconfig`), `orgs` (reconciliation
+ *  state). The git↔storage edge is the real `links` graph, not a same-key inference. */
 export class Registry extends DurableObject<CloudflareBindings> {
   private db: DrizzleSqliteDODatabase;
 
@@ -332,19 +332,19 @@ export class Registry extends DurableObject<CloudflareBindings> {
     return rows[0] ?? null;
   }
 
-  /** Reconcile every non-purged prefix's link state (same-key match): `used` while its matching
-   *  git repo is `active`, `unused` otherwise. Returns the flips, plus `blockedReused` (became
-   *  used but still blocked) for the caller to unblock/alert. */
+  /** Reconcile every non-purged prefix's link state: `used` while ≥1 active `links` row ties it to
+   *  an `active` git repo, `unused` otherwise. Returns the flips, plus `blockedReused` (became used
+   *  but still blocked) for the caller to unblock/alert. */
   async reconcileStorage(): Promise<StorageReconciliationResult> {
     const out: StorageReconciliationResult = {
       becameUnused: [],
       becameUsed: [],
       blockedReused: [],
     };
-    const active = await this.activeRepoKeys();
+    const inUse = await this.inUsePrefixes();
     const rows = await this.db.select().from(storage).where(ne(storage.status, 'purged'));
     for (const row of rows) {
-      await this.applyLinkState(row, active.has(prefixKey(row.prefix)), out);
+      await this.applyLinkState(row, inUse.has(row.prefix), out);
     }
     return out;
   }
@@ -358,8 +358,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
     };
     const row = await this.getStorage(prefix);
     if (!row || row.status === 'purged') return out;
-    const active = await this.activeRepoKeys();
-    await this.applyLinkState(row, active.has(prefixKey(prefix)), out);
+    await this.applyLinkState(row, await this.storageInUse(prefix), out);
     return out;
   }
 
@@ -385,36 +384,29 @@ export class Registry extends DurableObject<CloudflareBindings> {
     }
   }
 
-  /** Set of `lc(owner)/lc(repo)` for every `active` git repo (the link source). */
-  private async activeRepoKeys(): Promise<Set<string>> {
+  /** Distinct prefixes with ≥1 active `links` row tying them to an `active` git repo. */
+  private async inUsePrefixes(): Promise<Set<string>> {
     const rows = await this.db
-      .select({ owner: repos.owner, repo: repos.repo })
-      .from(repos)
-      .where(eq(repos.status, 'active'));
-    return new Set(rows.map((r) => repoKey(r.owner, r.repo)));
+      .selectDistinct({ prefix: links.prefix })
+      .from(links)
+      .innerJoin(repos, and(eq(links.owner, repos.owner), eq(links.repo, repos.repo)))
+      .where(and(eq(links.status, 'active'), eq(repos.status, 'active')));
+    return new Set(rows.map((r) => r.prefix));
   }
 
-  /** Same-key edge: the git repo for a prefix, if its matching `repos` row exists. */
-  async repoForPrefix(prefix: string): Promise<RepoRow | null> {
-    const [owner, repo] = prefix.split('/');
-    if (!owner || !repo) return null;
-    return this.getRepo(owner, repo);
-  }
-
-  /** The storage prefix for a git repo, if discovered (same-key match, case-insensitive). */
-  async storageForRepo(owner: string, repo: string): Promise<StorageRow | null> {
-    const key = repoKey(owner, repo);
+  /** Resolve a storage row from its prefix path, case-insensitively (route params / alert scopes
+   *  carry the lowercased prefix). Not a git→storage traversal — that goes through `links`. */
+  async getStorageByPrefix(prefix: string): Promise<StorageRow | null> {
     const [row] = await this.db
       .select()
       .from(storage)
-      .where(eq(sql`lower(${storage.prefix})`, key));
+      .where(eq(sql`lower(${storage.prefix})`, prefix.toLowerCase()));
     return row ?? null;
   }
 
-  /** Purge gate: a prefix is in use while its matching git repo is `active`. */
+  /** Purge gate: a prefix is in use while an active link ties it to an `active` git repo. */
   async storageInUse(prefix: string): Promise<boolean> {
-    const repo = await this.repoForPrefix(prefix);
-    return repo?.status === 'active';
+    return (await this.listActiveLinks(prefix)).length > 0;
   }
 
   /** Called cross-DO by the STORAGE DO `beginOp` to denormalize the in-flight op. */
@@ -563,6 +555,45 @@ export class Registry extends DurableObject<CloudflareBindings> {
     return await this.db.select().from(links).where(eq(links.prefix, prefix));
   }
 
+  /** Active links joined to their storage row — each git repo's consumed prefixes, for `/api/repos`. */
+  async listActiveRepoLinks(): Promise<
+    {
+      owner: string;
+      repo: string;
+      prefix: string;
+      status: StorageStatus;
+      archivedAt: string | null;
+    }[]
+  > {
+    return await this.db
+      .select({
+        owner: links.owner,
+        repo: links.repo,
+        prefix: links.prefix,
+        status: storage.status,
+        archivedAt: storage.archivedAt,
+      })
+      .from(links)
+      .innerJoin(storage, eq(storage.prefix, links.prefix))
+      .where(eq(links.status, 'active'));
+  }
+
+  /** Active links joined to their consumer git repo — each prefix's consumers, for `/api/storage`. */
+  async listActiveStorageLinks(): Promise<
+    { prefix: string; owner: string; repo: string; status: RepoStatus }[]
+  > {
+    return await this.db
+      .select({
+        prefix: links.prefix,
+        owner: repos.owner,
+        repo: repos.repo,
+        status: repos.status,
+      })
+      .from(links)
+      .innerJoin(repos, and(eq(links.owner, repos.owner), eq(links.repo, repos.repo)))
+      .where(eq(links.status, 'active'));
+  }
+
   // --- orgs ---
 
   async upsertOrgStatus(
@@ -611,10 +642,6 @@ function repoKeyWhere(owner: string, repo: string) {
 
 function repoKey(owner: string, repo: string) {
   return `${owner.toLowerCase()}/${repo.toLowerCase()}`;
-}
-
-function prefixKey(prefix: string) {
-  return prefix.toLowerCase();
 }
 
 export type { RepoStatus };

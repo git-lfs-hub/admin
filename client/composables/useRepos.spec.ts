@@ -14,7 +14,7 @@ const mockRepos: RepoRow[] = [
     firstSeen: '2026-01-01T00:00:00Z',
     updatedAt: '2026-05-01T00:00:00Z',
     missingAt: null,
-    storage: { prefix: 'org/test-repo', status: 'used', archivedAt: null },
+    storage: [{ prefix: 'org/test-repo', status: 'used', archivedAt: null }],
   },
 ];
 
@@ -67,15 +67,15 @@ describe('useRepos', () => {
   it('sorts missing-with-storage first, storage-less last, ties by owner/repo', async () => {
     const row = (o: Partial<RepoRow>): RepoRow => ({ ...mockRepos[0], ...o });
     const unsorted: RepoRow[] = [
-      row({ owner: 'org', repo: 'no-storage', status: 'active', storage: null }),
+      row({ owner: 'org', repo: 'no-storage', status: 'active', storage: [] }),
       row({ owner: 'org', repo: 'b-active', status: 'active' }),
       row({ owner: 'org', repo: 'missing', status: 'missing' }),
-      row({ owner: 'org', repo: 'missing-gone', status: 'missing', storage: null }),
+      row({ owner: 'org', repo: 'missing-gone', status: 'missing', storage: [] }),
       row({
         owner: 'org',
         repo: 'missing-purged',
         status: 'missing',
-        storage: { prefix: 'org/missing-purged', status: 'purged', archivedAt: null },
+        storage: [{ prefix: 'org/missing-purged', status: 'purged', archivedAt: null }],
       }),
       row({ owner: 'org', repo: 'a-active', status: 'active' }),
     ];

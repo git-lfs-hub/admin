@@ -40,18 +40,23 @@ describe('GET /api/repos', () => {
     expect(byRepo.gone.missingAt).toBeTruthy();
   });
 
-  test('cross-links the matching storage prefix (same-key), null when none', async () => {
+  test('cross-links consumed prefixes from links; empty when unlinked', async () => {
     await reg().upsertRepo('alice', 'a');
     await reg().upsertStorage('alice/a');
+    await reg().upsertStorage('alice/a-mirror');
+    await reg().syncLinks('alice', 'a', new Set(['alice/a', 'alice/a-mirror']));
     await reg().upsertRepo('bob', 'nostore');
 
     const res = await get();
     const body = (await res.json()) as {
-      repos: Array<{ repo: string; storage: { prefix: string; status: string } | null }>;
+      repos: Array<{ repo: string; storage: Array<{ prefix: string; status: string }> }>;
     };
     const byRepo = Object.fromEntries(body.repos.map((r) => [r.repo, r]));
-    expect(byRepo.a.storage).toEqual({ prefix: 'alice/a', status: 'used', archivedAt: null });
-    expect(byRepo.nostore.storage).toBeNull();
+    expect(byRepo.a.storage).toEqual([
+      { prefix: 'alice/a', status: 'used', archivedAt: null },
+      { prefix: 'alice/a-mirror', status: 'used', archivedAt: null },
+    ]);
+    expect(byRepo.nostore.storage).toEqual([]);
   });
 
   test('returns 401 without session on production host', async () => {

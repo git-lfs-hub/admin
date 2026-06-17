@@ -57,7 +57,7 @@ async function runNotifyAction(
   const [owner, repo] = scopeLabel(scope).split('/');
   if (!owner || !repo) return;
   const registry = Registry.global(env);
-  const row = await registry.storageForRepo(owner, repo);
+  const row = await registry.getStorageByPrefix(`${owner}/${repo}`);
   if (!row) return;
   try {
     if (verb === 'archive') {

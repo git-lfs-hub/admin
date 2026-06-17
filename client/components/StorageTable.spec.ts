@@ -51,7 +51,7 @@ const row: StorageRow = {
   clearedAt: null,
   purgedAt: null,
   activeOp: null,
-  gitRepo: { owner: 'org', repo: 'my-repo', status: 'active' },
+  gitRepos: [{ owner: 'org', repo: 'my-repo', status: 'active' }],
   willArchiveAt: null,
   willPurgeAt: null,
   purgeConfirmBy: null,
@@ -107,7 +107,7 @@ describe('StorageTable', () => {
   });
 
   it('badges an unused prefix (orphan or repo-missing) without a repo link', async () => {
-    const orphan = await mountTable([{ ...unused, gitRepo: null }]);
+    const orphan = await mountTable([{ ...unused, gitRepos: [] }]);
     expect(orphan.find('[data-slot="status"]').text()).toContain('unused');
     expect(orphan.find('a[href="/repos"]').exists()).toBe(false);
   });

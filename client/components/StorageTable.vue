@@ -111,10 +111,13 @@ const runConfirm = (r: StorageRow) => {
                 <HoverCardContent side="left" class="w-auto">
                   <p class="font-medium">Used</p>
                   <p class="text-muted-foreground">
-                    Actively serving Git LFS<template v-if="r.gitRepo">
+                    Actively serving Git LFS<template v-if="r.gitRepos.length">
                       for
-                      <RouterLink to="/repos" class="font-mono"
-                        >{{ r.gitRepo.owner }}/{{ r.gitRepo.repo }}</RouterLink
+                      <template v-for="(g, i) in r.gitRepos" :key="`${g.owner}/${g.repo}`"
+                        ><template v-if="i > 0">, </template
+                        ><RouterLink to="/repos" class="font-mono"
+                          >{{ g.owner }}/{{ g.repo }}</RouterLink
+                        ></template
                       ></template
                     >
                     — nothing scheduled to archive.

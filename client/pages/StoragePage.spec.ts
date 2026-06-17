@@ -22,7 +22,7 @@ const row: StorageRow = {
   clearedAt: null,
   purgedAt: null,
   activeOp: null,
-  gitRepo: { owner: 'org', repo: 'my-repo', status: 'active' },
+  gitRepos: [{ owner: 'org', repo: 'my-repo', status: 'active' }],
   willArchiveAt: null,
   willPurgeAt: null,
   purgeConfirmBy: null,

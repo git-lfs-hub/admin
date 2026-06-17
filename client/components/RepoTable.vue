@@ -53,42 +53,44 @@ defineProps<{ repos: RepoRow[] }>();
             </div>
           </div>
 
-          <!-- `used`/`unused` are implied by the repo status, so only the notable storage states
-               (`purged`, `archived`) are badged here. -->
-          <div v-if="r.storage" class="flex items-start justify-between gap-4">
+          <!-- One chip per linked prefix (`.lfsconfig` may point at several). `used`/`unused` are
+               implied by the repo status, so only the notable states (`purged`, `archived`) are
+               badged here. -->
+          <div v-if="r.storage.length" class="flex items-start justify-between gap-4">
             <ItemDescription
               data-slot="storage"
               class="flex flex-wrap items-center gap-x-2 gap-y-1"
             >
-              <span class="inline-flex items-baseline gap-2">
+              <span class="inline-flex flex-wrap items-baseline gap-2">
                 <span>Storage</span>
-                <RouterLink to="/storage" class="font-mono text-foreground">{{
-                  r.storage.prefix
-                }}</RouterLink>
-                <HoverCard v-if="r.storage.status === 'purged'">
-                  <HoverCardTrigger as-child>
-                    <StatusBadge :status="r.storage.status" class="h-6 self-center" />
-                  </HoverCardTrigger>
-                  <HoverCardContent class="w-auto">
-                    <p class="font-medium">Purged</p>
-                    <p class="text-muted-foreground">
-                      Every file in this storage was permanently deleted.
-                    </p>
-                  </HoverCardContent>
-                </HoverCard>
-                <HoverCard v-else-if="r.storage.archivedAt">
-                  <HoverCardTrigger as-child>
-                    <Badge variant="destructive" class="h-6 self-center">archived</Badge>
-                  </HoverCardTrigger>
-                  <HoverCardContent class="w-auto space-y-2">
-                    <p class="font-medium">Archived {{ formatRelative(r.storage.archivedAt) }}</p>
-                    <p class="text-muted-foreground">
-                      {{ formatTime(r.storage.archivedAt) }} — this storage no longer serves Git
-                      LFS.<br />
-                      Files are kept; nothing is deleted.
-                    </p>
-                  </HoverCardContent>
-                </HoverCard>
+                <template v-for="s in r.storage" :key="s.prefix">
+                  <RouterLink to="/storage" class="font-mono text-foreground">{{
+                    s.prefix
+                  }}</RouterLink>
+                  <HoverCard v-if="s.status === 'purged'">
+                    <HoverCardTrigger as-child>
+                      <StatusBadge :status="s.status" class="h-6 self-center" />
+                    </HoverCardTrigger>
+                    <HoverCardContent class="w-auto">
+                      <p class="font-medium">Purged</p>
+                      <p class="text-muted-foreground">
+                        Every file in this storage was permanently deleted.
+                      </p>
+                    </HoverCardContent>
+                  </HoverCard>
+                  <HoverCard v-else-if="s.archivedAt">
+                    <HoverCardTrigger as-child>
+                      <Badge variant="destructive" class="h-6 self-center">archived</Badge>
+                    </HoverCardTrigger>
+                    <HoverCardContent class="w-auto space-y-2">
+                      <p class="font-medium">Archived {{ formatRelative(s.archivedAt) }}</p>
+                      <p class="text-muted-foreground">
+                        {{ formatTime(s.archivedAt) }} — this storage no longer serves Git LFS.<br />
+                        Files are kept; nothing is deleted.
+                      </p>
+                    </HoverCardContent>
+                  </HoverCard>
+                </template>
               </span>
             </ItemDescription>
           </div>

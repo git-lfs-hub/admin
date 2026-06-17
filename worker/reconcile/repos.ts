@@ -138,8 +138,9 @@ export async function applyReconciliation(
   return { git, storage, unblocked, cleared };
 }
 
-/** Apply one webhook repo event onto the same path cron uses: presence flip, then per-prefix
- *  link reconcile + RPC-gated auto-unblock (or cleared-reappearance alert). */
+/** Apply one webhook repo event onto the same path cron uses: presence flip, then reconcile every
+ *  prefix this git repo links to + RPC-gated auto-unblock (or cleared-reappearance alert). A repo
+ *  can link to N prefixes (and none until its `.lfsconfig` is scanned). */
 export async function reconcileRepoEvent(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
@@ -150,21 +151,22 @@ export async function reconcileRepoEvent(
   if (!allowedOrgs(env).has(owner.toLowerCase())) return;
   const res = await registry.applyRepoEvent(owner, repo, present);
   if (!res) return;
-  const store = await registry.storageForRepo(owner, repo);
-  if (!store) return;
-  const storage = await registry.reconcileStoragePrefix(store.prefix);
-  const { cleared } = await autoUnblock(env, registry, storage.blockedReused);
-  // Storage-centric notifications (same as the cron path), keyed on the prefix's flip — not
-  // bare repo presence — so we never alert a prefix that didn't change.
-  for (const r of storage.becameUnused) {
-    const { owner: o, repo: p } = splitPrefix(r.prefix);
-    await notify(env, o, p, 'missing');
+  const links = await registry.listLinksForRepo(owner, repo);
+  for (const prefix of new Set(links.map((l) => l.prefix))) {
+    const storage = await registry.reconcileStoragePrefix(prefix);
+    const { cleared } = await autoUnblock(env, registry, storage.blockedReused);
+    // Storage-centric notifications (same as the cron path), keyed on the prefix's flip — not
+    // bare repo presence — so we never alert a prefix that didn't change.
+    for (const r of storage.becameUnused) {
+      const { owner: o, repo: p } = splitPrefix(r.prefix);
+      await notify(env, o, p, 'missing');
+    }
+    for (const r of storage.becameUsed) {
+      const { owner: o, repo: p } = splitPrefix(r.prefix);
+      await notify(env, o, p, 'reappeared');
+    }
+    for (const r of cleared) await notifyClearedReappeared(env, r);
   }
-  for (const r of storage.becameUsed) {
-    const { owner: o, repo: p } = splitPrefix(r.prefix);
-    await notify(env, o, p, 'reappeared');
-  }
-  for (const r of cleared) await notifyClearedReappeared(env, r);
 }
 
 /**
