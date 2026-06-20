@@ -3,6 +3,7 @@ import { Hono, type Context, type Next } from 'hono';
 
 import type { AppEnv } from '@/_env';
 import { scopeFor } from '@/alerts/message';
+import { groupBy } from '@/api/cross-link';
 import { Alerts } from '@/db/alerts';
 import { Registry, type StorageRow } from '@/db/registry';
 import { Storage } from '@/db/storage';
@@ -22,16 +23,28 @@ type StorageEnv = {
 const app = new Hono<StorageEnv>()
   .get('/', async (c) => {
     const registry = Registry.global(c.env);
-    const [rows, repos] = await Promise.all([registry.listStorage(), registry.listRepos()]);
-    // Prefix ⇔ git repo inferred 1:1 by lowercased path, not `.lfsconfig`.
-    const reposByKey = new Map(repos.map((r) => [`${r.owner}/${r.repo}`, r]));
+    const [rows, links] = await Promise.all([
+      registry.listStorage(),
+      registry.listActiveStorageLinks(),
+    ]);
+    // Real prefix→git cross-link from `links` (a prefix can have N consumer repos), not a same-key
+    // guess. Each consumer carries its presence so the UI can flag a missing one.
+    const gitReposByPrefix = groupBy(
+      links,
+      (l) => l.prefix,
+      (l) => ({
+        owner: l.owner,
+        repo: l.repo,
+        status: l.status,
+      }),
+    );
     const gc = gcConfig(c.env);
     const result = await Promise.all(
       rows.map(async (row) => {
         const store = Storage.byPrefix(c.env, row.prefix);
         const [usage, lastAccessedAt] = await Promise.all([store.usage(), store.lastAccessedAt()]);
         const [owner, repo] = row.prefix.split('/');
-        const gitRepo = reposByKey.get(row.prefix.toLowerCase());
+        const gitRepos = gitReposByPrefix.get(row.prefix) ?? [];
         return {
           ...row,
           owner,
@@ -39,9 +52,7 @@ const app = new Hono<StorageEnv>()
           name: row.prefix,
           usage,
           lastAccessedAt,
-          gitRepo: gitRepo
-            ? { owner: gitRepo.owner, repo: gitRepo.repo, status: gitRepo.status }
-            : null,
+          gitRepos,
           willArchiveAt: dueAt.archive(row, gc),
           willPurgeAt: dueAt.purge(row, gc),
           purgeConfirmBy: purgeConfirmDueAt(row, gc),
@@ -234,11 +245,10 @@ async function requireOwnerAdmin(c: Context<StorageEnv>, next: Next) {
   await next();
 }
 
-// Resolve the storage row for `:owner/:repo` into `c.var.storage`, or 404.
+// Resolve the storage row for the `:owner/:repo` prefix path into `c.var.storage`, or 404.
 async function withStorage(c: Context<StorageEnv>, next: Next) {
-  const row = await Registry.global(c.env).storageForRepo(
-    c.req.param('owner')!,
-    c.req.param('repo')!,
+  const row = await Registry.global(c.env).getStorageByPrefix(
+    `${c.req.param('owner')!}/${c.req.param('repo')!}`,
   );
   if (!row) return c.json({ error: 'not_found' }, 404);
   c.set('storage', row);

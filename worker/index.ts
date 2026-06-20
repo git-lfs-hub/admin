@@ -15,6 +15,7 @@ import webhooks from '@/webhooks/index';
 
 export { Registry } from '@/db/registry';
 export { Storage } from '@/db/storage';
+export { Repo } from '@/db/repo';
 export { Alerts } from '@/db/alerts';
 export { BackupWorkflow } from '@/workflows/backup';
 export { ClearWorkflow } from '@/workflows/clear';

@@ -6,6 +6,11 @@ vi.mock('@/github/probeOrg', () => ({
   probeOrg: (...args: unknown[]) => probeOrg(...args),
 }));
 
+const syncLfsconfigs = vi.fn(async (..._a: unknown[]) => {});
+vi.mock('@/reconcile/lfsconfig', () => ({
+  syncLfsconfigs: (...a: unknown[]) => syncLfsconfigs(...a),
+}));
+
 const orgApiMock = vi.fn();
 // Accounts the App is installed on — what `installedOrgs` returns. Set per test via fakeRegistry.
 let installations: { login: string; id: number }[] = [];
@@ -99,6 +104,7 @@ function fakeRegistry(installed: string[], tracked: { org: string; status: strin
 
 beforeEach(() => {
   probeOrg.mockReset();
+  syncLfsconfigs.mockReset();
   orgApiMock.mockReset();
   unblockRepo.mockReset();
   unblockRepo.mockResolvedValue(undefined);
@@ -120,7 +126,7 @@ describe('reconcileRepos', () => {
 
   test('install for org outside GITHUB_ORGS is ignored', async () => {
     const registry = fakeRegistry(['a', 'stranger']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     await reconcileRepos(env, registry);
     expect(probeOrg).toHaveBeenCalledOnce();
     expect(registry.orgStatuses.map((s: { org: string }) => s.org)).toEqual(['a']);
@@ -131,6 +137,7 @@ describe('reconcileRepos', () => {
     probeOrg.mockResolvedValue({
       status: 'active',
       activeRepos: new Set(['alice/foo']),
+      scans: [],
     } satisfies OrgProbeResult);
     await reconcileRepos(env, registry);
     expect(registry.upsertOrgStatus).toHaveBeenCalledWith('alice', 'active', null);
@@ -143,7 +150,11 @@ describe('reconcileRepos', () => {
   test('installed org with no prior storage is still probed (onboarding gap closed)', async () => {
     // No storage rows anywhere — reconcile is driven purely by the install list now.
     const registry = fakeRegistry(['newbie']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['newbie/repo']) });
+    probeOrg.mockResolvedValue({
+      status: 'active',
+      activeRepos: new Set(['newbie/repo']),
+      scans: [],
+    });
     await reconcileRepos(env, registry);
     expect(probeOrg).toHaveBeenCalledOnce();
     expect(registry.getLastReconcileInput()).toEqual({
@@ -161,7 +172,7 @@ describe('reconcileRepos', () => {
         { org: 'gone', status: 'active' },
       ],
     );
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     const r = await reconcileRepos(env, registry);
     expect(registry.upsertOrgStatus).toHaveBeenCalledWith('gone', 'no_installation');
     expect(r.orgs.no_installation).toContain('gone');
@@ -171,7 +182,7 @@ describe('reconcileRepos', () => {
 
   test('uninstall sweep: org already no_installation is not re-marked', async () => {
     const registry = fakeRegistry(['a'], [{ org: 'gone', status: 'no_installation' }]);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     await reconcileRepos(env, registry);
     expect(registry.upsertOrgStatus).not.toHaveBeenCalledWith('gone', 'no_installation');
   });
@@ -179,7 +190,7 @@ describe('reconcileRepos', () => {
   test('non-active org not in activeOrgs; status recorded with error', async () => {
     const registry = fakeRegistry(['a', 'b']);
     probeOrg
-      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']), scans: [] })
       .mockResolvedValueOnce({ status: 'forbidden', error: '403' });
     await reconcileRepos(env, registry);
     expect(registry.getLastReconcileInput()?.activeOrgs).toEqual(new Set(['a']));
@@ -192,7 +203,7 @@ describe('reconcileRepos', () => {
   test('missing org → activeRepos union excludes it', async () => {
     const registry = fakeRegistry(['a', 'b']);
     probeOrg
-      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']), scans: [] })
       .mockResolvedValueOnce({ status: 'missing', error: '404' });
     await reconcileRepos(env, registry);
     const input = registry.getLastReconcileInput()!;
@@ -211,7 +222,7 @@ describe('reconcileRepos', () => {
   test('cold-start guard: all orgs enumerated → full scan', async () => {
     const registry = fakeRegistry(['a', 'b']);
     probeOrg
-      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']), scans: [] })
       .mockResolvedValueOnce({ status: 'forbidden', error: '403' }); // definitive, still trustworthy
     const r = await reconcileRepos(env, registry);
     expect(r.fullScan).toBe(true);
@@ -220,7 +231,7 @@ describe('reconcileRepos', () => {
   test('cold-start guard: a transient_error org → not a full scan', async () => {
     const registry = fakeRegistry(['a', 'b']);
     probeOrg
-      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']) })
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']), scans: [] })
       .mockResolvedValueOnce({ status: 'transient_error', error: '5xx' });
     const r = await reconcileRepos(env, registry);
     expect(r.fullScan).toBe(false);
@@ -228,7 +239,11 @@ describe('reconcileRepos', () => {
 
   test('summary counts reflect git + storage results', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x', 'a/y']) });
+    probeOrg.mockResolvedValue({
+      status: 'active',
+      activeRepos: new Set(['a/x', 'a/y']),
+      scans: [],
+    });
     registry.setGitResult({
       missing: [{}, {}],
       reappeared: [{ owner: 'a', repo: 'm', name: 'a/m' }],
@@ -254,7 +269,7 @@ describe('reconcileRepos', () => {
 
   test('alerts are storage-state level-triggered: unused → missing, archived → archived', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     registry.setStorageRows([
       { prefix: 'a/orphan', status: 'unused', archivedAt: null }, // never tracked → missing
       { prefix: 'a/gone', status: 'unused', archivedAt: null }, // repo deleted → missing
@@ -272,7 +287,7 @@ describe('reconcileRepos', () => {
 
   test('reappearance (storage became used) → reappeared, clears missing', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     registry.setStorageResult({
       becameUnused: [],
       becameUsed: [{ prefix: 'a/back', archivedAt: null, clearedAt: null }],
@@ -285,7 +300,7 @@ describe('reconcileRepos', () => {
 
   test('auto-unblock: present+blocked (clearedAt null) → unblockRepo + registry.unblock', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     registry.setStorageResult({
       becameUnused: [],
       becameUsed: [],
@@ -298,7 +313,7 @@ describe('reconcileRepos', () => {
 
   test('present+blocked + clearedAt set → no unblock, notify-only reappeared alert', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/z']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/z']), scans: [] });
     registry.setStorageResult({
       becameUnused: [],
       becameUsed: [],
@@ -313,7 +328,7 @@ describe('reconcileRepos', () => {
 
   test('auto-unblock (clearedAt null) does not emit the cleared alert', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     registry.setStorageResult({
       becameUnused: [],
       becameUsed: [],
@@ -327,7 +342,7 @@ describe('reconcileRepos', () => {
 
   test('auto-unblock: RPC failure leaves the block (no registry.unblock)', async () => {
     const registry = fakeRegistry(['a']);
-    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']) });
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
     registry.setStorageResult({
       becameUnused: [],
       becameUsed: [],
@@ -361,7 +376,11 @@ describe('reconcileRepos', () => {
     orgApiMock
       .mockRejectedValueOnce(new GithubError('no_installation', 'no install for ghost'))
       .mockResolvedValueOnce({});
-    probeOrg.mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['alice/x']) });
+    probeOrg.mockResolvedValueOnce({
+      status: 'active',
+      activeRepos: new Set(['alice/x']),
+      scans: [],
+    });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await reconcileRepos(env, registry);
     expect(r.orgs.no_installation).toEqual(['ghost']);
@@ -387,6 +406,35 @@ describe('reconcileRepos', () => {
     expect(registry.orgStatuses).toEqual([{ org: 'a', status: 'transient_error', error: 'boom' }]);
     warn.mockRestore();
   });
+
+  test('lfsconfig sweep: scans from every active probe forwarded to syncLfsconfigs', async () => {
+    const registry = fakeRegistry(['a', 'b']);
+    const sA = [{ owner: 'a', name: 'x', branch: 'main', headSha: 'h1', lfsconfig: null }];
+    const sB = [
+      {
+        owner: 'b',
+        name: 'y',
+        branch: 'main',
+        headSha: 'h2',
+        lfsconfig: { oid: 'o', text: '[lfs]' },
+      },
+    ];
+    probeOrg
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['a/x']), scans: sA })
+      .mockResolvedValueOnce({ status: 'active', activeRepos: new Set(['b/y']), scans: sB });
+    await reconcileRepos(env, registry);
+    expect(syncLfsconfigs).toHaveBeenCalledWith(env, [...sA, ...sB]);
+  });
+
+  test('lfsconfig sweep failure is isolated — presence summary still returns', async () => {
+    const registry = fakeRegistry(['a']);
+    probeOrg.mockResolvedValue({ status: 'active', activeRepos: new Set(['a/x']), scans: [] });
+    syncLfsconfigs.mockRejectedValueOnce(new Error('sweep boom'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await reconcileRepos(env, registry);
+    expect(r.fullScan).toBe(true);
+    err.mockRestore();
+  });
 });
 
 describe('reconcileRepoEvent', () => {
@@ -397,9 +445,10 @@ describe('reconcileRepoEvent', () => {
     becameUsed?: unknown[];
     blockedReused?: unknown[];
   }) {
+    const prefix = (opts.store as { prefix: string } | undefined)?.prefix;
     return {
       applyRepoEvent: vi.fn(async () => opts.applyResult),
-      storageForRepo: vi.fn(async () => opts.store ?? null),
+      listLinksForRepo: vi.fn(async () => (prefix ? [{ prefix }] : [])),
       reconcileStoragePrefix: vi.fn(async () => ({
         becameUnused: opts.becameUnused ?? [],
         becameUsed: opts.becameUsed ?? [],
@@ -422,14 +471,14 @@ describe('reconcileRepoEvent', () => {
     });
     await reconcileRepoEvent(env, registry, 'a', 'x', false);
     expect(registry.applyRepoEvent).toHaveBeenCalledWith('a', 'x', false);
-    expect(registry.storageForRepo).toHaveBeenCalledWith('a', 'x');
+    expect(registry.listLinksForRepo).toHaveBeenCalledWith('a', 'x');
     expect(unblockRepo).not.toHaveBeenCalled();
   });
 
   test('untracked repo (null) → no storage lookup, no unblock', async () => {
     const registry = eventRegistry({ applyResult: null });
     await reconcileRepoEvent(env, registry, 'a', 'x', true);
-    expect(registry.storageForRepo).not.toHaveBeenCalled();
+    expect(registry.listLinksForRepo).not.toHaveBeenCalled();
     expect(unblockRepo).not.toHaveBeenCalled();
     expect(registry.unblock).not.toHaveBeenCalled();
   });

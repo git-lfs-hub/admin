@@ -45,13 +45,53 @@ describe('reconcileObjects', () => {
     expect(row?.source).toBe('storage_scan');
   });
 
-  test('leaves indexed objects absent from storage untouched', async () => {
+  test('leaves a pending object (presigned, never uploaded) untouched', async () => {
     const store = env.STORAGE.getByName('alice/repo');
-    await store.recordObject('gone', 5, 'upload'); // pending, not in storage
+    await store.recordObject('gone', 5, 'upload'); // pending, never landed in R2
 
     const res = await reconcileObjects(env.LFS_BUCKET, store, 'alice/repo/');
-    expect(res).toEqual({ added: 0, confirmed: 0, resized: 0 });
+    expect(res).toEqual({ added: 0, confirmed: 0, resized: 0, present: 0, missing: 0 });
     expect((await store.getObject('gone'))?.status).toBe('pending');
+  });
+
+  test('marks a present row whose bytes vanished as missing (empty prefix)', async () => {
+    const store = env.STORAGE.getByName('alice/repo');
+    await store.recordObject('vanished', 7, 'verify'); // present, no R2 bytes
+
+    const res = await reconcileObjects(env.LFS_BUCKET, store, 'alice/repo/');
+    expect(res.missing).toBe(1);
+    expect((await store.getObject('vanished'))?.status).toBe('missing');
+  });
+
+  test('recovers a missing row when its bytes reappear', async () => {
+    const store = env.STORAGE.getByName('alice/repo');
+    await store.recordObject('back', 4, 'verify');
+    await reconcileObjects(env.LFS_BUCKET, store, 'alice/repo/'); // → missing
+    expect((await store.getObject('back'))?.status).toBe('missing');
+
+    await seedR2([['alice/repo/back', 4]]);
+    const res = await reconcileObjects(env.LFS_BUCKET, store, 'alice/repo/');
+    expect(res.confirmed).toBe(1);
+    expect((await store.getObject('back'))?.status).toBe('present');
+  });
+
+  test('skips the missing sweep when markMissing is false (cleared prefix)', async () => {
+    const store = env.STORAGE.getByName('alice/repo');
+    await store.recordObject('cold', 9, 'verify'); // present, bytes cleared to cold storage
+
+    const res = await reconcileObjects(env.LFS_BUCKET, store, 'alice/repo/', false);
+    expect(res.missing).toBe(0);
+    expect((await store.getObject('cold'))?.status).toBe('present');
+  });
+
+  test('leaves a present row whose bytes exist untouched', async () => {
+    const store = env.STORAGE.getByName('alice/repo');
+    await store.recordObject('keep', 3, 'verify');
+    await seedR2([['alice/repo/keep', 3]]);
+
+    const res = await reconcileObjects(env.LFS_BUCKET, store, 'alice/repo/');
+    expect(res.missing).toBe(0);
+    expect((await store.getObject('keep'))?.status).toBe('present');
   });
 
   test('scopes to the given prefix and paginates', async () => {

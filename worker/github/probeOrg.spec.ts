@@ -7,22 +7,30 @@ function mkOrgApi(org = 'alice') {
   return new GithubOrgApi('t', org);
 }
 
-function repoResponse(rows: { owner: string; name: string }[], link?: string) {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (link) headers.link = link;
-  // GET /installation/repositories shape: octokit paginate extracts `.repositories`.
-  const res = new Response(
-    JSON.stringify({
-      total_count: rows.length,
-      repositories: rows.map((r) => ({ name: r.name, owner: { login: r.owner } })),
-    }),
-    { status: 200, headers },
-  );
-  // octokit's paginator reads `response.url` for namespaced (repositories) responses; the
-  // Response default is '' which would throw `new URL('')`. Real fetch always sets it.
-  Object.defineProperty(res, 'url', {
-    value: 'https://api.github.com/installation/repositories?per_page=100',
+function node(owner: string, name: string) {
+  return {
+    name,
+    owner: { login: owner },
+    defaultBranchRef: { name: 'main', target: { oid: 'h' } },
+    object: null,
+  };
+}
+
+// `scanRepos` posts to the GraphQL endpoint; octokit.graphql returns the `data` field. A 200
+// carries `{ data }`; an error status carries the raw body (octokit throws by HTTP status).
+function gqlPage(nodes: unknown[], hasNextPage = false, endCursor: string | null = null) {
+  return gql({
+    rateLimit: { remaining: 5000 },
+    repositoryOwner: { repositories: { pageInfo: { endCursor, hasNextPage }, nodes } },
   });
+}
+
+function gql(data: unknown) {
+  const res = new Response(JSON.stringify({ data }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+  Object.defineProperty(res, 'url', { value: 'https://api.github.com/graphql' });
   return res;
 }
 
@@ -31,34 +39,24 @@ beforeEach(() => {
 });
 
 describe('probeOrg — success', () => {
-  test('200 with rows → active, lowercased key set', async () => {
+  test('200 with rows → active, lowercased key set + scans', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        repoResponse([
-          { owner: 'Alice', name: 'Foo' },
-          { owner: 'alice', name: 'bar' },
-        ]),
-      ),
+      vi.fn().mockResolvedValue(gqlPage([node('Alice', 'Foo'), node('alice', 'bar')])),
     );
     const r = await probeOrg(mkOrgApi('alice'));
     expect(r.status).toBe('active');
     expect(r.activeRepos).toEqual(new Set(['alice/foo', 'alice/bar']));
+    expect(r.scans).toHaveLength(2);
   });
 
-  test('walks pages via Link rel=next', async () => {
+  test('walks pages via the GraphQL cursor', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        repoResponse(
-          [{ owner: 'a', name: '1' }],
-          '<https://api.github.com/organizations/1/repos?page=2&per_page=100&type=all>; rel="next"',
-        ),
-      )
-      .mockResolvedValueOnce(repoResponse([{ owner: 'a', name: '2' }]));
+      .mockResolvedValueOnce(gqlPage([node('a', '1')], true, 'c1'))
+      .mockResolvedValueOnce(gqlPage([node('a', '2')]));
     vi.stubGlobal('fetch', fetchMock);
     const r = await probeOrg(mkOrgApi('a'));
-    expect(r.status).toBe('active');
     expect(r.activeRepos).toEqual(new Set(['a/1', 'a/2']));
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -85,8 +83,8 @@ describe('probeOrg — listing failure propagates (caller classifies)', () => {
     await expect(probeOrg(mkOrgApi('a'))).rejects.toBeInstanceOf(GithubError);
   });
 
-  test('200 empty array → transient_error', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(repoResponse([])));
+  test('owner with no repos → transient_error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(gqlPage([])));
     expect((await probeOrg(mkOrgApi('a'))).status).toBe('transient_error');
   });
 });

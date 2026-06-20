@@ -4,7 +4,7 @@ import type { InferResponseType } from 'hono/client';
 
 import { api } from '@/api';
 
-// Storage prefix lifecycle, cross-linked to its git repo by same-key lookup.
+// Storage prefix lifecycle, cross-linked to its consumer git repos via `.lfsconfig` links.
 export type StorageRow = InferResponseType<typeof api.api.storage.$get>['storage'][number];
 export { type StorageStatus } from '@worker/db/registry-schema';
 
@@ -27,5 +27,14 @@ function byActionable(a: StorageRow, b: StorageRow) {
 
 function rank(r: StorageRow) {
   if (r.activeOp === 'purge') return 0;
-  return { unused: 1, archived: 2, used: 3, purged: 4, purging: 0, clearing: 0 }[lifecycleState(r)];
+  return {
+    missing: 0,
+    unused: 1,
+    archived: 2,
+    used: 3,
+    pending: 3,
+    purged: 4,
+    purging: 0,
+    clearing: 0,
+  }[lifecycleState(r)];
 }

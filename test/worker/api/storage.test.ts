@@ -87,10 +87,21 @@ async function seedUnused(prefix: string) {
 }
 
 describe('GET /api/storage', () => {
-  test('returns empty array when no storage prefixes exist (localhost bypass)', async () => {
+  // Localhost fetch fires the dev reconcile. `design-assets` is storage only once R2 has objects
+  // (not from the link), so seed one first; then its two linked repos read `used`.
+  test('localhost bypass serves the dev fixture link graph (shared prefix, two consumers)', async () => {
+    await env.LFS_BUCKET.put('test-org/design-assets/o1', 'x');
     const res = await exports.default.fetch('http://localhost/api/storage');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ storage: [] });
+    const { storage } = (await res.json()) as {
+      storage: { prefix: string; status: string; gitRepos: { owner: string; repo: string }[] }[];
+    };
+    const shared = storage.find((s) => s.prefix === 'test-org/design-assets');
+    expect(shared?.status).toBe('used');
+    expect(shared?.gitRepos.map((g) => `${g.owner}/${g.repo}`).sort()).toEqual([
+      'test-org/marketing-app',
+      'test-org/marketing-site',
+    ]);
   });
 
   test('returns all prefixes across statuses with zero object stats when empty', async () => {
@@ -111,7 +122,7 @@ describe('GET /api/storage', () => {
 
     expect(body.storage).toHaveLength(2);
     const byRepo = Object.fromEntries(body.storage.map((r) => [r.repo, r]));
-    expect(byRepo.a.status).toBe('used');
+    expect(byRepo.a.status).toBe('pending');
     expect(byRepo.b.status).toBe('unused');
     for (const r of body.storage) {
       expect(r.usage.present).toEqual({ count: 0, size: 0 });
@@ -120,18 +131,19 @@ describe('GET /api/storage', () => {
     }
   });
 
-  test('cross-links the matching git repo (same-key), null when none', async () => {
+  test('cross-links consumer git repos from links; empty when unlinked', async () => {
     await reg().upsertStorage('alice/a');
     await reg().upsertRepo('alice', 'a');
+    await reg().syncLinks('alice', 'a', new Set(['alice/a']));
     await reg().upsertStorage('bob/orphan');
 
     const res = await exports.default.fetch('http://localhost/api/storage');
     const body = (await res.json()) as {
-      storage: Array<{ repo: string; gitRepo: { status: string } | null }>;
+      storage: Array<{ repo: string; gitRepos: Array<{ status: string }> }>;
     };
     const byRepo = Object.fromEntries(body.storage.map((r) => [r.repo, r]));
-    expect(byRepo.a.gitRepo).toEqual({ owner: 'alice', repo: 'a', status: 'active' });
-    expect(byRepo.orphan.gitRepo).toBeNull();
+    expect(byRepo.a.gitRepos).toEqual([{ owner: 'alice', repo: 'a', status: 'active' }]);
+    expect(byRepo.orphan.gitRepos).toEqual([]);
   });
 
   test('returns lastAccessedAt from the index', async () => {
@@ -697,9 +709,10 @@ describe('POST /api/storage/:o/:r/purge (no-cold path)', () => {
     warn.mockRestore();
   });
 
-  test('409 in_use when a matching git repo is active', async () => {
+  test('409 in_use when an active git repo links the prefix', async () => {
     await seedArchived('alice/r');
-    await reg().upsertRepo('alice', 'r'); // active git repo → prefix in use
+    await reg().upsertRepo('alice', 'r');
+    await reg().syncLinks('alice', 'r', new Set(['alice/r'])); // active link → prefix in use
     const { env: e } = appEnv();
     const res = await storageApp.request('/alice/r/purge/preview', { method: 'POST' }, e);
     expect(await res.json()).toMatchObject({ error: 'in_use' });

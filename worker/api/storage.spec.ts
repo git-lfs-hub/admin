@@ -5,9 +5,9 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 // mocked so a write that passes the guard surfaces as the handler's own result (404 here),
 // distinguishing "guard let it through" (404) from "guard blocked it" (403).
 const registryMock = {
-  storageForRepo: vi.fn(async () => null as unknown),
+  getStorageByPrefix: vi.fn(async () => null as unknown),
+  listActiveStorageLinks: vi.fn(async () => [] as unknown[]),
   listStorage: vi.fn(async () => [] as unknown[]),
-  listRepos: vi.fn(async () => [] as unknown[]),
 };
 const storageMock = {
   usage: vi.fn(async () => ({ present: { count: 1, size: 1 } })),
@@ -54,20 +54,20 @@ function del(path: string, host = 'admin.example.com') {
 describe('storage mutation scoping', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    registryMock.storageForRepo.mockResolvedValue(null);
+    registryMock.getStorageByPrefix.mockResolvedValue(null);
   });
 
   test('archive on an owner the caller does not admin → 403, never touches the DB', async () => {
     const res = await post('/api/storage/org-b/repo/archive');
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'forbidden' });
-    expect(registryMock.storageForRepo).not.toHaveBeenCalled();
+    expect(registryMock.getStorageByPrefix).not.toHaveBeenCalled();
   });
 
   test('archive on an owner the caller admins passes the guard (reaches handler → 404)', async () => {
     const res = await post('/api/storage/org-a/repo/archive');
     expect(res.status).toBe(404); // withStorage ran (guard passed); row absent
-    expect(registryMock.storageForRepo).toHaveBeenCalledWith('org-a', 'repo');
+    expect(registryMock.getStorageByPrefix).toHaveBeenCalledWith('org-a/repo');
   });
 
   test('purge on a non-admin owner → 403', async () => {
@@ -77,7 +77,7 @@ describe('storage mutation scoping', () => {
 
   test('clear is guarded + resolved, then gated on cold storage', async () => {
     expect((await post('/api/storage/org-b/repo/clear')).status).toBe(403); // guard blocks
-    registryMock.storageForRepo.mockResolvedValue({ prefix: 'org-a/repo' }); // row exists
+    registryMock.getStorageByPrefix.mockResolvedValue({ prefix: 'org-a/repo' }); // row exists
     const res = await post('/api/storage/org-a/repo/clear');
     expect(res.status).toBe(409); // guard + withStorage passed; cold storage off in this mock
     expect(await res.json()).toEqual({ error: 'cold_storage_disabled' });
@@ -85,7 +85,7 @@ describe('storage mutation scoping', () => {
 
   test('delete-backup is guarded + resolved, then gated on cold storage', async () => {
     expect((await del('/api/storage/org-b/repo/backup')).status).toBe(403); // guard blocks
-    registryMock.storageForRepo.mockResolvedValue({ prefix: 'org-a/repo', backedUpAt: 'x' });
+    registryMock.getStorageByPrefix.mockResolvedValue({ prefix: 'org-a/repo', backedUpAt: 'x' });
     const res = await del('/api/storage/org-a/repo/backup');
     expect(res.status).toBe(409); // guard + withStorage passed; cold storage off in this mock
     expect(await res.json()).toEqual({ error: 'cold_storage_disabled' });

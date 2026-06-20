@@ -5,25 +5,48 @@
 // Authority on a row's resting lifecycle state; both surfaces derive from this rather than
 // re-checking `status`/`archivedAt` inline. `purging` is an in-flight overlay (active op), not a
 // resting state, so it's never returned. Minimal row shape so worker + client rows both fit.
-export type LifecycleRow = { status: 'used' | 'unused' | 'purged'; archivedAt: string | null };
+export type LifecycleRow = {
+  status: 'pending' | 'used' | 'missing' | 'unused' | 'purged';
+  archivedAt: string | null;
+};
 
 export function lifecycleState(row: LifecycleRow): LifecycleState {
   if (row.status === 'purged') return 'purged';
   if (row.archivedAt) return 'archived';
+  if (row.status === 'pending') return 'pending';
+  if (row.status === 'missing') return 'missing';
   return row.status === 'unused' ? 'unused' : 'used';
 }
 
-// The lifecycle states a storage prefix moves through. Slack events (AlertKind) and the UI's row
-// status both reduce to one of these. `action` is the default one-click verb a non-terminal state
-// offers (unused → Archive, archived → Restore); recovery/terminal states carry none.
-export type LifecycleState = 'used' | 'unused' | 'archived' | 'clearing' | 'purging' | 'purged';
+// The lifecycle states a storage prefix moves through; Slack events and the UI row both reduce to
+// one. `action` is the default one-click verb a state offers (unused → Archive, archived → Restore).
+export type LifecycleState =
+  | 'pending'
+  | 'used'
+  | 'missing'
+  | 'unused'
+  | 'archived'
+  | 'clearing'
+  | 'purging'
+  | 'purged';
 
 type StateMeta = { emoji: string; line: string; description?: string; action?: StorageAction };
 
 export const STORAGE_STATES: Record<LifecycleState, StateMeta> = {
+  pending: {
+    emoji: '⏳',
+    line: 'storage pending — referenced but no files uploaded yet',
+    description: 'A repo references this storage but no files have landed in R2 yet.',
+  },
   used: {
     emoji: '🔄',
     line: 'storage back in use',
+  },
+  missing: {
+    emoji: '❌',
+    line: 'storage missing — uploaded files are gone from R2',
+    description:
+      'Files were uploaded but their bytes are gone from R2 — data loss.\nRe-push them from a Git LFS client to restore.',
   },
   unused: {
     emoji: '⚠️',

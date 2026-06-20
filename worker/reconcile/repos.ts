@@ -1,5 +1,5 @@
 import { orgsFromEnv } from '@git-lfs-hub/lib/auth';
-import { GithubApi, GithubError } from '@git-lfs-hub/lib/github';
+import { GithubApi, GithubError, type RepoScan } from '@git-lfs-hub/lib/github';
 
 import { notify, restingAlert } from '@/alerts/lifecycle';
 import type {
@@ -10,6 +10,7 @@ import type {
 } from '@/db/registry';
 import type { OrgStatus } from '@/db/registry-schema';
 import { probeOrg, type OrgProbeResult } from '@/github/probeOrg';
+import { syncLfsconfigs } from '@/reconcile/lfsconfig';
 import { restore } from '@/server/operations';
 
 export type OrgsByStatus = Record<OrgStatus, string[]>;
@@ -31,14 +32,16 @@ export type ReconcileSummary = {
 export async function reconcileRepos(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
+  local = false,
 ): Promise<ReconcileSummary> {
-  const app = await GithubApi.forApp(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+  const app = await githubApp(env, local);
 
   const allow = allowedOrgs(env);
   const accounts = (await app.installedOrgs()).filter((a) => allow.has(a.login.toLowerCase()));
   if (accounts.length === 0) return emptySummary();
 
   const activeRepos = new Set<string>();
+  const scans: RepoScan[] = [];
   const orgs: OrgsByStatus = {
     active: [],
     missing: [],
@@ -59,6 +62,7 @@ export async function reconcileRepos(
     await registry.upsertOrgStatus(org, probe.status, probe.error ?? null);
     if (probe.status === 'active') {
       for (const k of probe.activeRepos) activeRepos.add(k);
+      scans.push(...probe.scans);
     }
   }
 
@@ -72,6 +76,13 @@ export async function reconcileRepos(
     orgs.no_installation.push(row.org);
   }
 
+  // Links before the storage-state reconcile below, so a discover+link in the same tick resolves in
+  // one pass (no 2-tick lag). Isolated: a sweep failure must not sink the reconcile below.
+  try {
+    await syncLfsconfigs(env, scans);
+  } catch (e) {
+    console.error('[reconcile] lfsconfig sweep failed:', e);
+  }
   const { git, unblocked, cleared } = await applyReconciliation(
     env,
     registry,
@@ -95,8 +106,17 @@ export async function reconcileRepos(
   };
 }
 
+// Local dev (no App key) swaps in a mock client; `__DEV__` is false in the deployed bundle, so
+// esbuild drops this branch and the `@dev` import.
+async function githubApp(env: CloudflareBindings, local: boolean): Promise<GithubApi> {
+  if (__DEV__ && (local || (env.ENV as string) === 'local')) {
+    return (await import('@dev/mock-github')).mockGithubApp(env);
+  }
+  return GithubApi.forApp(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+}
+
 /** Reconcile git presence, then storage link state, then auto-unblock present-but-blocked
- *  prefixes. Shared with the local-dev fixture path (`dev/reconcileLocal.ts`). */
+ *  prefixes. */
 export async function applyReconciliation(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
@@ -129,8 +149,9 @@ export async function applyReconciliation(
   return { git, storage, unblocked, cleared };
 }
 
-/** Apply one webhook repo event onto the same path cron uses: presence flip, then per-prefix
- *  link reconcile + RPC-gated auto-unblock (or cleared-reappearance alert). */
+/** Apply one webhook repo event onto the same path cron uses: presence flip, then reconcile every
+ *  prefix this git repo links to + RPC-gated auto-unblock (or cleared-reappearance alert). A repo
+ *  can link to N prefixes (and none until its `.lfsconfig` is scanned). */
 export async function reconcileRepoEvent(
   env: CloudflareBindings,
   registry: DurableObjectStub<Registry>,
@@ -141,21 +162,22 @@ export async function reconcileRepoEvent(
   if (!allowedOrgs(env).has(owner.toLowerCase())) return;
   const res = await registry.applyRepoEvent(owner, repo, present);
   if (!res) return;
-  const store = await registry.storageForRepo(owner, repo);
-  if (!store) return;
-  const storage = await registry.reconcileStoragePrefix(store.prefix);
-  const { cleared } = await autoUnblock(env, registry, storage.blockedReused);
-  // Storage-centric notifications (same as the cron path), keyed on the prefix's flip — not
-  // bare repo presence — so we never alert a prefix that didn't change.
-  for (const r of storage.becameUnused) {
-    const { owner: o, repo: p } = splitPrefix(r.prefix);
-    await notify(env, o, p, 'missing');
+  const links = await registry.listLinksForRepo(owner, repo);
+  for (const prefix of new Set(links.map((l) => l.prefix))) {
+    const storage = await registry.reconcileStoragePrefix(prefix);
+    const { cleared } = await autoUnblock(env, registry, storage.blockedReused);
+    // Storage-centric notifications (same as the cron path), keyed on the prefix's flip — not
+    // bare repo presence — so we never alert a prefix that didn't change.
+    for (const r of storage.becameUnused) {
+      const { owner: o, repo: p } = splitPrefix(r.prefix);
+      await notify(env, o, p, 'missing');
+    }
+    for (const r of storage.becameUsed) {
+      const { owner: o, repo: p } = splitPrefix(r.prefix);
+      await notify(env, o, p, 'reappeared');
+    }
+    for (const r of cleared) await notifyClearedReappeared(env, r);
   }
-  for (const r of storage.becameUsed) {
-    const { owner: o, repo: p } = splitPrefix(r.prefix);
-    await notify(env, o, p, 'reappeared');
-  }
-  for (const r of cleared) await notifyClearedReappeared(env, r);
 }
 
 /**

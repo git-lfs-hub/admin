@@ -40,7 +40,7 @@ const storage = [
     unusedAt: '2026-05-20T00:00:00Z',
     archivedAt: '2026-05-25T00:00:00Z',
     willArchiveAt: null,
-    gitRepo: { owner: 'org', repo: 'archived-repo', status: 'missing' },
+    gitRepos: [{ owner: 'org', repo: 'archived-repo', status: 'missing' }],
   },
   {
     ...base,
@@ -52,7 +52,7 @@ const storage = [
     unusedAt: '2026-05-20T00:00:00Z',
     archivedAt: null,
     willArchiveAt: '2026-06-20T00:00:00Z',
-    gitRepo: { owner: 'org', repo: 'unused-repo', status: 'missing' },
+    gitRepos: [{ owner: 'org', repo: 'unused-repo', status: 'missing' }],
   },
   {
     ...base,
@@ -63,7 +63,7 @@ const storage = [
     status: 'used',
     archivedAt: null,
     willArchiveAt: null,
-    gitRepo: { owner: 'org', repo: 'used-repo', status: 'active' },
+    gitRepos: [{ owner: 'org', repo: 'used-repo', status: 'active' }],
   },
 ];
 

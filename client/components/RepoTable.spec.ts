@@ -33,7 +33,7 @@ const repo: RepoRow = {
   firstSeen: '2026-01-15T00:00:00Z',
   updatedAt: '2026-05-24T12:00:00Z',
   missingAt: null,
-  storage: { prefix: 'org/my-repo', status: 'used', archivedAt: null },
+  storage: [{ prefix: 'org/my-repo', status: 'used', archivedAt: null }],
 };
 
 const openHoverCard = async (trigger: ReturnType<ReturnType<typeof mount>['find']>) => {
@@ -60,23 +60,43 @@ describe('RepoTable', () => {
   });
 
   it('badges purged storage but not the now-redundant unused state', async () => {
-    const purged = await mountTable([{ ...repo, storage: { ...repo.storage!, status: 'purged' } }]);
+    const purged = await mountTable([
+      { ...repo, storage: [{ ...repo.storage[0], status: 'purged' }] },
+    ]);
     expect(purged.find('[data-slot="storage"]').text()).toContain('purged');
 
     // `unused` is implied by the repo being missing — no badge.
-    const unused = await mountTable([{ ...repo, storage: { ...repo.storage!, status: 'unused' } }]);
+    const unused = await mountTable([
+      { ...repo, storage: [{ ...repo.storage[0], status: 'unused' }] },
+    ]);
     expect(unused.find('[data-slot="storage"]').text()).not.toContain('unused');
   });
 
   it('badges archived storage', async () => {
     const wrapper = await mountTable([
-      { ...repo, storage: { ...repo.storage!, archivedAt: '2026-05-25T00:00:00Z' } },
+      { ...repo, storage: [{ ...repo.storage[0], archivedAt: '2026-05-25T00:00:00Z' }] },
     ]);
     expect(wrapper.find('[data-slot="storage"]').text()).toContain('archived');
   });
 
+  it('lists every linked storage prefix when a repo consumes several', async () => {
+    const wrapper = await mountTable([
+      {
+        ...repo,
+        storage: [
+          { prefix: 'org/a', status: 'used', archivedAt: null },
+          { prefix: 'org/b', status: 'used', archivedAt: null },
+        ],
+      },
+    ]);
+    const storage = wrapper.find('[data-slot="storage"]');
+    expect(storage.text()).toContain('org/a');
+    expect(storage.text()).toContain('org/b');
+    expect(storage.findAll('a[href="/storage"]')).toHaveLength(2);
+  });
+
   it('omits the storage row entirely when no storage prefix matches', async () => {
-    const wrapper = await mountTable([{ ...repo, storage: null }]);
+    const wrapper = await mountTable([{ ...repo, storage: [] }]);
     expect(wrapper.find('a[href="/storage"]').exists()).toBe(false);
     expect(wrapper.find('[data-slot="storage"]').exists()).toBe(false);
   });

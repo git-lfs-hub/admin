@@ -87,6 +87,12 @@ const runConfirm = (r: StorageRow) => {
   confirm({ archive, restore, purge, backup, deleteBackup, clear }[confirmFor.value!.action], r);
   confirmFor.value = null;
 };
+
+// Purge deletes files / Archive stops serving for every git repo whose `.lfsconfig` points here, so
+// the confirm names them. Restore and the cold-storage verbs don't change what consumers see.
+function warnsConsumers(action: StorageAction): boolean {
+  return action === 'archive' || action === 'purge';
+}
 </script>
 
 <template>
@@ -104,20 +110,46 @@ const runConfirm = (r: StorageRow) => {
 
             <!-- `used` names the repo it serves. -->
             <div data-slot="status" class="shrink-0">
-              <HoverCard v-if="r.status === 'used'">
+              <HoverCard v-if="lifecycleState(r) === 'missing'">
+                <HoverCardTrigger as-child>
+                  <Badge variant="destructive" class="h-6">missing</Badge>
+                </HoverCardTrigger>
+                <HoverCardContent side="left" class="w-auto">
+                  <p class="font-medium">Storage missing</p>
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    {{ STORAGE_STATES.missing.description }}
+                  </p>
+                </HoverCardContent>
+              </HoverCard>
+
+              <HoverCard v-else-if="lifecycleState(r) === 'pending'">
+                <HoverCardTrigger as-child>
+                  <Badge variant="secondary" class="h-6">pending</Badge>
+                </HoverCardTrigger>
+                <HoverCardContent side="left" class="w-auto">
+                  <p class="font-medium">Upload pending</p>
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    {{ STORAGE_STATES.pending.description }}
+                  </p>
+                </HoverCardContent>
+              </HoverCard>
+
+              <HoverCard v-else-if="r.status === 'used'">
                 <HoverCardTrigger as-child>
                   <StatusBadge status="used" class="h-6" />
                 </HoverCardTrigger>
                 <HoverCardContent side="left" class="w-auto">
                   <p class="font-medium">Used</p>
                   <p class="text-muted-foreground">
-                    Actively serving Git LFS<template v-if="r.gitRepo">
+                    Actively serving Git LFS<template v-if="r.gitRepos.length">
                       for
-                      <RouterLink to="/repos" class="font-mono"
-                        >{{ r.gitRepo.owner }}/{{ r.gitRepo.repo }}</RouterLink
+                      <template v-for="(g, i) in r.gitRepos" :key="`${g.owner}/${g.repo}`"
+                        ><template v-if="i > 0">, </template
+                        ><RouterLink to="/repos" class="font-mono"
+                          >{{ g.owner }}/{{ g.repo }}</RouterLink
+                        ></template
                       ></template
-                    >
-                    — nothing scheduled to archive.
+                    >.
                   </p>
                 </HoverCardContent>
               </HoverCard>
@@ -163,9 +195,11 @@ const runConfirm = (r: StorageRow) => {
             </div>
           </div>
 
-          <!-- Dropped once purged — every object is gone, so metrics/actions are moot and the row-1
-               badge stands alone. -->
-          <div v-if="r.status !== 'purged'" class="flex items-start justify-between gap-4">
+          <!-- Purged or pending: no objects, so metrics/actions are moot. -->
+          <div
+            v-if="lifecycleState(r) !== 'purged' && lifecycleState(r) !== 'pending'"
+            class="flex items-start justify-between gap-4"
+          >
             <!-- Each label+value is a nowrap group so only the "·" dividers wrap, never a label from
                  its value. -->
             <ItemDescription
@@ -396,13 +430,27 @@ const runConfirm = (r: StorageRow) => {
           <!-- Row 3: the confirm action's description — a full-bleed footer band that splits the
                item by background (negative margins reach the item's padded edges, top border +
                muted fill, bottom corners rounded to match). Never squeezes the metrics row. -->
-          <p
+          <div
             v-if="confirmFor && confirmFor.prefix === r.prefix"
             data-slot="confirm-description"
-            class="-mx-4 -mb-4 mt-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm whitespace-pre-line text-muted-foreground"
+            class="-mx-4 -mb-4 mt-2 space-y-2 rounded-b-md border-t bg-muted/50 px-4 py-2 text-sm text-muted-foreground"
           >
-            {{ STORAGE_ACTIONS[confirmFor.action].consequence }}
-          </p>
+            <p class="whitespace-pre-line">{{ STORAGE_ACTIONS[confirmFor.action].consequence }}</p>
+
+            <!-- Name every consumer (active `.lfsconfig` link). One still on GitHub keeps pushing to
+                 a prefix this verb stops serving (archive) or deletes (purge) — flag it loudly. -->
+            <p v-if="warnsConsumers(confirmFor.action) && r.gitRepos.length" data-slot="consumers">
+              Used by
+              <template v-for="(g, i) in r.gitRepos" :key="`${g.owner}/${g.repo}`"
+                ><template v-if="i > 0">, </template
+                ><RouterLink to="/repos" class="font-mono text-foreground"
+                  >{{ g.owner }}/{{ g.repo }}</RouterLink
+                ><span v-if="g.status === 'active'" class="text-destructive">
+                  (still on GitHub)</span
+                ></template
+              >.
+            </p>
+          </div>
         </ItemContent>
       </Item>
     </template>

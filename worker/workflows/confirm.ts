@@ -79,7 +79,7 @@ export async function wakeConfirmation(
   by: string,
 ): Promise<void> {
   const [owner, repo] = scopeLabel(scope).split('/');
-  const row = await Registry.global(env).storageForRepo(owner, repo);
+  const row = await Registry.global(env).getStorageByPrefix(`${owner}/${repo}`);
   if (!row) return;
   const id = await Storage.byPrefix(env, row.prefix).activeInstanceId(kind);
   if (!id) return;

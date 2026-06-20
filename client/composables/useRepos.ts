@@ -3,7 +3,7 @@ import type { InferResponseType } from 'hono/client';
 
 import { api } from '@/api';
 
-// GitHub presence (git identity), cross-linked to its storage prefix by same-key lookup.
+// GitHub presence (git identity), cross-linked to the storage prefixes it consumes via `.lfsconfig`.
 export type RepoRow = InferResponseType<typeof api.api.repos.$get>['repos'][number];
 export { type RepoStatus } from '@worker/db/registry-schema';
 
@@ -16,14 +16,14 @@ export function useRepos() {
 }
 
 // Problems first, irrelevant last: a `missing` repo still backed by live storage needs attention
-// (that storage is now unused); then `active` repos serving storage. Repos with no storage — or
-// whose storage is already purged — are noise: nothing left to act on, so they sink to the bottom.
+// (that storage is now unused); then `active` repos serving storage. Repos with no live storage —
+// all links purged or none at all — are noise: nothing left to act on, so they sink to the bottom.
 // Ties break on owner/repo.
 function byActionable(a: RepoRow, b: RepoRow) {
   return rank(a) - rank(b) || `${a.owner}/${a.repo}`.localeCompare(`${b.owner}/${b.repo}`);
 }
 
 function rank(r: RepoRow) {
-  if (!r.storage || r.storage.status === 'purged') return 2;
+  if (!r.storage.some((s) => s.status !== 'purged')) return 2;
   return r.status === 'missing' ? 0 : 1;
 }

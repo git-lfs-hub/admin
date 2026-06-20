@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 
 // repos — GitHub presence (git identity). Keyed lc(owner/repo); populated by reconciliation +
 // `repository` webhooks. The git↔storage edge is not stored: `lc(storage.prefix)` matches
@@ -28,11 +28,11 @@ export type RepoStatus = 'active' | 'missing';
 // is not a GitHub identity.
 export const storage = sqliteTable('storage', {
   prefix: text('prefix').primaryKey(),
-  // Resting states only. No 'archived' (the orthogonal `archivedAt` flag) and no 'missing'
-  // (a prefix is never probed).
-  status: text('status', { enum: ['used', 'unused', 'purged'] })
+  // `pending`/`used`/`missing` = linked byte-states (none yet / present / lost); `unused` = no link.
+  // No 'archived' — that's the orthogonal `archivedAt` flag.
+  status: text('status', { enum: ['pending', 'used', 'missing', 'unused', 'purged'] })
     .notNull()
-    .default('used'),
+    .default('pending'),
   firstSeen: text('first_seen').notNull(),
   updatedAt: text('updated_at').notNull(),
   // max ts of an upload event; drives backupStale. Bumped by the object-event consumer.
@@ -52,7 +52,31 @@ export const storage = sqliteTable('storage', {
   activeOp: text('active_op'),
 });
 
-export type StorageStatus = 'used' | 'unused' | 'purged';
+export type StorageStatus = 'pending' | 'used' | 'missing' | 'unused' | 'purged';
+
+// links — the real git↔prefix graph (N:N), replacing the same-key lookup. One row per
+// `lc(owner/repo)` + `prefix`. Written only by `REPO.syncLinks()`: a prefix referenced by a
+// `local` `.lfsconfig` on some branch is `active`; one no branch references goes `stale`.
+export const links = sqliteTable(
+  'links',
+  {
+    owner: text('owner').notNull(),
+    repo: text('repo').notNull(),
+    prefix: text('prefix').notNull(),
+    status: text('status', { enum: ['active', 'stale'] })
+      .notNull()
+      .default('active'),
+    firstSeen: text('first_seen').notNull(),
+    lastSeen: text('last_seen').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.owner, table.repo, table.prefix] }),
+    index('links_prefix').on(table.prefix),
+    index('links_repo').on(table.owner, table.repo),
+  ],
+);
+
+export type LinkStatus = 'active' | 'stale';
 
 export const orgs = sqliteTable('orgs', {
   org: text('org').primaryKey(),
