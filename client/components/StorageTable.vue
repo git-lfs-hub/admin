@@ -149,8 +149,7 @@ function warnsConsumers(action: StorageAction): boolean {
                           >{{ g.owner }}/{{ g.repo }}</RouterLink
                         ></template
                       ></template
-                    >
-                    — nothing scheduled to archive.
+                    >.
                   </p>
                 </HoverCardContent>
               </HoverCard>

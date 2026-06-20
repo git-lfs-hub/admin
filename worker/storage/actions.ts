@@ -36,8 +36,7 @@ export const STORAGE_STATES: Record<LifecycleState, StateMeta> = {
   pending: {
     emoji: '⏳',
     line: 'storage pending — referenced but no files uploaded yet',
-    description:
-      'A repo references this storage but no files have landed in R2 yet — awaiting the first Git LFS upload.',
+    description: 'A repo references this storage but no files have landed in R2 yet.',
   },
   used: {
     emoji: '🔄',
