@@ -110,7 +110,31 @@ function warnsConsumers(action: StorageAction): boolean {
 
             <!-- `used` names the repo it serves. -->
             <div data-slot="status" class="shrink-0">
-              <HoverCard v-if="r.status === 'used'">
+              <HoverCard v-if="lifecycleState(r) === 'missing'">
+                <HoverCardTrigger as-child>
+                  <Badge variant="destructive" class="h-6">missing</Badge>
+                </HoverCardTrigger>
+                <HoverCardContent side="left" class="w-auto">
+                  <p class="font-medium">Storage missing</p>
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    {{ STORAGE_STATES.missing.description }}
+                  </p>
+                </HoverCardContent>
+              </HoverCard>
+
+              <HoverCard v-else-if="lifecycleState(r) === 'pending'">
+                <HoverCardTrigger as-child>
+                  <Badge variant="secondary" class="h-6">pending</Badge>
+                </HoverCardTrigger>
+                <HoverCardContent side="left" class="w-auto">
+                  <p class="font-medium">Upload pending</p>
+                  <p class="text-muted-foreground whitespace-pre-line">
+                    {{ STORAGE_STATES.pending.description }}
+                  </p>
+                </HoverCardContent>
+              </HoverCard>
+
+              <HoverCard v-else-if="r.status === 'used'">
                 <HoverCardTrigger as-child>
                   <StatusBadge status="used" class="h-6" />
                 </HoverCardTrigger>
@@ -172,9 +196,11 @@ function warnsConsumers(action: StorageAction): boolean {
             </div>
           </div>
 
-          <!-- Dropped once purged — every object is gone, so metrics/actions are moot and the row-1
-               badge stands alone. -->
-          <div v-if="r.status !== 'purged'" class="flex items-start justify-between gap-4">
+          <!-- Purged or pending: no objects, so metrics/actions are moot. -->
+          <div
+            v-if="lifecycleState(r) !== 'purged' && lifecycleState(r) !== 'pending'"
+            class="flex items-start justify-between gap-4"
+          >
             <!-- Each label+value is a nowrap group so only the "·" dividers wrap, never a label from
                  its value. -->
             <ItemDescription

@@ -42,7 +42,7 @@ describe('handleObjectEvents', () => {
   test('creates a storage row on first message', async () => {
     await handleObjectEvents(makeBatch([evt()]), env);
     const row = await reg().getStorage('alice/thing');
-    expect(row?.status).toBe('used');
+    expect(row?.status).toBe('pending'); // upload presigned, bytes not yet confirmed present
     expect(row?.firstSeen).toMatch(/^\d{4}/);
   });
 
@@ -73,7 +73,7 @@ describe('handleObjectEvents', () => {
     expect(await reg().listStorage()).toEqual([]);
   });
 
-  test('op variants all upsert a storage row', async () => {
+  test('op variants all upsert a storage row; confirmed ops land used, upload stays pending', async () => {
     await handleObjectEvents(
       makeBatch([
         evt({ repo: 'a', operation: 'upload' }),
@@ -82,7 +82,7 @@ describe('handleObjectEvents', () => {
       ]),
       env,
     );
-    expect((await reg().getStorage('alice/a'))?.status).toBe('used');
+    expect((await reg().getStorage('alice/a'))?.status).toBe('pending'); // bytes unconfirmed
     expect((await reg().getStorage('alice/b'))?.status).toBe('used');
     expect((await reg().getStorage('alice/c'))?.status).toBe('used');
   });

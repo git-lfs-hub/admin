@@ -29,7 +29,13 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
     if (row.status === 'purged') continue;
     const store = Storage.byPrefix(env, row.prefix);
     try {
-      await reconcileObjects(env.LFS_BUCKET, store, `${row.prefix}/`);
+      const { present, missing } = await reconcileObjects(
+        env.LFS_BUCKET,
+        store,
+        `${row.prefix}/`,
+        !row.clearedAt,
+      );
+      await registry.refreshByteStatus(row.prefix, present, missing);
     } catch (e) {
       console.error(`[reconcile] object reconciliation failed for ${row.prefix}:`, e);
     }

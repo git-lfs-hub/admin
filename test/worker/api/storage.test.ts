@@ -122,7 +122,7 @@ describe('GET /api/storage', () => {
 
     expect(body.storage).toHaveLength(2);
     const byRepo = Object.fromEntries(body.storage.map((r) => [r.repo, r]));
-    expect(byRepo.a.status).toBe('used');
+    expect(byRepo.a.status).toBe('pending');
     expect(byRepo.b.status).toBe('unused');
     for (const r of body.storage) {
       expect(r.usage.present).toEqual({ count: 0, size: 0 });

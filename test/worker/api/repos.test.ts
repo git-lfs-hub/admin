@@ -53,8 +53,8 @@ describe('GET /api/repos', () => {
     };
     const byRepo = Object.fromEntries(body.repos.map((r) => [r.repo, r]));
     expect(byRepo.a.storage).toEqual([
-      { prefix: 'alice/a', status: 'used', archivedAt: null },
-      { prefix: 'alice/a-mirror', status: 'used', archivedAt: null },
+      { prefix: 'alice/a', status: 'pending', archivedAt: null },
+      { prefix: 'alice/a-mirror', status: 'pending', archivedAt: null },
     ]);
     expect(byRepo.nostore.storage).toEqual([]);
   });

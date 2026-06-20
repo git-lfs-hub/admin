@@ -137,8 +137,8 @@ export class Storage extends DurableObject<CloudflareBindings> {
   }
 
   /** Reconcile one page of storage truth (`oid -> size`): insert keys absent from the index
-   *  (`present`, source `storage_scan`), confirm `pending` → `present`, correct sizes. Only the
-   *  page's oids are touched. */
+   *  (`present`, source `storage_scan`), confirm `pending`/`missing` → `present`, correct sizes.
+   *  Only the page's oids are touched; the cross-page sweep is `sweepMissing`. */
   async recordReconciliation(
     storageSizes: Record<string, number>,
   ): Promise<ObjectReconciliationResult> {
@@ -153,7 +153,7 @@ export class Storage extends DurableObject<CloudflareBindings> {
       for (const row of rows) {
         const storageSize = storageSizes[row.oid];
         const set: Partial<typeof objects.$inferInsert> = {};
-        if (row.status === 'pending') {
+        if (row.status === 'pending' || row.status === 'missing') {
           set.status = 'present';
           out.confirmed++;
         }
@@ -188,6 +188,25 @@ export class Storage extends DurableObject<CloudflareBindings> {
       }
     }
     return out;
+  }
+
+  /** Close out a full prefix scan: every `present` row whose oid the scan never listed has lost
+   *  its R2 bytes → `missing`. `pending` is left alone — a presigned upload that never landed was
+   *  never in R2, so its absence is expected, not loss. `seenOids` is the complete set the scan
+   *  enumerated across all pages. Returns the count newly marked. The inverse — bytes reappearing —
+   *  is recovered by `recordReconciliation` (`missing` → `present`). */
+  async sweepMissing(seenOids: string[]): Promise<number> {
+    const seen = new Set(seenOids);
+    const rows = await this.db
+      .select({ oid: objects.oid })
+      .from(objects)
+      .where(eq(objects.status, 'present'));
+    const stale = rows.map((r) => r.oid).filter((oid) => !seen.has(oid));
+    for (let i = 0; i < stale.length; i += SQL_VAR_LIMIT) {
+      const chunk = stale.slice(i, i + SQL_VAR_LIMIT);
+      await this.db.update(objects).set({ status: 'missing' }).where(inArray(objects.oid, chunk));
+    }
+    return stale.length;
   }
 
   // --- workflows: one-active-op guard for the GC lifecycle (executors live in worker/workflows) ---

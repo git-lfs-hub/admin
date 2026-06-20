@@ -144,6 +144,31 @@ describe('Storage.recordReconciliation', () => {
   });
 });
 
+describe('Storage.sweepMissing', () => {
+  test('marks present rows the scan never saw as missing, spares seen + pending', async () => {
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.recordObject('seen', 1, 'verify'); // present, in scan
+    await store.recordObject('vanished', 2, 'verify'); // present, not in scan
+    await store.recordObject('orphan', 3, 'upload'); // pending, never uploaded
+
+    const marked = await store.sweepMissing(['seen']);
+    expect(marked).toBe(1);
+    expect((await store.getObject('seen'))?.status).toBe('present');
+    expect((await store.getObject('vanished'))?.status).toBe('missing');
+    expect((await store.getObject('orphan'))?.status).toBe('pending');
+  });
+
+  test('an empty scan marks every present row missing, leaves pending alone', async () => {
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.recordObject('a', 1, 'verify'); // present
+    await store.recordObject('b', 2, 'upload'); // pending
+
+    expect(await store.sweepMissing([])).toBe(1);
+    expect((await store.getObject('a'))?.status).toBe('missing');
+    expect((await store.getObject('b'))?.status).toBe('pending');
+  });
+});
+
 describe('Storage workflows (one-active-op guard)', () => {
   test('beginOp records an active row and denormalizes activeOp to REGISTRY', async () => {
     const registry = env.REGISTRY.getByName('global');

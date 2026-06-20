@@ -129,11 +129,28 @@ describe('StorageTable', () => {
   });
 
   it('renders size for empty usage', async () => {
-    const emptyRow = { ...row, usage: zeroUsage };
+    const emptyRow = { ...unused, usage: zeroUsage };
     const wrapper = await mountTable([emptyRow]);
     expect(wrapper.find('[data-slot="metrics"] [data-slot="hover-card-trigger"]').text()).toBe(
       '0 B',
     );
+  });
+
+  it('badges a pending prefix and drops its metrics/actions', async () => {
+    const wrapper = await mountTable([{ ...row, status: 'pending', usage: zeroUsage }]);
+    expect(wrapper.find('[data-slot="status"]').text()).toContain('pending');
+    expect(wrapper.find('[data-slot="metrics"]').exists()).toBe(false);
+    expect(wrapper.find('[data-slot="actions"]').exists()).toBe(false);
+  });
+
+  it('badges a missing prefix', async () => {
+    const lost = {
+      ...row,
+      status: 'missing' as const,
+      usage: { ...zeroUsage, missing: { count: 5, size: 500 } },
+    };
+    const wrapper = await mountTable([lost]);
+    expect(wrapper.find('[data-slot="status"]').text()).toContain('missing');
   });
 
   it('renders the auto-archive deadline relative in the metrics row, full timestamp once on hover', async () => {

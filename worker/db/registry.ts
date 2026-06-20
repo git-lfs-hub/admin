@@ -64,7 +64,7 @@ export class Registry extends DurableObject<CloudflareBindings> {
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS storage (
           prefix          TEXT PRIMARY KEY,
-          status          TEXT NOT NULL DEFAULT 'used',
+          status          TEXT NOT NULL DEFAULT 'pending',
           first_seen      TEXT NOT NULL,
           updated_at      TEXT NOT NULL,
           last_change_at  TEXT,
@@ -375,12 +375,34 @@ export class Registry extends DurableObject<CloudflareBindings> {
           if (flipped.archivedAt) out.blockedReused.push(flipped);
         }
       } else if (row.archivedAt) {
-        // already `used` but still blocked — surface so a stuck block self-heals.
+        // already linked but still blocked — surface so a stuck block self-heals.
         out.blockedReused.push(row);
       }
-    } else if (row.status === 'used') {
+    } else if (row.status === 'used' || row.status === 'pending' || row.status === 'missing') {
       const flipped = await this.markUnused(row.prefix);
       if (flipped) out.becameUnused.push(flipped);
+    }
+  }
+
+  /** A confirmed object means live bytes — flip the byte half forward, no object scan. Never
+   *  touches `unused`/`archived`/`purged`; the link half owns those. */
+  async markBytesPresent(prefix: string): Promise<void> {
+    const row = await this.getStorage(prefix);
+    if (!row) return;
+    if (row.status === 'pending' || row.status === 'missing') {
+      await this.updateStorage(prefix, { status: 'used', updatedAt: isoNow() });
+    }
+  }
+
+  /** Byte half of `status`, set from the reconcile scan. Refines only the linked byte-states
+   *  (present→used, lost→missing); leaves `pending`/`unused`/`purged` alone. */
+  async refreshByteStatus(prefix: string, present: number, missing: number): Promise<void> {
+    const row = await this.getStorage(prefix);
+    if (!row) return;
+    if (row.status !== 'pending' && row.status !== 'used' && row.status !== 'missing') return;
+    const next = present > 0 ? 'used' : missing > 0 ? 'missing' : null;
+    if (next && next !== row.status) {
+      await this.updateStorage(prefix, { status: next, updatedAt: isoNow() });
     }
   }
 

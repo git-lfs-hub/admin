@@ -75,7 +75,7 @@ describe('reconcileAll', () => {
     registryStub.listStorage.mockResolvedValueOnce([{ prefix: 'alice/a', status: 'used' }]);
     await reconcileAll(env, true);
     expect(reconcileRepos).toHaveBeenCalledWith(env, registryStub, true);
-    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/');
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/', true);
   });
 
   test('reconciles objects per non-purged prefix by name', async () => {
@@ -88,7 +88,16 @@ describe('reconcileAll', () => {
     expect(env.STORAGE.getByName).toHaveBeenCalledWith('alice/a');
     expect(env.STORAGE.getByName).not.toHaveBeenCalledWith('bob/b');
     expect(reconcileObjects).toHaveBeenCalledTimes(1);
-    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/');
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/', true);
+  });
+
+  test('skips the missing sweep for a cleared prefix (live copy gone by design)', async () => {
+    const env = makeEnv();
+    registryStub.listStorage.mockResolvedValueOnce([
+      { prefix: 'alice/a', status: 'used', clearedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    await reconcileAll(env);
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/', false);
   });
 
   test('object pass still runs when GitHub repo reconciliation throws', async () => {
@@ -97,7 +106,7 @@ describe('reconcileAll', () => {
     registryStub.listStorage.mockResolvedValueOnce([{ prefix: 'alice/a', status: 'used' }]);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(reconcileAll(env)).resolves.toBeUndefined();
-    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/');
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'alice/a/', true);
   });
 
   test('each pass is isolated: every stage throwing still resolves', async () => {
@@ -125,6 +134,6 @@ describe('reconcileAll', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await reconcileAll(env);
     expect(reconcileObjects).toHaveBeenCalledTimes(2);
-    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'bob/b/');
+    expect(reconcileObjects).toHaveBeenCalledWith(env.LFS_BUCKET, storeStub, 'bob/b/', true);
   });
 });

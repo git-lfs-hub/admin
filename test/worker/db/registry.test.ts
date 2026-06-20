@@ -162,10 +162,10 @@ describe('applyRepoEvent (webhook)', () => {
 // ---------------------------------------------------------------------------
 
 describe('upsertStorage / getStorage', () => {
-  test('inserts new prefix as used with null lifecycle fields', async () => {
+  test('inserts new prefix as pending with null lifecycle fields', async () => {
     const row = await reg().upsertStorage('Alice/Repo');
     expect(row.prefix).toBe('Alice/Repo');
-    expect(row.status).toBe('used');
+    expect(row.status).toBe('pending');
     expect(row.unusedAt).toBeNull();
     expect(row.archivedAt).toBeNull();
     expect(row.backupComplete).toBe(false);
@@ -185,7 +185,7 @@ describe('block / unblock', () => {
   test('block sets archivedAt without changing status', async () => {
     await reg().upsertStorage('alice/a');
     const row = await reg().block('alice/a');
-    expect(row?.status).toBe('used');
+    expect(row?.status).toBe('pending');
     expect(row?.archivedAt).toMatch(ISO_RE);
   });
 
