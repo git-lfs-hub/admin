@@ -3,13 +3,13 @@ import { env } from 'cloudflare:workers';
 import { describe, test, expect, afterEach } from 'vitest';
 
 import { Registry } from '@/db/registry';
-import { Repo, type LfsconfigParse } from '@/db/repo';
+import { Repo, type LfsConfig } from '@/db/repo';
 
 afterEach(async () => {
   await reset();
 });
 
-const local = (sha: string, prefix: string): LfsconfigParse => ({
+const local = (sha: string, prefix: string): LfsConfig => ({
   sha,
   host: env.LFS.server.toLowerCase(),
   prefix,
@@ -40,12 +40,88 @@ describe('Repo DO', () => {
     expect(await b.listBranches()).toEqual([]);
   });
 
-  test('recordHead advances head, preserves lfsconfig columns', async () => {
+  test('recordLfsconfig upserts the branch lfsconfig columns', async () => {
     const repo = Repo.byRepo(env, 'org', 'r');
     await repo.recordLfsconfig('main', 'c1', local('b1', 'org/r'));
-    await repo.recordHead('main', 'c2');
+    await repo.recordLfsconfig('main', 'c2', local('b2', 'org/r'));
     const [branch] = await repo.listBranches();
-    expect(branch).toMatchObject({ headSha: 'c2', lfsconfigSha: 'b1', lfsconfigStatus: 'ok' });
+    expect(branch).toMatchObject({ headSha: 'c2', lfsconfigSha: 'b2', lfsconfigStatus: 'ok' });
+  });
+});
+
+describe('Repo branch lifecycle + ref_paths', () => {
+  test('markDirty inserts a dirty active tip; setTip clears it', async () => {
+    const repo = Repo.byRepo(env, 'org', 'life');
+    await repo.markDirty('feat', 'c1');
+    expect(await repo.getBranch('feat')).toMatchObject({
+      headSha: 'c1',
+      dirty: true,
+      status: 'active',
+      treeSha: null,
+      scannedAt: null,
+    });
+    await repo.setTip('feat', { headSha: 'c2', treeSha: 't2', gitattrSha: 'g2' });
+    const row = await repo.getBranch('feat');
+    expect(row).toMatchObject({ headSha: 'c2', treeSha: 't2', gitattrSha: 'g2', dirty: false });
+    expect(row?.scannedAt).not.toBeNull();
+  });
+
+  test('markBranchMissing / markBranchActive flip status', async () => {
+    const repo = Repo.byRepo(env, 'org', 'miss');
+    await repo.setTip('gone', { headSha: 'c1', treeSha: 't1', gitattrSha: null });
+    await repo.markBranchMissing('gone');
+    expect(await repo.getBranch('gone')).toMatchObject({ status: 'missing' });
+    expect((await repo.getBranch('gone'))?.missingAt).not.toBeNull();
+    await repo.markBranchActive('gone');
+    expect(await repo.getBranch('gone')).toMatchObject({ status: 'active', missingAt: null });
+  });
+
+  test('replaceRefPaths is wholesale; applyRefPathsDelta upserts + removes', async () => {
+    const repo = Repo.byRepo(env, 'org', 'rp');
+    await repo.replaceRefPaths('main', [
+      { oid: 'o1', path: 'a.bin' },
+      { oid: 'o2', path: 'b.bin' },
+    ]);
+    expect(await repo.listRefPaths('main')).toEqual(
+      expect.arrayContaining([
+        { oid: 'o1', path: 'a.bin' },
+        { oid: 'o2', path: 'b.bin' },
+      ]),
+    );
+    await repo.applyRefPathsDelta('main', [{ oid: 'o3', path: 'c.bin' }], ['a.bin']);
+    const rows = await repo.listRefPaths('main');
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { oid: 'o2', path: 'b.bin' },
+        { oid: 'o3', path: 'c.bin' },
+      ]),
+    );
+    expect(rows.find((r) => r.path === 'a.bin')).toBeUndefined();
+  });
+
+  test('cleanBranchAtTree finds a sibling; copyRefPaths clones it', async () => {
+    const repo = Repo.byRepo(env, 'org', 'sib');
+    await repo.setTip('main', { headSha: 'c1', treeSha: 'shared', gitattrSha: null });
+    await repo.replaceRefPaths('main', [{ oid: 'o1', path: 'a.bin' }]);
+    expect(await repo.cleanBranchAtTree('shared', 'feat')).toBe('main');
+    expect(await repo.cleanBranchAtTree('shared', 'main')).toBeNull();
+    await repo.copyRefPaths('main', 'feat');
+    expect(await repo.listRefPaths('feat')).toEqual([{ oid: 'o1', path: 'a.bin' }]);
+  });
+
+  test('pointer + gitattributes caches round-trip (incl. negative entry)', async () => {
+    const repo = Repo.byRepo(env, 'org', 'cache');
+    await repo.putPointers([
+      { sha: 'b1', oid: 'o1', size: 10 },
+      { sha: 'b2', oid: null, size: null },
+    ]);
+    const hits = await repo.getPointers(['b1', 'b2', 'b3']);
+    expect(hits.get('b1')).toEqual({ sha: 'b1', oid: 'o1', size: 10 });
+    expect(hits.get('b2')).toEqual({ sha: 'b2', oid: null, size: null });
+    expect(hits.has('b3')).toBe(false);
+    await repo.putGitattributes('g1', '*.bin filter=lfs');
+    expect(await repo.getGitattributes('g1')).toBe('*.bin filter=lfs');
+    expect(await repo.getGitattributes('g9')).toBeNull();
   });
 });
 
