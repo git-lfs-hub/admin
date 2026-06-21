@@ -1,51 +1,105 @@
 import { GithubApi, type GithubOrgApi } from '@git-lfs-hub/lib/github';
 
 import { Repo } from '@/db/repo';
-import { scanLfsconfig } from '@/github/lfsconfig';
+import { applyPushEvent, type BranchPushEvent, type GetApi } from '@/github/branches';
+import { scanLfsConfig } from '@/github/lfsconfig';
 import { allowedOrgs } from '@/reconcile/repos';
 
-// Push delivers the changed-file list for free, so steady state (no `.lfsconfig` edits) is 0
-// GitHub calls. This phase scans the default branch only; other branches land in Phase 2.
+// Push delivers `before`/`after`, `head_commit.tree_id`, `forced`, and per-commit file lists for
+// free, so steady state (a sequential push touching no pointer blob) is 0 GitHub calls. Tracks
+// every `refs/heads/*`.
+export type PushCommit = { added?: string[]; modified?: string[]; removed?: string[] };
+
 export type PushEvent = {
   ref: string;
+  before?: string;
   after: string;
+  created?: boolean;
+  deleted?: boolean;
+  forced?: boolean;
+  head_commit?: { tree_id?: string } | null;
   repository: { name: string; default_branch: string; owner: { login?: string; name?: string } };
   installation?: { id: number };
-  commits?: { added?: string[]; modified?: string[]; removed?: string[] }[];
+  commits?: PushCommit[];
 };
 
-const LFSCONFIG = '.lfsconfig';
-
-export async function handlePush(env: CloudflareBindings, payload: PushEvent): Promise<void> {
-  const owner = payload.repository.owner.login ?? payload.repository.owner.name;
-  const name = payload.repository.name;
+export async function handlePushEvent(env: CloudflareBindings, push: PushEvent): Promise<void> {
+  const owner = push.repository.owner.login ?? push.repository.owner.name;
+  const name = push.repository.name;
   if (!owner || !allowedOrgs(env).has(owner.toLowerCase())) return;
-
-  const branch = payload.repository.default_branch;
-  if (payload.ref !== `refs/heads/${branch}`) return;
+  if (!push.ref.startsWith('refs/heads/')) return; // branches only; tags handled separately
+  const branch = push.ref.slice('refs/heads/'.length);
 
   const repo = Repo.byRepo(env, owner, name);
-  const headSha = payload.after;
-  const ref = { owner, repo: name, branch, headSha };
+  let api: GithubOrgApi | null | undefined;
+  const getApi: GetApi = async () => {
+    if (api === undefined) api = await orgApi(env, owner, push.installation?.id);
+    if (!api) throw new Error(`no installation api for ${owner}`);
+    return api;
+  };
 
-  // Scan when the push touched `.lfsconfig` or the repo was never scanned (the file may predate
-  // this push); otherwise just advance the head — the parse still holds, 0 GitHub calls.
-  if (lfsconfigTouched(payload) || (await repo.getBranch(branch)) === null) {
-    const api = await orgApi(env, owner, payload.installation?.id);
-    if (!api) return;
-    await scanLfsconfig(api, repo, env, ref);
-  } else {
-    await repo.recordHead(branch, headSha);
+  const prior = await repo.getBranch(branch);
+
+  if (push.deleted) {
+    await repo.markBranchMissing(branch);
+    await repo.syncLinks(owner, name);
+    return;
+  }
+
+  // Branch tip state machine: 0 calls on a sequential push that touched no pointer blob.
+  const delta = aggregateFiles(push.commits);
+  const branchPush: BranchPushEvent = {
+    repo: name,
+    branch,
+    before: push.before ?? '',
+    after: push.after,
+    treeSha: push.head_commit?.tree_id ?? null,
+    forced: Boolean(push.forced),
+    addedModified: delta.addedModified,
+    removed: delta.removed,
+  };
+  try {
+    await applyPushEvent(getApi, repo, branchPush);
+  } catch (e) {
+    console.error(`[push] branch state failed for ${owner}/${name}#${branch}:`, e);
+  }
+
+  // Per-branch `.lfsconfig`: scan when the diff touched it or the branch was never scanned (the
+  // file may predate this push). `force` because the state machine just advanced the head.
+  if (lfsConfigTouched(push) || !prior || prior.lfsconfigStatus == null) {
+    try {
+      const ref = { owner, repo: name, branch, headSha: push.after };
+      await scanLfsConfig(await getApi(), repo, env, ref, true);
+    } catch (e) {
+      console.error(`[push] lfsconfig scan failed for ${owner}/${name}#${branch}:`, e);
+    }
   }
   await repo.syncLinks(owner, name);
 }
 
-function lfsconfigTouched(payload: PushEvent): boolean {
+/** Net file delta across the push's commits (last commit wins for a re-add-after-remove). */
+function aggregateFiles(commits?: PushCommit[]): { addedModified: string[]; removed: string[] } {
+  const am = new Set<string>();
+  const rm = new Set<string>();
+  for (const c of commits ?? []) {
+    for (const p of [...(c.added ?? []), ...(c.modified ?? [])]) {
+      am.add(p);
+      rm.delete(p);
+    }
+    for (const p of c.removed ?? []) {
+      rm.add(p);
+      am.delete(p);
+    }
+  }
+  return { addedModified: [...am], removed: [...rm] };
+}
+
+function lfsConfigTouched(payload: PushEvent): boolean {
   for (const c of payload.commits ?? []) {
     if (
-      c.added?.includes(LFSCONFIG) ||
-      c.modified?.includes(LFSCONFIG) ||
-      c.removed?.includes(LFSCONFIG)
+      c.added?.includes('.lfsconfig') ||
+      c.modified?.includes('.lfsconfig') ||
+      c.removed?.includes('.lfsconfig')
     )
       return true;
   }

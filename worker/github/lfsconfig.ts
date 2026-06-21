@@ -1,7 +1,7 @@
-import { gitConfigFirstValue } from '@git-lfs-hub/lib/git/config';
+import { parseLfsConfig } from '@git-lfs-hub/lib/git/lfs';
 import type { GithubOrgApi } from '@git-lfs-hub/lib/github';
 
-import type { Repo, LfsconfigParse } from '@/db/repo';
+import type { Repo, LfsConfig } from '@/db/repo';
 import { isLocalLfsHost } from '@/lib/lfsEndpoint';
 
 export type ScanOutcome = 'unchanged' | 'missing' | 'ok' | 'parse_error' | 'unreachable';
@@ -14,13 +14,16 @@ export type ScanRef = { owner: string; repo: string; branch: string; headSha: st
  *  unchanged) skips the call entirely; steady state is 0 GitHub calls/tick. A transient error
  *  leaves the branch row untouched (`unreachable`) for retry. `local = 0` blobs are recorded but
  *  feed no `links` — that projection (step 4) reads only `local` rows. */
-export async function scanLfsconfig(
+export async function scanLfsConfig(
   api: GithubOrgApi,
   repo: DurableObjectStub<Repo>,
   env: CloudflareBindings,
   ref: ScanRef,
+  force = false,
 ): Promise<ScanOutcome> {
-  if (await headUnchanged(repo, ref)) return 'unchanged'; // layer 1: branch didn't move → no call
+  // `force` skips the head dedup: the branch state machine may have already advanced the head, so
+  // an unchanged head no longer means the `.lfsconfig` is current.
+  if (!force && (await headUnchanged(repo, ref))) return 'unchanged'; // layer 1: branch didn't move
   let file: { sha: string; text: string } | null;
   try {
     file = await api.getFile(ref.repo, '.lfsconfig', ref.headSha);
@@ -30,9 +33,9 @@ export async function scanLfsconfig(
   return recordScan(repo, env, ref, file);
 }
 
-/** Cron-backstop counterpart of `scanLfsconfig`: the GraphQL sweep returns the blob inline, so no
+/** Cron-backstop counterpart of `scanLfsConfig`: the GraphQL sweep returns the blob inline, so no
  *  per-repo fetch. `blob` null = absent; `{ text: null }` = unreadable (→ `unreachable`, retry). */
-export async function scanLfsconfigInline(
+export async function scanLfsConfigInline(
   repo: DurableObjectStub<Repo>,
   env: CloudflareBindings,
   ref: ScanRef,
@@ -62,38 +65,8 @@ async function recordScan(
     await repo.recordMissing(ref.branch, ref.headSha);
     return 'missing';
   }
-  const blob: LfsconfigParse = { sha: file.sha, ...parseLfsconfig(file.text, env) };
+  const parse = parseLfsConfig(file.text);
+  const blob: LfsConfig = { sha: file.sha, ...parse, local: isLocalLfsHost(parse.host, env) };
   await repo.recordLfsconfig(ref.branch, ref.headSha, blob);
   return blob.status;
-}
-
-function parseLfsconfig(text: string, env: CloudflareBindings): Omit<LfsconfigParse, 'sha'> {
-  const url = gitConfigFirstValue(text, 'lfs', 'url');
-  const parsed = url ? parseLfsUrl(url) : null;
-  const prefix = parsed ? lfsPrefixFromPath(parsed.path) : null;
-  if (!parsed || !prefix)
-    return { host: parsed?.host ?? '', prefix: '', local: false, status: 'parse_error' };
-  return { host: parsed.host, prefix, local: isLocalLfsHost(parsed.host, env), status: 'ok' };
-}
-
-/** Parse an `lfs.url` into its normalized host (`host[:non-default-port]`, lowercased) and path.
- *  Null for a non-`http(s)` or unparseable URL. */
-export function parseLfsUrl(url: string): { host: string; path: string } | null {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-  return { host: u.host, path: u.pathname };
-}
-
-/** Storage prefix from an `lfs.url` path: the `owner/repo` after the `/lfs/` route, `.git`
- *  stripped. Mirrors the server's `resolveName()` candidate construction. */
-function lfsPrefixFromPath(path: string): string | null {
-  const segs = path.split('/').filter(Boolean);
-  if (segs[0] === 'lfs') segs.shift();
-  if (segs.length < 2) return null;
-  return `${segs[0]}/${segs[1].replace(/\.git$/, '')}`;
 }

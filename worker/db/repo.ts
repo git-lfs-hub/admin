@@ -1,16 +1,33 @@
 import { DurableObject } from 'cloudflare:workers';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
 import { Registry } from '@/db/registry';
-import { branches, lfsconfigs, type LfsconfigParseStatus } from '@/db/repo-schema';
+import {
+  branches,
+  gitattributes,
+  lfsconfigs,
+  lfsPointers,
+  refPaths,
+  type LfsconfigParseStatus,
+} from '@/db/repo-schema';
 import { isoNow } from '@/lib/time';
 
 export type BranchRow = typeof branches.$inferSelect;
 export type LfsconfigRow = typeof lfsconfigs.$inferSelect;
+export type RefPath = { oid: string; path: string };
+export type PointerRow = typeof lfsPointers.$inferSelect;
+
+/** CF Durable Object SQLite caps bound parameters per statement at 100. */
+const SQL_VAR_LIMIT = 100;
+
+/** Full git ref for a branch row (`ref_paths.ref` is the full ref, shared with tags). */
+export function branchRef(branch: string): string {
+  return `refs/heads/${branch}`;
+}
 
 /** A parsed `.lfsconfig` blob (content-addressed by git `sha`), as written to the cache. */
-export type LfsconfigParse = {
+export type LfsConfig = {
   sha: string;
   host: string;
   prefix: string;
@@ -38,7 +55,52 @@ export class Repo extends DurableObject<CloudflareBindings> {
           head_sha          TEXT NOT NULL,
           seen_at           TEXT NOT NULL,
           lfsconfig_sha     TEXT,
-          lfsconfig_status  TEXT
+          lfsconfig_status  TEXT,
+          status            TEXT NOT NULL DEFAULT 'active',
+          tree_sha          TEXT,
+          dirty             INTEGER NOT NULL DEFAULT 0,
+          gitattr_sha       TEXT,
+          scanned_at        TEXT,
+          missing_at        TEXT,
+          deleted_at        TEXT
+        )
+      `);
+      // Backfill lifecycle columns on an existing branches table (idempotent).
+      for (const col of [
+        `status TEXT NOT NULL DEFAULT 'active'`,
+        `tree_sha TEXT`,
+        `dirty INTEGER NOT NULL DEFAULT 0`,
+        `gitattr_sha TEXT`,
+        `scanned_at TEXT`,
+        `missing_at TEXT`,
+        `deleted_at TEXT`,
+      ]) {
+        try {
+          this.ctx.storage.sql.exec(`ALTER TABLE branches ADD COLUMN ${col}`);
+        } catch {
+          // column already present
+        }
+      }
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS ref_paths (
+          oid  TEXT NOT NULL,
+          ref  TEXT NOT NULL,
+          path TEXT NOT NULL,
+          PRIMARY KEY (oid, ref, path)
+        )
+      `);
+      this.ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS idx_ref_paths_oid ON ref_paths (oid)`);
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS lfs_pointers (
+          sha  TEXT PRIMARY KEY,
+          oid  TEXT,
+          size INTEGER
+        )
+      `);
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS gitattributes (
+          sha     TEXT PRIMARY KEY,
+          content TEXT NOT NULL
         )
       `);
       this.ctx.storage.sql.exec(`
@@ -67,16 +129,6 @@ export class Repo extends DurableObject<CloudflareBindings> {
     return await this.db.select().from(lfsconfigs);
   }
 
-  /** Advance a branch's head without re-reading `.lfsconfig` — the push diff didn't touch it, so
-   *  its parse columns still hold. Used by the webhook's 0-GitHub-call path. */
-  async recordHead(branch: string, headSha: string): Promise<void> {
-    const now = isoNow();
-    await this.db
-      .insert(branches)
-      .values({ branch, headSha, seenAt: now, lfsconfigSha: null, lfsconfigStatus: null })
-      .onConflictDoUpdate({ target: branches.branch, set: { headSha, seenAt: now } });
-  }
-
   /** Branch's `.lfsconfig` is absent at `headSha`: record `missing`, no blob row. */
   async recordMissing(branch: string, headSha: string): Promise<void> {
     const now = isoNow();
@@ -91,7 +143,7 @@ export class Repo extends DurableObject<CloudflareBindings> {
 
   /** Persist a scanned blob: insert the parse cache row (no-op if the blob is already cached,
    *  content-addressed by `sha`) and upsert the branch's `.lfsconfig` columns to point at it. */
-  async recordLfsconfig(branch: string, headSha: string, blob: LfsconfigParse): Promise<void> {
+  async recordLfsconfig(branch: string, headSha: string, blob: LfsConfig): Promise<void> {
     const now = isoNow();
     await this.db
       .insert(lfsconfigs)
@@ -117,6 +169,156 @@ export class Repo extends DurableObject<CloudflareBindings> {
         target: branches.branch,
         set: { headSha, seenAt: now, lfsconfigSha: blob.sha, lfsconfigStatus: blob.status },
       });
+  }
+
+  // --- branch lifecycle + tip state ---
+
+  /** Record a new tip whose `ref_paths` can't be trusted (diverged / oversized / first sight gap):
+   *  advance `head_sha`, flag `dirty`, leave `tree_sha`/`ref_paths` for `resolveBranch`. */
+  async markDirty(branch: string, headSha: string): Promise<void> {
+    const now = isoNow();
+    await this.db
+      .insert(branches)
+      .values({ branch, headSha, seenAt: now, dirty: true, status: 'active' })
+      .onConflictDoUpdate({
+        target: branches.branch,
+        set: { headSha, seenAt: now, dirty: true, status: 'active' },
+      });
+  }
+
+  /** Advance a branch to a consistent tip (after a sequential delta or full resolve): set
+   *  `head_sha`/`tree_sha`/`gitattr_sha`, stamp `scanned_at`, clear `dirty`, status `active`. */
+  async setTip(
+    branch: string,
+    tip: { headSha: string; treeSha: string; gitattrSha: string | null },
+  ): Promise<void> {
+    const now = isoNow();
+    const set = {
+      headSha: tip.headSha,
+      treeSha: tip.treeSha,
+      gitattrSha: tip.gitattrSha,
+      scannedAt: now,
+      seenAt: now,
+      dirty: false,
+      status: 'active' as const,
+    };
+    await this.db
+      .insert(branches)
+      .values({ branch, ...set })
+      .onConflictDoUpdate({ target: branches.branch, set });
+  }
+
+  /** Branch ref deleted on GitHub: flag `missing` (admin confirms forfeiture separately). */
+  async markBranchMissing(branch: string): Promise<void> {
+    await this.db
+      .update(branches)
+      .set({ status: 'missing', missingAt: isoNow() })
+      .where(eq(branches.branch, branch));
+  }
+
+  /** Branch ref reappeared while `missing`: back to `active`, clear `missing_at`. */
+  async markBranchActive(branch: string): Promise<void> {
+    await this.db
+      .update(branches)
+      .set({ status: 'active', missingAt: null })
+      .where(eq(branches.branch, branch));
+  }
+
+  /** A clean sibling branch already resolved at `treeSha` (for the 0-call copy short-circuit). */
+  async cleanBranchAtTree(treeSha: string, exclude: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ branch: branches.branch })
+      .from(branches)
+      .where(
+        and(eq(branches.treeSha, treeSha), eq(branches.dirty, false), ne(branches.branch, exclude)),
+      )
+      .limit(1);
+    return row?.branch ?? null;
+  }
+
+  // --- ref_paths ---
+
+  async listRefPaths(branch: string): Promise<RefPath[]> {
+    return await this.db
+      .select({ oid: refPaths.oid, path: refPaths.path })
+      .from(refPaths)
+      .where(eq(refPaths.ref, branchRef(branch)));
+  }
+
+  /** Replace a branch's `ref_paths` wholesale (full resolve). Never call with a *partial* tree —
+   *  a partial replace silently drops live OIDs → wrongful purge. */
+  async replaceRefPaths(branch: string, paths: RefPath[]): Promise<void> {
+    const ref = branchRef(branch);
+    await this.db.delete(refPaths).where(eq(refPaths.ref, ref));
+    await this.insertRefPaths(ref, paths);
+  }
+
+  /** Apply a commit delta: drop rows at `removePaths`, upsert `add` rows (idempotent on PK). */
+  async applyRefPathsDelta(branch: string, add: RefPath[], removePaths: string[]): Promise<void> {
+    const ref = branchRef(branch);
+    for (let i = 0; i < removePaths.length; i += SQL_VAR_LIMIT - 1) {
+      const chunk = removePaths.slice(i, i + SQL_VAR_LIMIT - 1);
+      await this.db
+        .delete(refPaths)
+        .where(and(eq(refPaths.ref, ref), inArray(refPaths.path, chunk)));
+    }
+    await this.insertRefPaths(ref, add);
+  }
+
+  /** Copy a sibling's `ref_paths` onto this branch (same `tree_sha`, 0 GitHub calls). */
+  async copyRefPaths(from: string, to: string): Promise<void> {
+    const src = await this.listRefPaths(from);
+    await this.replaceRefPaths(to, src);
+  }
+
+  private async insertRefPaths(ref: string, paths: RefPath[]): Promise<void> {
+    const rows = paths.map((p) => ({ oid: p.oid, ref, path: p.path }));
+    const perBatch = Math.floor(SQL_VAR_LIMIT / 3);
+    for (let i = 0; i < rows.length; i += perBatch) {
+      await this.db
+        .insert(refPaths)
+        .values(rows.slice(i, i + perBatch))
+        .onConflictDoNothing();
+    }
+  }
+
+  // --- content-addressed caches (lfs_pointers, gitattributes) ---
+
+  /** Cached pointer parses for the given blob shas (hits only; misses are absent from the map).
+   *  A row with `oid = null` is a negative cache entry (matched `.gitattributes`, not a pointer). */
+  async getPointers(blobShas: string[]): Promise<Map<string, PointerRow>> {
+    const out = new Map<string, PointerRow>();
+    for (let i = 0; i < blobShas.length; i += SQL_VAR_LIMIT) {
+      const chunk = blobShas.slice(i, i + SQL_VAR_LIMIT);
+      const rows = await this.db.select().from(lfsPointers).where(inArray(lfsPointers.sha, chunk));
+      for (const r of rows) out.set(r.sha, r);
+    }
+    return out;
+  }
+
+  async putPointers(rows: PointerRow[]): Promise<void> {
+    const perBatch = Math.floor(SQL_VAR_LIMIT / 3);
+    for (let i = 0; i < rows.length; i += perBatch) {
+      await this.db
+        .insert(lfsPointers)
+        .values(rows.slice(i, i + perBatch))
+        .onConflictDoNothing();
+    }
+  }
+
+  async getGitattributes(blobSha: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ content: gitattributes.content })
+      .from(gitattributes)
+      .where(eq(gitattributes.sha, blobSha));
+    return row?.content ?? null;
+  }
+
+  async putGitattributes(blobSha: string, content: string): Promise<void> {
+    await this.db
+      .insert(gitattributes)
+      .values({ sha: blobSha, content })
+      .onConflictDoNothing({ target: gitattributes.sha });
   }
 
   // Writes links only, never `storage` rows: a `.lfsconfig` claim is a link, not bytes (storage
