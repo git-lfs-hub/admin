@@ -209,6 +209,26 @@ export class Storage extends DurableObject<CloudflareBindings> {
     return stale.length;
   }
 
+  /** OIDs currently in `status` on this prefix — the recompute baseline (`deleted` = current block
+   *  set) the new effective set is diffed against. */
+  async listOidsByStatus(status: ObjectStatus): Promise<string[]> {
+    const rows = await this.db
+      .select({ oid: objects.oid })
+      .from(objects)
+      .where(eq(objects.status, status));
+    return rows.map((r) => r.oid);
+  }
+
+  /** Flip the status of objects already in the index (block: `present`→`deleted`, undelete:
+   *  `deleted`→`present`). OIDs absent from the index are skipped — `ref_paths` records git-referenced
+   *  OIDs that may not be uploaded yet, and the server blocklist is the authoritative gate regardless. */
+  async setObjectsStatus(oids: string[], status: ObjectStatus): Promise<void> {
+    for (let i = 0; i < oids.length; i += SQL_VAR_LIMIT) {
+      const chunk = oids.slice(i, i + SQL_VAR_LIMIT);
+      await this.db.update(objects).set({ status }).where(inArray(objects.oid, chunk));
+    }
+  }
+
   // --- workflows: one-active-op guard for the GC lifecycle (executors live in worker/workflows) ---
 
   async listWorkflows(): Promise<WorkflowRow[]> {

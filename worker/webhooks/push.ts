@@ -1,5 +1,6 @@
 import { GithubApi, type GithubOrgApi } from '@git-lfs-hub/lib/github';
 
+import { notifyBranchReappeared } from '@/alerts/lifecycle';
 import { Repo } from '@/db/repo';
 import { applyPushEvent, type BranchPushEvent, type GetApi } from '@/github/branches';
 import { scanLfsConfig } from '@/github/lfsconfig';
@@ -39,6 +40,13 @@ export async function handlePushEvent(env: CloudflareBindings, push: PushEvent):
   };
 
   const prior = await repo.getBranch(branch);
+
+  // A branch admin-confirmed `deleted` stays forfeited regardless of later git events: a re-delete
+  // is a no-op, a reappearance only alerts (the block holds) rather than resurrecting the branch.
+  if (prior?.status === 'deleted') {
+    if (!push.deleted) await notifyBranchReappeared(env, owner, name, branch);
+    return;
+  }
 
   if (push.deleted) {
     await repo.markBranchMissing(branch);

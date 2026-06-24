@@ -12,6 +12,7 @@ const LABEL: Record<Alert['kind'], string> = {
   reappeared: 'Storage back in use',
   archived: 'Storage archived — serving blocked',
   restored: 'Storage restored — serving resumed',
+  branch_reappeared: 'Branch reappeared after deletion',
 };
 
 // Strip the scope namespace for display (`storage:acme/app` → `acme/app`).

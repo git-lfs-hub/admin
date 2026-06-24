@@ -37,3 +37,16 @@ export function purgeConfirmDueAt(row: StorageRow, gc: GcConfig): string | null 
 export function isDue(deadline: string | null, now: number): boolean {
   return deadline != null && Date.parse(deadline) <= now;
 }
+
+// `deletedAt + retentionDays.branch` — UI-only earliest purge date for objects that became blocked
+// when this branch was confirmed deleted. Authoritative per-OID timing is storage-scoped.
+export function branchWillPurgeAt(deletedAt: string | null, gc: GcConfig): string | null {
+  return deletedAt ? isoAddDays(deletedAt, gc.retentionDays.branch) : null;
+}
+
+// Confirm-delete gate: a branch whose `ref_paths` was never resolved or last made consistent longer
+// ago than `scanFreshnessHours` can't yield a trustworthy block set, so confirm is refused.
+export function isScanStale(scannedAt: string | null, gc: GcConfig, now: number): boolean {
+  if (!scannedAt) return true;
+  return Date.parse(scannedAt) < now - gc.scanFreshnessHours * 3600_000;
+}

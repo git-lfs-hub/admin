@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { drizzle, DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 
 import { Registry } from '@/db/registry';
@@ -9,6 +9,7 @@ import {
   lfsconfigs,
   lfsPointers,
   refPaths,
+  type BranchStatus,
   type LfsconfigParseStatus,
 } from '@/db/repo-schema';
 import { isoNow } from '@/lib/time';
@@ -17,6 +18,14 @@ export type BranchRow = typeof branches.$inferSelect;
 export type LfsconfigRow = typeof lfsconfigs.$inferSelect;
 export type RefPath = { oid: string; path: string };
 export type PointerRow = typeof lfsPointers.$inferSelect;
+
+/** A branch row joined to its resolved `.lfsconfig` (the storage prefix it links to) and its
+ *  referenced-OID count — the per-repo branch drilldown payload. `lfsconfig` is null when the
+ *  branch has no parsed config. */
+export type BranchSummary = BranchRow & {
+  lfsconfig: { prefix: string; local: boolean; host: string } | null;
+  oidCount: number;
+};
 
 /** CF Durable Object SQLite caps bound parameters per statement at 100. */
 const SQL_VAR_LIMIT = 100;
@@ -125,6 +134,36 @@ export class Repo extends DurableObject<CloudflareBindings> {
     return row ?? null;
   }
 
+  /** Per-repo branch drilldown: every branch joined to its resolved `.lfsconfig` + its
+   *  referenced-OID count. */
+  async branchSummaries(): Promise<BranchSummary[]> {
+    const rows = await this.db
+      .select()
+      .from(branches)
+      .leftJoin(lfsconfigs, eq(branches.lfsconfigSha, lfsconfigs.sha));
+    const counts = await this.db
+      .select({ ref: refPaths.ref, n: count() })
+      .from(refPaths)
+      .groupBy(refPaths.ref);
+    const byRef = new Map(counts.map((c) => [c.ref, c.n]));
+    return rows.map(({ branches: b, lfsconfigs: cfg }) => ({
+      ...b,
+      lfsconfig: cfg ? { prefix: cfg.prefix, local: cfg.local, host: cfg.host } : null,
+      oidCount: byRef.get(branchRef(b.branch)) ?? 0,
+    }));
+  }
+
+  /** The local storage prefix a branch's `.lfsconfig` points at (`local`, parsed `ok`), or null —
+   *  the confirm/undelete gate (external or unparsed configs have no prefix to recompute). */
+  async localPrefixForBranch(branch: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ prefix: lfsconfigs.prefix, local: lfsconfigs.local, status: lfsconfigs.status })
+      .from(branches)
+      .innerJoin(lfsconfigs, eq(branches.lfsconfigSha, lfsconfigs.sha))
+      .where(eq(branches.branch, branch));
+    return row && row.local && row.status === 'ok' ? row.prefix : null;
+  }
+
   async listLfsconfigs(): Promise<LfsconfigRow[]> {
     return await this.db.select().from(lfsconfigs);
   }
@@ -222,6 +261,32 @@ export class Repo extends DurableObject<CloudflareBindings> {
       .update(branches)
       .set({ status: 'active', missingAt: null })
       .where(eq(branches.branch, branch));
+  }
+
+  /** Admin confirmed branch deletion: forfeit its references. Stamps `deleted_at`; returns the row
+   *  (null if the branch is gone or already `deleted`). Caller recomputes the prefix block set. */
+  async markBranchDeleted(branch: string): Promise<BranchRow | null> {
+    const [row] = await this.db
+      .update(branches)
+      .set({ status: 'deleted', deletedAt: isoNow() })
+      .where(and(eq(branches.branch, branch), ne(branches.status, 'deleted')))
+      .returning();
+    return row ?? null;
+  }
+
+  /** Undelete: reverse a confirmed delete. Back to `missing` if the ref was gone from GitHub when
+   *  deleted (its `missing_at` survived), else `active`. Clears `deleted_at`; returns the row
+   *  (null unless it was `deleted`). */
+  async undeleteBranch(branch: string): Promise<BranchRow | null> {
+    const cur = await this.getBranch(branch);
+    if (!cur || cur.status !== 'deleted') return null;
+    const status = cur.missingAt ? 'missing' : 'active';
+    const [row] = await this.db
+      .update(branches)
+      .set({ status, deletedAt: null })
+      .where(eq(branches.branch, branch))
+      .returning();
+    return row ?? null;
   }
 
   /** A clean sibling branch already resolved at `treeSha` (for the 0-call copy short-circuit). */
@@ -326,6 +391,49 @@ export class Repo extends DurableObject<CloudflareBindings> {
   async syncLinks(owner: string, repo: string): Promise<void> {
     const registry = Registry.global(this.env);
     await registry.syncLinks(owner, repo, await this.localPrefixes());
+  }
+
+  /** Effective block set for a prefix: OIDs some `deleted` branch (linked to this prefix) references
+   *  and no `active`/`missing` branch (same prefix) still references. The block/purge unit — every
+   *  object on a prefix may be referenced from many branches, so a delete blocks only the orphans. */
+  async blockedOidsForPrefix(prefix: string): Promise<string[]> {
+    const deletedRefs = await this.refsForPrefix(prefix, ['deleted']);
+    if (deletedRefs.length === 0) return [];
+    const liveRefs = await this.refsForPrefix(prefix, ['active', 'missing']);
+    const deletedOids = await this.oidsForRefs(deletedRefs);
+    const liveOids = await this.oidsForRefs(liveRefs);
+    return [...deletedOids].filter((oid) => !liveOids.has(oid));
+  }
+
+  /** Full refs of branches in any of `statuses` whose local `.lfsconfig` points at `prefix`. */
+  private async refsForPrefix(prefix: string, statuses: BranchStatus[]): Promise<string[]> {
+    const rows = await this.db
+      .select({ branch: branches.branch })
+      .from(branches)
+      .innerJoin(lfsconfigs, eq(branches.lfsconfigSha, lfsconfigs.sha))
+      .where(
+        and(
+          eq(lfsconfigs.prefix, prefix),
+          eq(lfsconfigs.local, true),
+          eq(lfsconfigs.status, 'ok'),
+          inArray(branches.status, statuses),
+        ),
+      );
+    return rows.map((r) => branchRef(r.branch));
+  }
+
+  /** Distinct OIDs referenced by any of the given refs. */
+  private async oidsForRefs(refs: string[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (let i = 0; i < refs.length; i += SQL_VAR_LIMIT) {
+      const chunk = refs.slice(i, i + SQL_VAR_LIMIT);
+      const rows = await this.db
+        .selectDistinct({ oid: refPaths.oid })
+        .from(refPaths)
+        .where(inArray(refPaths.ref, chunk));
+      for (const r of rows) out.add(r.oid);
+    }
+    return out;
   }
 
   /** Distinct local storage prefixes this repo currently references (`local`, parsed `ok`),

@@ -21,7 +21,25 @@ const CLEARS: Record<NotifyKind, AlertKind[]> = {
   archived: ['missing', 'restored'],
   reappeared: ['missing'],
   restored: ['archived'],
+  branch_reappeared: [], // standalone git-branch alert; supersedes no storage alert
 };
+
+/** A git branch returned while admin-confirmed `deleted` — notify-only (the block stays put).
+ *  Branch-namespaced scope so it gets its own Slack message, distinct from storage alerts on the
+ *  repo. Best-effort: never throws into the webhook path. */
+export async function notifyBranchReappeared(
+  env: CloudflareBindings,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<void> {
+  const scope = `branch:${owner.toLowerCase()}/${repo.toLowerCase()}/${branch}`;
+  try {
+    await Alerts.global(env).sendNotification({ kind: 'branch_reappeared', scope });
+  } catch (e) {
+    console.error(`[alerts] branch_reappeared failed for ${owner}/${repo}#${branch}:`, e);
+  }
+}
 
 /** Best-effort: failures are logged, never thrown, so notification can't break the lifecycle
  *  op that triggered it. */

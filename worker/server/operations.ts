@@ -1,5 +1,7 @@
 import { notify, restingAlert } from '@/alerts/lifecycle';
 import type { Registry, StorageRow } from '@/db/registry';
+import { Repo } from '@/db/repo';
+import { Storage } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
 import { lfsServer } from '@/server/lfs-server';
 import { startWorkflow } from '@/workflows/lifecycle';
@@ -49,6 +51,32 @@ export async function restore(
   // `missing` (serving hasn't resumed), so report that, not `restored`.
   if (row) await notify(env, owner, repo, restingAlert(row) ?? 'restored');
   return row;
+}
+
+// Recompute a prefix's effective block set after a branch confirm/undelete on the git repo
+// `gitOwner/gitRepo` (which need not equal the prefix's own segments). Diffs the freshly-computed
+// set against the current `deleted` rows, then RPCs the server (authoritative 404 gate) *before*
+// the STORAGE status bookkeeping — a server failure leaves object statuses untouched (retriable).
+// May block/unblock zero OIDs when references stay live. Returns the applied delta.
+export async function recomputeBlocks(
+  env: CloudflareBindings,
+  gitOwner: string,
+  gitRepo: string,
+  prefix: string,
+): Promise<{ blocked: string[]; unblocked: string[] }> {
+  const desired = await Repo.byRepo(env, gitOwner, gitRepo).blockedOidsForPrefix(prefix);
+  const store = Storage.byPrefix(env, prefix);
+  const current = await store.listOidsByStatus('deleted');
+  const desiredSet = new Set(desired);
+  const currentSet = new Set(current);
+  const toBlock = desired.filter((oid) => !currentSet.has(oid));
+  const toUnblock = current.filter((oid) => !desiredSet.has(oid));
+  const [owner, repo] = splitPrefix(prefix);
+  if (toBlock.length) await lfsServer(env).blockObjects(owner, repo, toBlock);
+  if (toUnblock.length) await lfsServer(env).unblockObjects(owner, repo, toUnblock);
+  if (toBlock.length) await store.setObjectsStatus(toBlock, 'deleted');
+  if (toUnblock.length) await store.setObjectsStatus(toUnblock, 'present');
+  return { blocked: toBlock, unblocked: toUnblock };
 }
 
 // Post-purge server cleanup (Locks wipe + server registry → purged). RPC only — the admin REGISTRY

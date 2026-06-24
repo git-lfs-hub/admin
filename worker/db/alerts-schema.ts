@@ -6,6 +6,8 @@ export const alertModes = {
   reappeared: 'notify',
   archived: 'notify',
   restored: 'notify',
+  // A git branch returned while admin-confirmed `deleted`: notify-only (the block stays).
+  branch_reappeared: 'notify',
   clear: 'confirm',
   purge: 'confirm',
 } as const;
@@ -31,6 +33,7 @@ export const alertSeverity: Record<AlertKind, AlertSeverity> = {
   reappeared: 'info',
   archived: 'info',
   restored: 'info',
+  branch_reappeared: 'warning',
   clear: 'warning',
   purge: 'warning',
 };
