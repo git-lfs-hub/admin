@@ -7,7 +7,8 @@ describe('gcConfig', () => {
     expect(gcConfig({ GC: {} } as any)).toEqual({
       autoDays: { archive: 7, clear: 30 },
       confirmDays: 3,
-      retentionDays: { live: 30, cold: 365 },
+      scanFreshnessHours: 24,
+      retentionDays: { live: 30, cold: 365, branch: 7 },
       coldStorage: '',
     });
   });

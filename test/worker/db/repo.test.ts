@@ -125,6 +125,98 @@ describe('Repo branch lifecycle + ref_paths', () => {
   });
 });
 
+describe('Repo branch delete lifecycle + block set', () => {
+  // A branch linked to `prefix` (local, ok) referencing `oids`, optionally missing/deleted.
+  async function branch(
+    repo: DurableObjectStub<import('@/db/repo').Repo>,
+    name: string,
+    prefix: string,
+    oids: string[],
+    opts: { missing?: boolean; deleted?: boolean } = {},
+  ) {
+    await repo.recordLfsconfig(name, `h-${name}`, local(`cfg-${prefix}`, prefix));
+    await repo.replaceRefPaths(
+      name,
+      oids.map((oid, i) => ({ oid, path: `${name}/${i}.bin` })),
+    );
+    if (opts.missing) await repo.markBranchMissing(name);
+    if (opts.deleted) await repo.markBranchDeleted(name);
+  }
+
+  test('blockedOidsForPrefix returns only orphans of deleted branches', async () => {
+    const repo = Repo.byRepo(env, 'org', 'blk');
+    await branch(repo, 'main', 'org/blk', ['o1', 'o2']);
+    await branch(repo, 'feat', 'org/blk', ['o2', 'o3'], { deleted: true });
+    // o2 stays live (referenced by active main); only o3 is forfeited.
+    expect((await repo.blockedOidsForPrefix('org/blk')).sort()).toEqual(['o3']);
+  });
+
+  test('no deleted branch → empty block set', async () => {
+    const repo = Repo.byRepo(env, 'org', 'none');
+    await branch(repo, 'main', 'org/none', ['o1']);
+    expect(await repo.blockedOidsForPrefix('org/none')).toEqual([]);
+  });
+
+  test('a missing branch still counts as a live reference', async () => {
+    const repo = Repo.byRepo(env, 'org', 'miss');
+    await branch(repo, 'old', 'org/miss', ['o9'], { missing: true });
+    await branch(repo, 'gone', 'org/miss', ['o9'], { deleted: true });
+    expect(await repo.blockedOidsForPrefix('org/miss')).toEqual([]);
+  });
+
+  test('external (local=0) branches are excluded from the block set', async () => {
+    const repo = Repo.byRepo(env, 'org', 'ext');
+    await repo.recordLfsconfig('gone', 'h-gone', {
+      sha: 'cfg-ext',
+      host: 'lfs.elsewhere.example',
+      prefix: 'Other/Repo',
+      local: false,
+      status: 'ok',
+    });
+    await repo.replaceRefPaths('gone', [{ oid: 'o1', path: 'a.bin' }]);
+    await repo.markBranchDeleted('gone');
+    expect(await repo.blockedOidsForPrefix('Other/Repo')).toEqual([]);
+  });
+
+  test('markBranchDeleted stamps deleted_at and is idempotent', async () => {
+    const repo = Repo.byRepo(env, 'org', 'del');
+    await repo.setTip('feat', { headSha: 'c1', treeSha: 't1', gitattrSha: null });
+    const row = await repo.markBranchDeleted('feat');
+    expect(row).toMatchObject({ status: 'deleted' });
+    expect(row?.deletedAt).not.toBeNull();
+    expect(await repo.markBranchDeleted('feat')).toBeNull();
+  });
+
+  test('undeleteBranch reverses to active, or missing when the ref was gone', async () => {
+    const repo = Repo.byRepo(env, 'org', 'undel');
+    await repo.setTip('a', { headSha: 'c1', treeSha: 't1', gitattrSha: null });
+    await repo.markBranchDeleted('a');
+    expect(await repo.undeleteBranch('a')).toMatchObject({ status: 'active', deletedAt: null });
+
+    await repo.setTip('b', { headSha: 'c1', treeSha: 't1', gitattrSha: null });
+    await repo.markBranchMissing('b');
+    await repo.markBranchDeleted('b');
+    expect(await repo.undeleteBranch('b')).toMatchObject({ status: 'missing', deletedAt: null });
+
+    expect(await repo.undeleteBranch('a')).toBeNull(); // already active
+  });
+
+  test('localPrefixForBranch: prefix for local/ok, null for external', async () => {
+    const repo = Repo.byRepo(env, 'org', 'lp');
+    await repo.recordLfsconfig('main', 'h1', local('cfg-local', 'org/lp'));
+    await repo.recordLfsconfig('ext', 'h2', {
+      sha: 'cfg-remote',
+      host: 'lfs.elsewhere.example',
+      prefix: 'Other/Repo',
+      local: false,
+      status: 'ok',
+    });
+    expect(await repo.localPrefixForBranch('main')).toBe('org/lp');
+    expect(await repo.localPrefixForBranch('ext')).toBeNull();
+    expect(await repo.localPrefixForBranch('absent')).toBeNull();
+  });
+});
+
 describe('Repo.syncLinks → REGISTRY graph', () => {
   const registry = () => Registry.global(env);
 
