@@ -69,71 +69,77 @@ const sorted = computed(() =>
             <Badge :variant="BADGE[b.status]" class="h-6 shrink-0">{{ b.status }}</Badge>
           </div>
 
-          <ItemDescription class="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <!-- local: the storage prefix the branch references; external: just the host mapping. -->
-            <span v-if="b.lfsconfig?.local" class="font-mono text-foreground">{{
-              b.lfsconfig.prefix
-            }}</span>
-            <span v-else-if="b.lfsconfig" class="inline-flex items-center gap-1">
-              <Badge variant="outline" class="h-5">external</Badge>
-              <span class="font-mono">{{ b.lfsconfig.host }}</span>
-            </span>
-            <span v-else class="text-muted-foreground">no .lfsconfig</span>
+          <div class="flex items-start justify-between gap-4">
+            <ItemDescription class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <!-- local: the storage prefix the branch references; external: just the host mapping. -->
+              <span v-if="b.lfsconfig?.local" class="font-mono text-foreground">{{
+                b.lfsconfig.prefix
+              }}</span>
+              <span v-else-if="b.lfsconfig" class="inline-flex items-center gap-1">
+                <Badge variant="outline" class="h-5">external</Badge>
+                <span class="font-mono">{{ b.lfsconfig.host }}</span>
+              </span>
+              <span v-else class="text-muted-foreground">no .lfsconfig</span>
 
-            <span>{{ b.oidCount }} objects</span>
-            <span v-if="b.prefixUsage"
-              >{{ formatSize(b.prefixUsage.total.size) }} total<template
-                v-if="b.prefixUsage.blocked.count"
+              <span>{{ b.oidCount }} objects</span>
+              <span v-if="b.prefixUsage"
+                >{{ formatSize(b.prefixUsage.total.size) }} total<template
+                  v-if="b.prefixUsage.blocked.count"
+                >
+                  · {{ formatSize(b.prefixUsage.blocked.size) }} blocked</template
+                ></span
               >
-                · {{ formatSize(b.prefixUsage.blocked.size) }} blocked</template
-              ></span
-            >
-            <span v-if="b.scannedAt" :title="formatTime(b.scannedAt)"
-              >scanned {{ formatRelative(b.scannedAt) }}</span
-            >
-            <span v-else class="text-muted-foreground">never scanned</span>
-            <span v-if="b.deletedAt && b.willPurgeAt" class="text-muted-foreground"
-              >purges {{ formatUntil(b.willPurgeAt) }}</span
-            >
-          </ItemDescription>
-        </ItemContent>
+              <span v-if="b.scannedAt" :title="formatTime(b.scannedAt)"
+                >scanned {{ formatRelative(b.scannedAt) }}</span
+              >
+              <span v-else class="text-muted-foreground">never scanned</span>
+              <span v-if="b.deletedAt && b.willPurgeAt" class="text-muted-foreground"
+                >purges {{ formatUntil(b.willPurgeAt) }}</span
+              >
+            </ItemDescription>
 
-        <!-- Actions only for local prefixes; external branches show the mapping, no delete. -->
-        <div v-if="b.lfsconfig?.local" class="shrink-0 self-center">
-          <Button
-            v-if="b.status === 'deleted'"
-            size="sm"
-            variant="outline"
-            :disabled="undelete.isPending.value"
-            @click="undelete.mutate(b.branch)"
-            >Undelete</Button
-          >
-          <AlertDialog v-else>
-            <AlertDialogTrigger as-child>
-              <Button size="sm" variant="outline" :disabled="b.dirty">Delete</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle
-                  >Delete branch <span class="font-mono">{{ b.branch }}</span
-                  >?</AlertDialogTitle
-                >
-                <AlertDialogDescription>
-                  The branch forfeits its references on
-                  <span class="font-mono">{{ b.lfsconfig.prefix }}</span
-                  >. Objects no other live branch references are blocked and purged after the
-                  retention window. Reversible until purged.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" @click="remove.mutate(b.branch)"
-                  >Delete</AlertDialogAction
-                >
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+            <!-- Actions only for local prefixes; external branches show the mapping, no delete. -->
+            <div
+              v-if="b.lfsconfig?.local"
+              data-slot="actions"
+              class="flex shrink-0 flex-col items-end gap-2"
+            >
+              <Button
+                v-if="b.status === 'deleted'"
+                size="xs"
+                variant="outline"
+                :disabled="undelete.isPending.value"
+                @click="undelete.mutate(b.branch)"
+                >Undelete</Button
+              >
+              <AlertDialog v-else>
+                <AlertDialogTrigger as-child>
+                  <Button size="xs" variant="outline" :disabled="b.dirty">Delete</Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle
+                      >Delete branch <span class="font-mono">{{ b.branch }}</span
+                      >?</AlertDialogTitle
+                    >
+                    <AlertDialogDescription>
+                      The branch forfeits its references on
+                      <span class="font-mono">{{ b.lfsconfig.prefix }}</span
+                      >. Objects no other live branch references are blocked and purged after the
+                      retention window. Reversible until purged.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction variant="destructive" @click="remove.mutate(b.branch)"
+                      >Delete</AlertDialogAction
+                    >
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </ItemContent>
       </Item>
     </ItemGroup>
   </section>
