@@ -58,6 +58,23 @@ export async function reconcileBranches(
   return out;
 }
 
+/** On-demand single-repo branch resolve — confirm-delete's resolve-then-block. Refreshes the
+ *  repo's `branches`/`ref_paths` from GitHub so the block set is computed on a current graph.
+ *  Throws on no installation / GitHub failure (the route maps that to a retriable 502). */
+export async function resolveRepoBranches(
+  env: CloudflareBindings,
+  owner: string,
+  name: string,
+  local = false,
+): Promise<void> {
+  const app = await githubApp(env, local);
+  const account = (await app.installedOrgs()).find(
+    (a) => a.login.toLowerCase() === owner.toLowerCase(),
+  );
+  if (!account) throw new Error(`no GitHub installation for ${owner}`);
+  await reconcileRepoBranches(await app.orgApi(account), env, owner, name);
+}
+
 /** One repo: GraphQL all-branches vs stored `branches`; resolve the drifted ones, mark vanished
  *  ones `missing`, one `syncLinks` if anything changed. */
 async function reconcileRepoBranches(

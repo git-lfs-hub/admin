@@ -6,8 +6,9 @@ import { Registry } from '@/db/registry';
 import { Repo } from '@/db/repo';
 import { Storage, type UsageByStatus } from '@/db/storage';
 import { gcConfig } from '@/gc/config';
-import { branchWillPurgeAt, isScanStale } from '@/gc/deadlines';
+import { branchWillPurgeAt } from '@/gc/deadlines';
 import { isLocal } from '@/lib/host';
+import { resolveRepoBranches } from '@/reconcile/branches';
 import { recomputeBlocks } from '@/server/operations';
 
 // Read-only: presence is reconcile's/the webhook's call. Lifecycle actions live on `/api/storage`.
@@ -68,16 +69,30 @@ const app = new Hono<AppEnv>()
     return c.json({ branches });
   })
 
-  // Confirm branch deletion (forfeit references). Gate on a fresh scan, resolve the local prefix,
-  // flag `deleted`, then recompute the prefix block set (RPC before STORAGE writes).
+  // Confirm branch deletion (forfeit references). Resolve-then-block: refresh a dirty/never-resolved
+  // branch from GitHub first, resolve the local prefix, flag `deleted`, then recompute the prefix
+  // block set (RPC before STORAGE writes).
   .post('/:owner/:repo/branches/:branch/delete', requireOwnerAdmin, async (c) => {
     const { owner, repo, branch } = c.req.param();
     const repoStub = Repo.byRepo(c.env, owner, repo);
-    const cur = await repoStub.getBranch(branch);
+    let cur = await repoStub.getBranch(branch);
     if (!cur) return c.json({ error: 'not_found' }, 404);
-    // A `dirty`/stale/never-resolved branch can't yield a trustworthy block set.
-    if (cur.dirty || isScanStale(cur.scannedAt, gcConfig(c.env), Date.now()))
-      return c.json({ error: 'stale_scan' }, 409);
+
+    // A `dirty`/never-resolved branch can't yield a trustworthy block set — refresh `ref_paths`
+    // from GitHub first (no urgency: the branch holds at `missing` until it resolves).
+    if (cur.dirty || !cur.scannedAt) {
+      try {
+        await resolveRepoBranches(c.env, owner, repo, isLocal(c));
+      } catch (e) {
+        console.error(`[branches] resolve failed for ${owner}/${repo}:`, e);
+        return c.json({ error: 'resolve_failed' }, 502);
+      }
+      cur = await repoStub.getBranch(branch);
+      if (!cur) return c.json({ error: 'not_found' }, 404);
+      // Still unresolved → the tip is gone from GitHub (deleted ref, commit GC'd); waiting won't fix it.
+      if (cur.dirty || !cur.scannedAt) return c.json({ error: 'unresolvable' }, 409);
+    }
+
     const prefix = await repoStub.localPrefixForBranch(branch);
     if (!prefix) return c.json({ error: 'not_local' }, 409);
 

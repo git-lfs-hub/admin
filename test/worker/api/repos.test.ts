@@ -77,13 +77,9 @@ function branchEnv(lfs: Partial<Record<'blockObjects' | 'unblockObjects', unknow
     purgeObjects: vi.fn(async () => {}),
     ...lfs,
   };
-  const e = {
-    REGISTRY: env.REGISTRY,
-    STORAGE: env.STORAGE,
-    REPO: env.REPO,
-    GC: env.GC,
-    LFS_SERVER,
-  } as unknown as CloudflareBindings;
+  // Spread the real env so the dev mock GitHub (org config + `LFS` host) backs confirm's
+  // resolve-then-block; override `LFS_SERVER` with the asserted stub (stripped from the test env).
+  const e = { ...env, LFS_SERVER } as unknown as CloudflareBindings;
   return { e, LFS_SERVER };
 }
 
@@ -96,7 +92,13 @@ const local = (prefix: string): LfsConfig => ({
 });
 
 // A scanned (fresh, clean), `active` branch linked to `prefix` and referencing `oids`.
-async function seedBranch(owner: string, repo: string, name: string, prefix: string, oids: string[]) {
+async function seedBranch(
+  owner: string,
+  repo: string,
+  name: string,
+  prefix: string,
+  oids: string[],
+) {
   const r = Repo.byRepo(env, owner, repo);
   await r.recordLfsconfig(name, `h-${name}`, local(prefix));
   await r.setTip(name, { headSha: `h-${name}`, treeSha: `t-${name}`, gitattrSha: null });
@@ -173,23 +175,42 @@ describe('POST /api/repos/:owner/:repo/branches/:branch — confirm / undelete',
     expect(await res.json()).toMatchObject({ error: 'not_found' });
   });
 
-  test('409 stale_scan when the branch was never scanned', async () => {
-    const r = Repo.byRepo(env, 'alice', 'stale');
-    await r.recordLfsconfig('main', 'h1', local('alice/stale')); // no setTip → scannedAt null
+  // Resolve-then-block: a never-scanned branch is resolved from GitHub (dev mock) before blocking,
+  // instead of being rejected. `test-org/webapp` is a dev fixture repo with a local `.lfsconfig`.
+  test('resolves a never-scanned branch from GitHub, then blocks', async () => {
+    await Repo.byRepo(env, 'test-org', 'webapp').recordLfsconfig(
+      'main',
+      'h1',
+      local('test-org/webapp'),
+    ); // no setTip → scannedAt null → triggers resolve
     const { e } = branchEnv();
-    const res = await post('/alice/stale/branches/main/delete', e);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: 'stale_scan' });
+    const res = await post('/test-org/webapp/branches/main/delete', e);
+    expect(res.status).toBe(200);
+    expect((await Repo.byRepo(env, 'test-org', 'webapp').getBranch('main'))?.status).toBe(
+      'deleted',
+    );
   });
 
-  test('409 stale_scan when the tip is dirty', async () => {
-    const r = Repo.byRepo(env, 'alice', 'dirty');
-    await r.recordLfsconfig('main', 'h1', local('alice/dirty'));
+  // A dirty branch the dev mock no longer lists (its ref is gone) can't be resolved → hard error.
+  test('409 unresolvable when a dirty branch is gone from GitHub', async () => {
+    const r = Repo.byRepo(env, 'test-org', 'webapp');
+    await r.recordLfsconfig('feat', 'h1', local('test-org/webapp'));
+    await r.markDirty('feat', 'h2'); // mock listBranches returns only `main` → `feat` stays dirty
+    const { e } = branchEnv();
+    const res = await post('/test-org/webapp/branches/feat/delete', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'unresolvable' });
+  });
+
+  // No GitHub installation for the owner → resolve can't run; retriable.
+  test('502 resolve_failed when GitHub is unreachable', async () => {
+    const r = Repo.byRepo(env, 'nobody', 'repo');
+    await r.recordLfsconfig('main', 'h1', local('nobody/repo'));
     await r.markDirty('main', 'h2');
     const { e } = branchEnv();
-    const res = await post('/alice/dirty/branches/main/delete', e);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: 'stale_scan' });
+    const res = await post('/nobody/repo/branches/main/delete', e);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: 'resolve_failed' });
   });
 
   test('409 not_local for an external lfsconfig', async () => {

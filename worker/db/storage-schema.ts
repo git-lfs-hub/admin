@@ -14,6 +14,11 @@ export const objects = sqliteTable('objects', {
   firstSeen: text('first_seen').notNull(),
   lastSeen: text('last_seen').notNull(),
   lastAccessed: text('last_accessed').notNull(),
+  // Per-OID GC clock (mirrors the prefix `storage` row's archivedAt/clearedAt). `deletedAt` anchors
+  // clear (+ autoDays.clear) and purge (+ retentionDays); all three null while the OID is `present`.
+  deletedAt: text('deleted_at'),
+  backedUpAt: text('backed_up_at'),
+  clearedAt: text('cleared_at'),
 });
 
 export const workflowOps = ['backup', 'clear', 'restore', 'purge', 'deleteBackup'] as const;

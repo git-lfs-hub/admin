@@ -12,8 +12,7 @@
   "admin": { "slack": { "channel": "" } },
   "gc": {
     "autoDays": { "archive": 7, "clear": 30 },
-    "scanFreshnessHours": 24,
-    "retentionDays": { "live": 30, "cold": 365, "branch": 7 },
+    "retentionDays": { "live": 30, "cold": 365 },
     "coldStorage": "",
     "confirmDays": 3
   },

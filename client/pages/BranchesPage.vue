@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,7 +14,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '@/components/ui/item';
@@ -43,7 +43,9 @@ const sorted = computed(() =>
 <template>
   <section class="space-y-4">
     <div class="flex items-baseline gap-2">
-      <RouterLink to="/repos" class="text-muted-foreground hover:underline">Repositories</RouterLink>
+      <RouterLink to="/repos" class="text-muted-foreground hover:underline"
+        >Repositories</RouterLink
+      >
       <span class="text-muted-foreground">/</span>
       <h1 class="font-mono break-all">{{ owner }}/{{ repo }}</h1>
     </div>

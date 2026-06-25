@@ -169,6 +169,34 @@ describe('Storage.sweepMissing', () => {
   });
 });
 
+describe('Storage.setObjectsStatus', () => {
+  test('block stamps deletedAt + clears backup/cleared; undelete nulls all three', async () => {
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.recordObject('o1', 1, 'verify'); // present
+
+    await store.setObjectsStatus(['o1'], 'deleted');
+    const blocked = await store.getObject('o1');
+    expect(blocked?.status).toBe('deleted');
+    expect(blocked?.deletedAt).not.toBeNull();
+    expect(blocked?.backedUpAt).toBeNull();
+    expect(blocked?.clearedAt).toBeNull();
+    expect(await store.listOidsByStatus('deleted')).toEqual(['o1']);
+
+    await store.setObjectsStatus(['o1'], 'present');
+    const undeleted = await store.getObject('o1');
+    expect(undeleted?.status).toBe('present');
+    expect(undeleted?.deletedAt).toBeNull();
+    expect(undeleted?.backedUpAt).toBeNull();
+    expect(undeleted?.clearedAt).toBeNull();
+  });
+
+  test('skips oids absent from the index', async () => {
+    const store = env.STORAGE.getByName('alice/thing');
+    await store.setObjectsStatus(['ghost'], 'deleted');
+    expect(await store.getObject('ghost')).toBeNull();
+  });
+});
+
 describe('Storage workflows (one-active-op guard)', () => {
   test('beginOp records an active row and denormalizes activeOp to REGISTRY', async () => {
     const registry = env.REGISTRY.getByName('global');
