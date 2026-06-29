@@ -108,7 +108,7 @@ export async function reconcileRepos(
 
 // Local dev (no App key) swaps in a mock client; `__DEV__` is false in the deployed bundle, so
 // esbuild drops this branch and the `@dev` import.
-async function githubApp(env: CloudflareBindings, local: boolean): Promise<GithubApi> {
+export async function githubApp(env: CloudflareBindings, local: boolean): Promise<GithubApi> {
   if (__DEV__ && (local || (env.ENV as string) === 'local')) {
     return (await import('@dev/mock-github')).mockGithubApp(env);
   }

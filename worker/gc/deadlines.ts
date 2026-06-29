@@ -37,3 +37,10 @@ export function purgeConfirmDueAt(row: StorageRow, gc: GcConfig): string | null 
 export function isDue(deadline: string | null, now: number): boolean {
   return deadline != null && Date.parse(deadline) <= now;
 }
+
+// `deletedAt + retentionDays` — UI-only earliest purge date for objects that became blocked when
+// this branch was confirmed deleted. Same window as the prefix purge; authoritative per-OID timing
+// is storage-scoped (`objects.deletedAt`).
+export function branchWillPurgeAt(deletedAt: string | null, gc: GcConfig): string | null {
+  return deletedAt ? isoAddDays(deletedAt, retentionDays(gc)) : null;
+}

@@ -12,6 +12,10 @@ const router = createRouter({
       path: '/repos',
       component: () => import('./pages/ReposPage.vue'),
     },
+    {
+      path: '/repos/:owner/:repo/branches',
+      component: () => import('./pages/BranchesPage.vue'),
+    },
   ],
 });
 

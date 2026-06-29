@@ -28,8 +28,9 @@ export function scopeLabel(scope: string): string {
 
 export type AlertCopy = { emoji: string; text: string };
 
-// Each alert kind reduces to a lifecycle state, so UI copy and the Slack line never drift.
-const stateOfKind: Record<AlertKind, LifecycleState> = {
+// Each storage alert kind reduces to a lifecycle state, so UI copy and the Slack line never drift.
+// `branch_reappeared` is a git-branch event with no storage state, so it's special-cased below.
+const stateOfKind: Record<Exclude<AlertKind, 'branch_reappeared'>, LifecycleState> = {
   missing: 'unused',
   reappeared: 'used',
   archived: 'archived',
@@ -39,6 +40,8 @@ const stateOfKind: Record<AlertKind, LifecycleState> = {
 };
 
 export function alertCopy(kind: AlertKind, scope: string): AlertCopy {
+  if (kind === 'branch_reappeared')
+    return { emoji: '↩️', text: `\`${scopeLabel(scope)}\` branch reappeared after deletion` };
   const { emoji, line } = STORAGE_STATES[stateOfKind[kind]];
   return { emoji, text: `\`${scopeLabel(scope)}\` ${line}` };
 }
@@ -54,7 +57,7 @@ export type NotifyAction = Extract<StorageAction, 'archive' | 'restore'>;
 export function notifyActionFor(
   kind: string,
 ): ({ verb: NotifyAction } & (typeof STORAGE_ACTIONS)[NotifyAction]) | null {
-  const state = stateOfKind[kind as AlertKind];
+  const state = stateOfKind[kind as keyof typeof stateOfKind];
   const verb = state && STORAGE_STATES[state].action;
   if (verb !== 'archive' && verb !== 'restore') return null;
   return { verb, ...STORAGE_ACTIONS[verb] };

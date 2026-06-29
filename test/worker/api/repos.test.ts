@@ -1,8 +1,9 @@
 import { reset } from 'cloudflare:test';
 import { env, exports } from 'cloudflare:workers';
-import { describe, test, expect, afterEach } from 'vitest';
+import { describe, test, expect, afterEach, vi } from 'vitest';
 
 import reposApp from '@/api/repos';
+import { Repo, type LfsConfig } from '@/db/repo';
 
 afterEach(async () => {
   await reset();
@@ -63,5 +64,183 @@ describe('GET /api/repos', () => {
     const res = await exports.default.fetch('http://admin.example.com/api/repos');
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'unauthenticated' });
+  });
+});
+
+// The LFS_SERVER service binding is stripped from the test wrangler, so drive the sub-app with a
+// fabricated env carrying a stub server we assert on. A `localhost` request host trips `isLocal`,
+// so `requireOwnerAdmin` admits the call without an authed identity.
+function branchEnv(lfs: Partial<Record<'blockObjects' | 'unblockObjects', unknown>> = {}) {
+  const LFS_SERVER = {
+    blockObjects: vi.fn(async () => {}),
+    unblockObjects: vi.fn(async () => {}),
+    purgeObjects: vi.fn(async () => {}),
+    ...lfs,
+  };
+  // Spread the real env so the dev mock GitHub (org config + `LFS` host) backs confirm's
+  // resolve-then-block; override `LFS_SERVER` with the asserted stub (stripped from the test env).
+  const e = { ...env, LFS_SERVER } as unknown as CloudflareBindings;
+  return { e, LFS_SERVER };
+}
+
+const local = (prefix: string): LfsConfig => ({
+  sha: `cfg-${prefix}`,
+  host: env.LFS.server.toLowerCase(),
+  prefix,
+  local: true,
+  status: 'ok',
+});
+
+// A scanned (fresh, clean), `active` branch linked to `prefix` and referencing `oids`.
+async function seedBranch(
+  owner: string,
+  repo: string,
+  name: string,
+  prefix: string,
+  oids: string[],
+) {
+  const r = Repo.byRepo(env, owner, repo);
+  await r.recordLfsconfig(name, `h-${name}`, local(prefix));
+  await r.setTip(name, { headSha: `h-${name}`, treeSha: `t-${name}`, gitattrSha: null });
+  await r.replaceRefPaths(
+    name,
+    oids.map((oid, i) => ({ oid, path: `${name}/${i}.bin` })),
+  );
+}
+
+// Mark the prefix's objects `present` (verify source), as a download/verify would.
+async function seedObjects(prefix: string, oids: string[]) {
+  const store = env.STORAGE.getByName(prefix);
+  for (const oid of oids) await store.recordObject(oid, 10, 'verify');
+}
+
+const post = (path: string, e: CloudflareBindings) =>
+  reposApp.request(`http://localhost${path}`, { method: 'POST' }, e);
+
+describe('GET /api/repos/:owner/:repo/branches', () => {
+  test('lists branches with lfsconfig, prefix usage, and willPurgeAt', async () => {
+    await seedBranch('alice', 'app', 'main', 'alice/app', ['o1', 'o2']);
+    await seedObjects('alice/app', ['o1', 'o2']);
+    const { e } = branchEnv();
+
+    const res = await reposApp.request('http://localhost/alice/app/branches', {}, e);
+    expect(res.status).toBe(200);
+    const { branches } = (await res.json()) as {
+      branches: Array<{
+        branch: string;
+        status: string;
+        lfsconfig: { prefix: string; local: boolean } | null;
+        prefixUsage: { total: { count: number }; blocked: { count: number } } | null;
+        willPurgeAt: string | null;
+      }>;
+    };
+    const main = branches.find((b) => b.branch === 'main')!;
+    expect(main.status).toBe('active');
+    expect(main.lfsconfig).toMatchObject({ prefix: 'alice/app', local: true });
+    expect(main.prefixUsage?.total.count).toBe(2);
+    expect(main.prefixUsage?.blocked.count).toBe(0);
+    expect(main.willPurgeAt).toBeNull();
+  });
+});
+
+describe('POST /api/repos/:owner/:repo/branches/:branch — confirm / undelete', () => {
+  // C7 smoke: delete a branch → only its orphan OIDs block (server + storage) → undelete restores.
+  test('delete blocks orphan OIDs; undelete unblocks them', async () => {
+    await seedBranch('alice', 'app', 'main', 'alice/app', ['o1', 'o2']);
+    await seedBranch('alice', 'app', 'feat', 'alice/app', ['o2', 'o3']);
+    await seedObjects('alice/app', ['o1', 'o2', 'o3']);
+    const { e, LFS_SERVER } = branchEnv();
+
+    const del = await post('/alice/app/branches/feat/delete', e);
+    expect(del.status).toBe(200);
+    // o2 stays live (main still references it); only o3 is forfeited.
+    expect(await del.json()).toMatchObject({ blocked: ['o3'], unblocked: [] });
+    expect(LFS_SERVER.blockObjects).toHaveBeenCalledWith('alice', 'app', ['o3']);
+    const store = env.STORAGE.getByName('alice/app');
+    expect((await store.getObject('o3'))?.status).toBe('deleted');
+    expect((await store.getObject('o2'))?.status).toBe('present');
+    expect((await Repo.byRepo(env, 'alice', 'app').getBranch('feat'))?.status).toBe('deleted');
+
+    const undel = await post('/alice/app/branches/feat/undelete', e);
+    expect(undel.status).toBe(200);
+    expect(LFS_SERVER.unblockObjects).toHaveBeenCalledWith('alice', 'app', ['o3']);
+    expect((await store.getObject('o3'))?.status).toBe('present');
+    expect((await Repo.byRepo(env, 'alice', 'app').getBranch('feat'))?.status).toBe('active');
+  });
+
+  test('404 on an unknown branch', async () => {
+    const { e } = branchEnv();
+    const res = await post('/alice/app/branches/ghost/delete', e);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: 'not_found' });
+  });
+
+  // Resolve-then-block: a never-scanned branch is resolved from GitHub (dev mock) before blocking,
+  // instead of being rejected. `test-org/webapp` is a dev fixture repo with a local `.lfsconfig`.
+  test('resolves a never-scanned branch from GitHub, then blocks', async () => {
+    await Repo.byRepo(env, 'test-org', 'webapp').recordLfsconfig(
+      'main',
+      'h1',
+      local('test-org/webapp'),
+    ); // no setTip → scannedAt null → triggers resolve
+    const { e } = branchEnv();
+    const res = await post('/test-org/webapp/branches/main/delete', e);
+    expect(res.status).toBe(200);
+    expect((await Repo.byRepo(env, 'test-org', 'webapp').getBranch('main'))?.status).toBe(
+      'deleted',
+    );
+  });
+
+  // A dirty branch the dev mock no longer lists (its ref is gone) can't be resolved → hard error.
+  test('409 unresolvable when a dirty branch is gone from GitHub', async () => {
+    const r = Repo.byRepo(env, 'test-org', 'webapp');
+    await r.recordLfsconfig('feat', 'h1', local('test-org/webapp'));
+    await r.markDirty('feat', 'h2'); // mock listBranches returns only `main` → `feat` stays dirty
+    const { e } = branchEnv();
+    const res = await post('/test-org/webapp/branches/feat/delete', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'unresolvable' });
+  });
+
+  // No GitHub installation for the owner → resolve can't run; retriable.
+  test('502 resolve_failed when GitHub is unreachable', async () => {
+    const r = Repo.byRepo(env, 'nobody', 'repo');
+    await r.recordLfsconfig('main', 'h1', local('nobody/repo'));
+    await r.markDirty('main', 'h2');
+    const { e } = branchEnv();
+    const res = await post('/nobody/repo/branches/main/delete', e);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: 'resolve_failed' });
+  });
+
+  test('409 not_local for an external lfsconfig', async () => {
+    const r = Repo.byRepo(env, 'alice', 'ext');
+    await r.recordLfsconfig('main', 'h1', {
+      sha: 'cfg-remote',
+      host: 'lfs.elsewhere.example',
+      prefix: 'Other/Repo',
+      local: false,
+      status: 'ok',
+    });
+    await r.setTip('main', { headSha: 'h1', treeSha: 't1', gitattrSha: null });
+    const { e } = branchEnv();
+    const res = await post('/alice/ext/branches/main/delete', e);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'not_local' });
+  });
+
+  test('502 when the LFS server RPC fails (branch already flagged, retriable)', async () => {
+    await seedBranch('alice', 'app', 'feat', 'alice/app', ['o3']);
+    await seedObjects('alice/app', ['o3']);
+    const { e } = branchEnv({
+      blockObjects: vi.fn(async () => {
+        throw new Error('server down');
+      }),
+    });
+    const res = await post('/alice/app/branches/feat/delete', e);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: 'lfs_server_unavailable' });
+    // The branch flag landed before the RPC; the next retry recomputes from there.
+    expect((await Repo.byRepo(env, 'alice', 'app').getBranch('feat'))?.status).toBe('deleted');
   });
 });

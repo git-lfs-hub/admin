@@ -50,9 +50,20 @@ export class Storage extends DurableObject<CloudflareBindings> {
           source        TEXT NOT NULL,
           first_seen    TEXT NOT NULL,
           last_seen     TEXT NOT NULL,
-          last_accessed TEXT NOT NULL
+          last_accessed TEXT NOT NULL,
+          deleted_at    TEXT,
+          backed_up_at  TEXT,
+          cleared_at    TEXT
         )
       `);
+      // Backfill the per-OID lifecycle clock on an existing objects table (idempotent).
+      for (const col of ['deleted_at TEXT', 'backed_up_at TEXT', 'cleared_at TEXT']) {
+        try {
+          this.ctx.storage.sql.exec(`ALTER TABLE objects ADD COLUMN ${col}`);
+        } catch {
+          // column already present
+        }
+      }
       this.ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS workflows (
           instance_id         TEXT PRIMARY KEY,
@@ -207,6 +218,32 @@ export class Storage extends DurableObject<CloudflareBindings> {
       await this.db.update(objects).set({ status: 'missing' }).where(inArray(objects.oid, chunk));
     }
     return stale.length;
+  }
+
+  /** OIDs currently in `status` on this prefix — the recompute baseline (`deleted` = current block
+   *  set) the new effective set is diffed against. */
+  async listOidsByStatus(status: ObjectStatus): Promise<string[]> {
+    const rows = await this.db
+      .select({ oid: objects.oid })
+      .from(objects)
+      .where(eq(objects.status, status));
+    return rows.map((r) => r.oid);
+  }
+
+  /** Flip the status of objects already in the index (block: `present`→`deleted`, undelete:
+   *  `deleted`→`present`). OIDs absent from the index are skipped — `ref_paths` records git-referenced
+   *  OIDs that may not be uploaded yet, and the server blocklist is the authoritative gate regardless.
+   *  Block anchors the per-OID GC clock (`deletedAt = now`); undelete nulls all three timestamps. */
+  async setObjectsStatus(oids: string[], status: ObjectStatus): Promise<void> {
+    const set: Partial<typeof objects.$inferInsert> = { status };
+    if (status === 'deleted')
+      Object.assign(set, { deletedAt: isoNow(), backedUpAt: null, clearedAt: null });
+    if (status === 'present')
+      Object.assign(set, { deletedAt: null, backedUpAt: null, clearedAt: null });
+    for (let i = 0; i < oids.length; i += SQL_VAR_LIMIT) {
+      const chunk = oids.slice(i, i + SQL_VAR_LIMIT);
+      await this.db.update(objects).set(set).where(inArray(objects.oid, chunk));
+    }
   }
 
   // --- workflows: one-active-op guard for the GC lifecycle (executors live in worker/workflows) ---

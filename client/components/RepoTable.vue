@@ -18,7 +18,11 @@ defineProps<{ repos: RepoRow[] }>();
         <ItemContent>
           <!-- The status badge merges the repo's GitHub presence with its "missing since" age. -->
           <div class="flex items-center justify-between gap-4">
-            <ItemTitle class="font-mono break-all">{{ r.owner }}/{{ r.repo }}</ItemTitle>
+            <ItemTitle class="font-mono break-all">
+              <RouterLink :to="`/repos/${r.owner}/${r.repo}/branches`" class="hover:underline"
+                >{{ r.owner }}/{{ r.repo }}</RouterLink
+              >
+            </ItemTitle>
 
             <div data-slot="status" class="shrink-0">
               <HoverCard>

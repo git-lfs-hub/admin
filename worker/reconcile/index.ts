@@ -4,6 +4,7 @@ import { autoArchive } from '@/gc/autoArchive';
 import { autoBackup } from '@/gc/autoBackup';
 import { autoClear } from '@/gc/autoClear';
 import { autoPurge } from '@/gc/autoPurge';
+import { reconcileBranches } from '@/reconcile/branches';
 import { reconcileObjects } from '@/reconcile/objects';
 import { reconcileRepos } from '@/reconcile/repos';
 import { reconcileWorkflows } from '@/reconcile/workflows';
@@ -39,6 +40,13 @@ export async function reconcileAll(env: CloudflareBindings, local = false): Prom
     } catch (e) {
       console.error(`[reconcile] object reconciliation failed for ${row.prefix}:`, e);
     }
+  }
+  // Branch tip backstop: all-branches GraphQL vs `branches`, resolve drifted ones. Non-
+  // destructive (read + ref_paths only), so every tick; the `push` webhook is the real-time path.
+  try {
+    await reconcileBranches(env, registry, local);
+  } catch (e) {
+    console.error('[reconcile] branch reconciliation failed:', e);
   }
   // Non-destructive, so it runs outside the `fullScan` guard below — every tick, to unwedge the UI
   // promptly even after a partial scan.
