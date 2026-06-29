@@ -35,7 +35,15 @@ const WEBAPP_FILES: Record<string, number> = {
   'bg-image': 8192,
   'release-notes': 4096,
   'prototype-asset': 2048,
+  'legacy-blob': 2048,
+  'wip-asset': 3072,
 };
+
+// Real server-seed oid for a webapp blob — used by dev/seed-branches.ts to reference R2 bytes that
+// actually exist (so a seeded `deleted` branch blocks a real object). Org is the seed's `acme`.
+export function webappSeedOid(seed: string): Promise<string> {
+  return seededOid('acme', 'webapp', seed, WEBAPP_FILES[seed]!);
+}
 const WEBAPP_BRANCHES: Record<string, string[]> = {
   main: ['readme', 'logo', 'font-bold', 'font-regular', 'bg-image'],
   release: ['logo', 'release-notes'],

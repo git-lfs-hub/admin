@@ -32,6 +32,7 @@ const app = new Hono<AppEnv>()
     if (!devReconcileFired && isLocal(c)) {
       devReconcileFired = true;
       await reconcileAll(c.env, true);
+      if (__DEV__) await (await import('@dev/seed-branches')).seedBranchShowcase(c.env);
     }
     await next();
   })
